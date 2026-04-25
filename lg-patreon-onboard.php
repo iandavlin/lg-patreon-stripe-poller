@@ -29,6 +29,32 @@ require_once LGPO_PLUGIN_DIR . 'includes/class-lgpo-sync-engine.php';
 require_once LGPO_PLUGIN_DIR . 'includes/class-lgpo-sync-cron.php';
 add_action( 'init', [ 'LGPO_Sync_Cron', 'init' ] );
 
+/**
+ * Bridge: write a Patreon role opinion to lg_role_sources and run the arbiter.
+ * Used by every OAuth onboarding spot that previously called $user->set_role().
+ *
+ * @param int    $wp_user_id WP user being assigned a role.
+ * @param string $tier       'looth1'..'looth4'. 'looth1' is reported as null
+ *                           ("Patreon has no tier opinion") so the arbiter
+ *                           can defer to Stripe (or fall back to looth1).
+ */
+function lgpo_apply_role_via_arbiter( int $wp_user_id, string $tier ): void {
+    if ( $wp_user_id <= 0 ) {
+        return;
+    }
+    $patreon_tier = ( $tier === 'looth1' ) ? null : $tier;
+    if ( class_exists( '\\LGMS\\RoleSourceWriter' ) && class_exists( '\\LGMS\\Arbiter' ) ) {
+        \LGMS\RoleSourceWriter::report( $wp_user_id, 'patreon', $patreon_tier );
+        \LGMS\Arbiter::sync( $wp_user_id );
+        return;
+    }
+    // Fallback if LGMS\* isn't loaded.
+    $user = get_user_by( 'id', $wp_user_id );
+    if ( $user ) {
+        $user->set_role( $tier );
+    }
+}
+
 // Stripe side + arbiter: hook the LGMS lifecycle if the namespace is loaded.
 if ( class_exists( '\\LGMS\\Plugin' ) ) {
     register_activation_hook( __FILE__, [ '\\LGMS\\Plugin', 'activate' ] );
@@ -368,10 +394,8 @@ function lgpo_handle_resolve() {
         if ( ! empty( $item['tier_id'] ) ) {
             $tier_map = get_option( 'lgpo_tier_map', array() );
             if ( isset( $tier_map[ $item['tier_id'] ] ) ) {
-                $user = get_user_by( 'id', $item['wp_user_id'] );
-                if ( $user ) {
-                    $user->set_role( $tier_map[ $item['tier_id'] ] );
-                }
+                $tier = $tier_map[ $item['tier_id'] ];
+                lgpo_apply_role_via_arbiter( (int) $item['wp_user_id'], $tier );
             }
         }
     }
@@ -571,7 +595,7 @@ function lgpo_handle_callback() {
     // Already onboarded?
     $existing_by_patreon = lgpo_get_user_by_patreon_id( $patreon_user_id );
     if ( $existing_by_patreon ) {
-        $existing_by_patreon->set_role( $wp_role );
+        lgpo_apply_role_via_arbiter( (int) $existing_by_patreon->ID, $wp_role );
         update_user_meta( $existing_by_patreon->ID, 'payment_source', 'patreon' );
         lgpo_success(
             'Your account is already connected! Your membership has been verified and your access level updated. '
@@ -633,6 +657,10 @@ function lgpo_handle_callback() {
     update_user_meta( $user_id, 'lgpo_patreon_tier_id', $tier_id );
     update_user_meta( $user_id, 'lgpo_onboarded_at', current_time( 'mysql' ) );
     update_user_meta( $user_id, 'payment_source', 'patreon' );
+
+    // Record the Patreon role opinion in lg_role_sources so the arbiter
+    // sees it on later cross-source merges (e.g. user later signs up for Stripe).
+    lgpo_apply_role_via_arbiter( (int) $user_id, $wp_role );
 
     $reset_key  = get_password_reset_key( get_user_by( 'id', $user_id ) );
     $reset_link = network_site_url( "wp-login.php?action=rp&key={$reset_key}&login=" . rawurlencode( $username ), 'login' );
