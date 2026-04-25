@@ -546,8 +546,20 @@ class LGPO_Sync_Engine {
             return [ 'success' => true, 'message' => "{$email} — set payment_source=patreon (role unchanged)." ];
         }
 
-        // Set the role
-        $user->set_role( $new_role );
+        // Bridge: report the Patreon opinion to lg_role_sources and let the
+        // arbiter merge it with Stripe and write wp_capabilities.
+        // 'looth1' from Patreon means "no active Patreon tier" — report null
+        // so the arbiter can fall back to whatever Stripe says (or looth1).
+        $patreon_tier = ( $new_role === 'looth1' ) ? null : $new_role;
+
+        if ( class_exists( '\\LGMS\\RoleSourceWriter' ) && class_exists( '\\LGMS\\Arbiter' ) ) {
+            \LGMS\RoleSourceWriter::report( (int) $user_id, 'patreon', $patreon_tier );
+            \LGMS\Arbiter::sync( (int) $user_id );
+        } else {
+            // Fallback if the LGMS\* namespace isn't loaded — write directly.
+            error_log( 'LGPO Sync: LGMS namespace unavailable, falling back to direct set_role.' );
+            $user->set_role( $new_role );
+        }
 
         if ( $new_role === 'looth1' ) {
             // Downgrade: clear payment_source
