@@ -1,0 +1,18 @@
+{
+    "name": "loothgroup/lg-patreon-stripe-poller",
+    "description": "WordPress plugin: Patreon OAuth onboarding + Patreon polling + Stripe events polling + role arbitration. Companion to the lg-stripe-billing Slim app.",
+    "type": "wordpress-plugin",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.3",
+        "stripe/stripe-php": "^14.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "LGMS\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

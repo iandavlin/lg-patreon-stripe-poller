@@ -1,24 +1,40 @@
 <?php
 /**
- * Plugin Name: LG Patreon OAuth
- * Description: Patreon OAuth onboarding and API-based member sync for Looth Group. Creates accounts, manages roles, and syncs membership status via Patreon API.
- * Version: 1.1.0
+ * Plugin Name: LG Patreon + Stripe Poller
+ * Description: Patreon OAuth onboarding, Patreon API polling, Stripe Events API polling, WP user provisioning, and role arbitration. Companion to the lg-stripe-billing Slim app.
+ * Version: 2.0.0
  * Author: Ian Davlin
- * Text Domain: lg-patreon-onboard
+ * Text Domain: lg-patreon-stripe-poller
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'LGPO_VERSION', '1.1.0' );
+define( 'LGPO_VERSION', '2.0.0' );
 define( 'LGPO_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'LGPO_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
-// Sync engine and cron
+// Alias for the LGMS\* code paths (Stripe poller, arbiter, REST endpoints).
+// They originated in a separate `lg-member-sync` plugin and were folded in here.
+define( 'LGMS_PLUGIN_DIR', LGPO_PLUGIN_DIR );
+
+// Composer autoload for the LGMS\* namespace (Stripe poller + arbiter + provisioner).
+if ( file_exists( LGPO_PLUGIN_DIR . 'vendor/autoload.php' ) ) {
+    require_once LGPO_PLUGIN_DIR . 'vendor/autoload.php';
+}
+
+// Patreon side: existing sync engine and cron (LGPO_*).
 require_once LGPO_PLUGIN_DIR . 'includes/class-lgpo-sync-engine.php';
 require_once LGPO_PLUGIN_DIR . 'includes/class-lgpo-sync-cron.php';
 add_action( 'init', [ 'LGPO_Sync_Cron', 'init' ] );
+
+// Stripe side + arbiter: hook the LGMS lifecycle if the namespace is loaded.
+if ( class_exists( '\\LGMS\\Plugin' ) ) {
+    register_activation_hook( __FILE__, [ '\\LGMS\\Plugin', 'activate' ] );
+    register_deactivation_hook( __FILE__, [ '\\LGMS\\Plugin', 'deactivate' ] );
+    add_action( 'plugins_loaded', [ '\\LGMS\\Plugin', 'boot' ] );
+}
 
 /**
  * ============================================================
