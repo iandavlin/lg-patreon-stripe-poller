@@ -1,6 +1,6 @@
 # Pickup — lg-patreon-stripe-poller
 
-*Last worked: 2026-04-25 (long session, dev fully operational)*
+*Last worked: 2026-04-28*
 
 > **See the companion repo** [`lg-stripe-billing`](https://github.com/iandavlin/lg-stripe-billing) for the Slim user-facing API. That repo's `PICKUP.md` has the bigger picture; this doc is the WP plugin half.
 
@@ -18,6 +18,7 @@
 | Cron entrypoint | `src/Tick.php` |
 | REST endpoints `/run-now` and `/sync-customer` | `src/Wp/RestController.php` |
 | Sync orchestrator | `src/Sync.php` |
+| **Shortcodes** (not yet built) | `src/Wp/Shortcodes.php` (planned) |
 
 ## Architecture — every role write goes through one path
 
@@ -49,6 +50,20 @@ Every code path that previously called `$user->set_role()` now calls `RoleSource
 - ✅ Default cascade: subscription canceled → entitlement revoked → `lg_role_sources(stripe, NULL)` → wp_capabilities downgrades to looth1
 - ✅ Idempotency on entitlement grant (no duplicate rows)
 
+## Subscription status policy (decided 2026-04-28)
+
+The cron and any sync path must treat statuses as follows:
+
+| Stripe status | Access |
+|---|---|
+| `active` | Full access to tier |
+| `trialing` | Full access to trialing tier (same as active) |
+| `past_due` | **Keep access** — Stripe retries for several days, don't punish mid-retry |
+| `canceled` | Revoke immediately |
+| `refunded` | Revoke immediately — all cases, subscription and one-time |
+
+**TODO:** Verify the cron currently handles `trialing` and `past_due` correctly. Likely a one-line fix in the status check.
+
 ## Bridge points (so you know where to look)
 
 If the arbiter isn't running, check these places:
@@ -66,11 +81,52 @@ If the arbiter isn't running, check these places:
 
 Plus the existing Patreon settings (Settings → Patreon OAuth) — client credentials, campaign ID, tier map, auto-sync toggle.
 
-## Next steps (mostly tied to lg-stripe-billing's PICKUP)
+## Next steps, in priority order
 
-1. Add `[lg_join]` shortcode to render the Stripe Checkout flow (member-facing)
-2. Add `[lg_manage_subscription]` shortcode that calls Slim's `/v1/portal`
-3. Optionally clean up `Sync::all()` to only iterate "dirty" customers from each tick
+### 1. Verify subscription status policy in cron
+
+Check `Tick.php` / `Sync.php` / `Stripe/EventHandler.php` — confirm `trialing` is treated as active and `past_due` keeps access. Fix if not.
+
+### 2. Shortcodes — `src/Wp/Shortcodes.php`
+
+Register in `Plugin::boot()` with `add_action('init', [Wp\Shortcodes::class, 'register'])`.
+
+Four shortcodes to build:
+
+**`[lg_join]`** (~150 lines)
+- Fetches products from Slim's `GET /v1/products` (dynamic — no hardcoded price IDs)
+- Renders tier picker
+- On selection: POSTs to `/billing/v1/checkout`, gets `clientSecret`, mounts Stripe embedded checkout via Stripe.js
+- Pre-fills email if user is logged into WP (`wp_get_current_user()`)
+- Reference: legacy `lg-stripe-membership.deprecated-2026-04-25/class-checkout.php` on server
+
+**`[lg_manage_subscription]`** (~30 lines)
+- Visible to logged-in `looth2`+ users only
+- Button POSTs to `/billing/v1/portal` with user's email
+- Redirects to Stripe portal URL
+
+**`[lg_redeem_gift]`** (~60 lines)
+- Logged-in users enter a gift code
+- POSTs to Slim's `POST /v1/redeem` (not yet built in Slim)
+- On success: triggers WP sync, shows confirmation
+
+**`[lg_membership_status]`** (~40 lines)
+- Shows current tier, renewal date, upgrade prompt
+- Reads from `lg_role_sources` or `entitlements` for the current WP user
+- Good for account/profile pages
+
+### 3. Expiry sweep in cron tick
+
+Add to `Tick::run` (before the Sync pass):
+```sql
+UPDATE entitlements SET active = 0
+WHERE expires_at IS NOT NULL AND expires_at < NOW() AND active = 1
+```
+Then fire `Sync::customer()` for each affected customer. **Must ship before one-time yearly goes on sale.**
+
+### 4. Optimization (nice-to-have)
+
+`Sync::all()` currently iterates every customer on every cron tick. Track "dirty" customers in pass 1 and only sync those in pass 2. Linear → constant for unchanged users.
 
 ## Quick commands
 
@@ -96,7 +152,7 @@ mysql -e "SELECT * FROM lg_role_sources WHERE wp_user_id = 1817;"
 - `customers` (shared with Slim — Slim writes on /v1/return path)
 - `wp_user_bridge` (this plugin only — written by UserProvisioner)
 - `subscriptions` (shared)
-- `entitlements` (shared)
+- `entitlements` (shared — expiry sweep runs here)
 - `lg_role_sources` (this plugin only — per-source role opinions)
 - `lg_event_cursor` (this plugin only — Stripe poller cursor)
 
