@@ -71,10 +71,95 @@ final class Shortcodes
         </div>
         <script>
         (function(){
+            const ENDPOINT = '<?php echo $endpoint; ?>';
             const form     = document.querySelector('[data-lg-redeem]');
             const resultEl = document.querySelector('[data-lg-redeem-result]');
             const submitBt = form.querySelector('button[type="submit"]');
             if (!form) return;
+
+            // Cache the user's input so we can re-POST with a chosen strategy
+            // without making them retype.
+            let pending = null;
+
+            async function postRedeem(payload){
+                const res  = await fetch(ENDPOINT, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(payload),
+                });
+                return res.json();
+            }
+
+            function renderSuccess(json){
+                resultEl.className   = 'lg-redeem-gift__result is-success';
+                resultEl.textContent = json.message + ' (expires ' + json.expires_at + ')';
+                form.reset();
+                pending = null;
+            }
+
+            function renderError(msg){
+                resultEl.className   = 'lg-redeem-gift__result is-error';
+                resultEl.textContent = msg;
+            }
+
+            function renderChoice(json){
+                pending = { code: json._payload.code, email: json._payload.email, name: json._payload.name };
+                const recommended = json.recommended;
+
+                const wrap = document.createElement('div');
+                wrap.className = 'lg-redeem-gift__choice';
+
+                const intro = document.createElement('p');
+                intro.innerHTML =
+                    'You already have <strong>' + json.current.days_remaining +
+                    ' days</strong> of <strong>' + json.current.tier + '</strong> active. ' +
+                    'How do you want to apply this <strong>' + json.incoming.duration_days +
+                    '-day ' + json.incoming.tier + '</strong> code?';
+                wrap.appendChild(intro);
+
+                const list = document.createElement('div');
+                list.className = 'lg-redeem-gift__options';
+                json.options.forEach(function(opt){
+                    const id = 'lg-opt-' + opt.id;
+                    const row = document.createElement('label');
+                    row.className = 'lg-redeem-gift__option';
+                    row.htmlFor   = id;
+                    row.innerHTML =
+                        '<input type="radio" name="strategy" id="' + id + '" value="' + opt.id + '"' +
+                        (opt.id === recommended ? ' checked' : '') + '> ' +
+                        '<span>' + opt.label + '</span>';
+                    list.appendChild(row);
+                });
+                wrap.appendChild(list);
+
+                const apply = document.createElement('button');
+                apply.type        = 'button';
+                apply.textContent = 'Apply';
+                apply.className   = 'lg-redeem-gift__submit';
+                apply.addEventListener('click', applyChoice);
+                wrap.appendChild(apply);
+
+                resultEl.className = 'lg-redeem-gift__result';
+                resultEl.innerHTML = '';
+                resultEl.appendChild(wrap);
+            }
+
+            async function applyChoice(){
+                const picked = document.querySelector('input[name="strategy"]:checked');
+                if (!picked || !pending) return;
+                resultEl.className = 'lg-redeem-gift__result is-pending';
+                resultEl.textContent = 'Applying…';
+                try {
+                    const json = await postRedeem(Object.assign({}, pending, { strategy: picked.value }));
+                    if (json.ok && !json.requires_choice) {
+                        renderSuccess(json);
+                    } else {
+                        renderError(json.error || 'Unable to apply choice.');
+                    }
+                } catch (err) {
+                    renderError('Network error: ' + err.message);
+                }
+            }
 
             form.addEventListener('submit', async function(e){
                 e.preventDefault();
@@ -82,31 +167,25 @@ final class Shortcodes
                 resultEl.className   = 'lg-redeem-gift__result is-pending';
                 submitBt.disabled    = true;
 
-                const data = {
+                const payload = {
                     code:  (form.code.value  || '').trim().toUpperCase(),
                     email: (form.email.value || '').trim(),
                     name:  (form.name.value  || '').trim(),
                 };
 
                 try {
-                    const res  = await fetch('<?php echo $endpoint; ?>', {
-                        method:  'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body:    JSON.stringify(data),
-                    });
-                    const json = await res.json();
+                    const json = await postRedeem(payload);
 
-                    if (json.ok) {
-                        resultEl.className = 'lg-redeem-gift__result is-success';
-                        resultEl.textContent = json.message + ' (expires ' + json.expires_at + ')';
-                        form.reset();
+                    if (json.ok && json.requires_choice) {
+                        json._payload = payload;
+                        renderChoice(json);
+                    } else if (json.ok) {
+                        renderSuccess(json);
                     } else {
-                        resultEl.className = 'lg-redeem-gift__result is-error';
-                        resultEl.textContent = json.error || 'Unable to redeem code.';
+                        renderError(json.error || 'Unable to redeem code.');
                     }
                 } catch (err) {
-                    resultEl.className   = 'lg-redeem-gift__result is-error';
-                    resultEl.textContent = 'Network error: ' + err.message;
+                    renderError('Network error: ' + err.message);
                 } finally {
                     submitBt.disabled = false;
                 }
