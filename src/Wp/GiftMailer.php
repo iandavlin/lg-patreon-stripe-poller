@@ -49,6 +49,11 @@ final class GiftMailer
 
         if ( $contact && method_exists( $contact, 'attachTags' ) ) {
             $contact->attachTags( [ self::TAG ] );
+
+            $listId = (int) get_option( 'lgms_gift_purchaser_list_id', 0 );
+            if ( $listId > 0 && method_exists( $contact, 'attachLists' ) ) {
+                $contact->attachLists( [ $listId ] );
+            }
         }
     }
 
