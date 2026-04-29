@@ -38,6 +38,9 @@ final class Plugin
         // REST endpoints for Slim to trigger immediate syncs.
         add_action( 'rest_api_init', [ Wp\RestController::class, 'register' ] );
 
+        // Front-end shortcodes (gift redemption etc.).
+        add_action( 'init', [ Wp\Shortcodes::class, 'register' ] );
+
         // Admin screens.
         if ( is_admin() ) {
             Admin::boot();
