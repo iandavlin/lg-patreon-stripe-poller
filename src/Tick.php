@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace LGMS;
 
+use LGMS\Repos\EntitlementRepo;
 use LGMS\Stripe\Client as StripeClient;
 use LGMS\Stripe\EventHandler as StripeEventHandler;
 use LGMS\Stripe\Poller as StripePoller;
@@ -46,6 +47,24 @@ final class Tick
         } catch ( Throwable $e ) {
             @file_put_contents( $log, sprintf(
                 "[%s] stripe poll FAILED: %s\n",
+                gmdate( 'c' ),
+                $e->getMessage(),
+            ), FILE_APPEND );
+        }
+
+        // Pass 1.5: expiry sweep — revoke elapsed gift-code entitlements
+        try {
+            $expired = EntitlementRepo::sweepExpiredGiftEntitlements();
+            if ( $expired !== [] ) {
+                @file_put_contents( $log, sprintf(
+                    "[%s] expiry sweep: revoked gift entitlements for customer_ids=%s\n",
+                    gmdate( 'c' ),
+                    implode( ',', $expired ),
+                ), FILE_APPEND );
+            }
+        } catch ( Throwable $e ) {
+            @file_put_contents( $log, sprintf(
+                "[%s] expiry sweep FAILED: %s\n",
                 gmdate( 'c' ),
                 $e->getMessage(),
             ), FILE_APPEND );

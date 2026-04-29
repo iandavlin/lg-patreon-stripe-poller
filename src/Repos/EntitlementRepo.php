@@ -80,6 +80,38 @@ final class EntitlementRepo
         )->execute( [ $sourceType, $sourceId ] );
     }
 
+    /**
+     * Revoke all expired gift-code entitlements and return the affected customer IDs
+     * so the caller can trigger a sync for each one.
+     *
+     * @return int[]
+     */
+    public static function sweepExpiredGiftEntitlements(): array
+    {
+        $pdo = Db::pdo();
+
+        $stmt = $pdo->query(
+            'SELECT DISTINCT customer_id FROM entitlements
+             WHERE source_type = \'gift_code\'
+               AND expires_at IS NOT NULL
+               AND expires_at < NOW()
+               AND revoked_at IS NULL'
+        );
+        $customerIds = $stmt->fetchAll( PDO::FETCH_COLUMN );
+
+        if ( $customerIds !== [] ) {
+            $pdo->exec(
+                'UPDATE entitlements SET revoked_at = NOW()
+                 WHERE source_type = \'gift_code\'
+                   AND expires_at IS NOT NULL
+                   AND expires_at < NOW()
+                   AND revoked_at IS NULL'
+            );
+        }
+
+        return array_map( 'intval', $customerIds );
+    }
+
     /** Currently active membership tier ref for a customer, or null. */
     public static function activeTier(int $customerId): ?string
     {
