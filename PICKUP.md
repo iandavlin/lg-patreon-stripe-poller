@@ -83,9 +83,9 @@ Plus the existing Patreon settings (Settings → Patreon OAuth) — client crede
 
 ## Next steps, in priority order
 
-### 1. Verify subscription status policy in cron
+### 1. ~~Verify subscription status policy in cron~~ — DONE
 
-Check `Tick.php` / `Sync.php` / `Stripe/EventHandler.php` — confirm `trialing` is treated as active and `past_due` keeps access. Fix if not.
+`EventHandler::onSubscriptionUpdated` now mirrors Slim's `SubscriptionWebhookHandler` policy: grants on `active`/`trialing`, revokes on `canceled`/`incomplete_expired`, leaves `past_due` alone. The bug was masked in practice because direct webhooks usually win, but the poller is now resilient to webhook delivery failures.
 
 ### 2. Shortcodes — `src/Wp/Shortcodes.php`
 
