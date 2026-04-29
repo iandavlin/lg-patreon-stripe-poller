@@ -1,6 +1,6 @@
 # Pickup — lg-patreon-stripe-poller
 
-*Last worked: 2026-04-28*
+*Last worked: 2026-04-29*
 
 > **See the companion repo** [`lg-stripe-billing`](https://github.com/iandavlin/lg-stripe-billing) for the Slim user-facing API. That repo's `PICKUP.md` has the bigger picture; this doc is the WP plugin half.
 

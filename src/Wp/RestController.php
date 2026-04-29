@@ -10,7 +10,7 @@ use WP_REST_Request;
 use WP_REST_Response;
 
 /**
- * Two endpoints, both auth'd by shared secret in X-LGMS-Token header:
+ * REST endpoints, all auth'd by shared secret in X-LGMS-Token header:
  *
  *   POST /wp-json/lg-member-sync/v1/run-now
  *     Runs the full Tick (Stripe poll + sync sweep).
@@ -18,6 +18,11 @@ use WP_REST_Response;
  *   POST /wp-json/lg-member-sync/v1/sync-customer
  *     Body: { customer_id }. Runs Sync::customer($id) only.
  *     Used by Slim's /v1/return for fast on-checkout provisioning.
+ *
+ *   POST /wp-json/lg-member-sync/v1/send-gift-codes
+ *     Body: { to_email, to_name, codes: [{code, tier, duration_days}] }.
+ *     Creates/updates FluentCRM contact and sends gift code email.
+ *     Used by Slim's /v1/return after generating gift codes.
  */
 final class RestController
 {
@@ -34,6 +39,12 @@ final class RestController
         register_rest_route( self::NAMESPACE, '/sync-customer', [
             'methods'             => 'POST',
             'callback'            => [ self::class, 'syncCustomer' ],
+            'permission_callback' => [ self::class, 'auth' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/send-gift-codes', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'sendGiftCodes' ],
             'permission_callback' => [ self::class, 'auth' ],
         ] );
     }
@@ -62,5 +73,21 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'customer_id required' ], 400 );
         }
         return new WP_REST_Response( Sync::customer( $customerId ) );
+    }
+
+    public static function sendGiftCodes(WP_REST_Request $req): WP_REST_Response
+    {
+        $body     = (array) $req->get_json_params();
+        $toEmail  = trim( (string) ( $body['to_email'] ?? '' ) );
+        $toName   = trim( (string) ( $body['to_name'] ?? '' ) );
+        $codes    = (array) ( $body['codes'] ?? [] );
+
+        if ( $toEmail === '' || $codes === [] ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'to_email and codes required' ], 400 );
+        }
+
+        ( new GiftMailer() )->send( $toEmail, $toName ?: 'Looth Member', $codes );
+
+        return new WP_REST_Response( [ 'ok' => true ] );
     }
 }
