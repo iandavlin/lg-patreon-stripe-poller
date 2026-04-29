@@ -122,6 +122,16 @@ final class EventHandler
         return "invoice.paid: customer {$customer['id']} → {$tier}";
     }
 
+    /**
+     * Handle customer.subscription.updated. Policy mirrors Slim's
+     * SubscriptionWebhookHandler so direct webhooks and polled events
+     * produce identical state:
+     *
+     *   active / trialing             → grant / re-grant entitlement
+     *   past_due                      → keep entitlement (Stripe retry window)
+     *   canceled / incomplete_expired → revoke immediately
+     *   anything else                 → no entitlement change
+     */
     private function onSubscriptionUpdated(?object $sub): string
     {
         $stripeCustomerId = (string) ( $sub->customer ?? '' );
@@ -150,10 +160,16 @@ final class EventHandler
             $sub->canceled_at ?? null,
         );
 
-        if ( $status === 'active' && $tier !== null ) {
-            EntitlementRepo::grantMembershipFromSubscription( (int) $customer['id'], $tier, (int) $row['id'] );
-            return "subscription.updated: customer {$customer['id']} → {$tier}";
+        if ( $status === 'canceled' || $status === 'incomplete_expired' ) {
+            EntitlementRepo::revokeBySource( EntitlementRepo::SOURCE_SUBSCRIPTION, (int) $row['id'] );
+            return "subscription.updated: customer {$customer['id']} revoked ({$status})";
         }
+
+        if ( ( $status === 'active' || $status === 'trialing' ) && $tier !== null ) {
+            EntitlementRepo::grantMembershipFromSubscription( (int) $customer['id'], $tier, (int) $row['id'] );
+            return "subscription.updated: customer {$customer['id']} → {$tier} ({$status})";
+        }
+
         return "subscription.updated: status={$status}, no grant change";
     }
 
