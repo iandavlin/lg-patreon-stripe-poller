@@ -24,6 +24,11 @@ final class GiftMailer
             return;
         }
 
+        if ( ! is_email( $toEmail ) ) {
+            error_log( "LGMS GiftMailer: invalid recipient email rejected: {$toEmail}" );
+            return;
+        }
+
         $this->upsertContact( $toEmail, $toName );
         $this->sendMail( $toEmail, $toName, $codes );
     }
@@ -53,12 +58,18 @@ final class GiftMailer
             $listId = (int) get_option( 'lgms_gift_purchaser_list_id', 0 );
             if ( $listId > 0 && method_exists( $contact, 'attachLists' ) ) {
                 $contact->attachLists( [ $listId ] );
+            } elseif ( $listId === 0 && ! get_transient( 'lgms_gift_list_warning' ) ) {
+                error_log( 'LGMS GiftMailer: lgms_gift_purchaser_list_id WP option not set; skipping list attachment.' );
+                set_transient( 'lgms_gift_list_warning', 1, HOUR_IN_SECONDS );
             }
         }
     }
 
     /**
      * @param list<array{code:string,tier:string,duration_days:int}> $codes
+     *
+     * Assumes all codes in the batch share the same tier + duration_days, which
+     * is true today: one Stripe gift checkout = one product = one batch.
      */
     private function sendMail( string $toEmail, string $toName, array $codes ): void
     {
@@ -75,6 +86,9 @@ final class GiftMailer
         ) );
 
         $body = <<<HTML
+        <!doctype html>
+        <html lang="en"><head><meta charset="UTF-8"><title>{$subject}</title></head>
+        <body style="font-family:Arial,sans-serif;color:#222;line-height:1.5;">
         <p>Hi {$nameEsc},</p>
         <p>Thank you for your purchase! Here are your {$count} Looth Gift Membership code(s).<br>
         Each code grants a {$days}-day {$tier} membership.</p>
@@ -82,6 +96,7 @@ final class GiftMailer
         <p>To redeem, visit loothgroup.com and enter your code when prompted.<br>
         Each code can only be used once.</p>
         <p>Thanks,<br>The Looth Team</p>
+        </body></html>
         HTML;
 
         wp_mail(
