@@ -47,4 +47,20 @@ final class Client
         $params = $expand !== [] ? [ 'expand' => $expand ] : [];
         return $this->sdk->invoices->retrieve( $id, $params );
     }
+
+    /**
+     * List Checkout Sessions backed by a given Payment Intent. Used during
+     * gift-charge refund handling to map a refunded charge → originating
+     * Checkout Session → gift_codes.
+     *
+     * @return list<object>
+     */
+    public function listSessionsByPaymentIntent(string $paymentIntentId): array
+    {
+        $resp = $this->sdk->checkout->sessions->all( [
+            'payment_intent' => $paymentIntentId,
+            'limit'          => 5,
+        ] );
+        return iterator_to_array( $resp->data ?? [] );
+    }
 }

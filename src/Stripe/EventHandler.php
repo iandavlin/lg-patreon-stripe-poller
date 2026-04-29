@@ -6,6 +6,7 @@ namespace LGMS\Stripe;
 
 use LGMS\Repos\CustomerRepo;
 use LGMS\Repos\EntitlementRepo;
+use LGMS\Repos\GiftCodeRepo;
 use LGMS\Repos\ProductRepo;
 use LGMS\Repos\SubscriptionRepo;
 use Throwable;
@@ -209,6 +210,18 @@ final class EventHandler
         return "invoice.payment_failed: customer {$cid} (no role change — past_due retains access)";
     }
 
+    /**
+     * Handle Stripe charge.refunded for both subscription and gift purchases.
+     *
+     * Flow:
+     *   1. If the charge has an invoice → subscription path: revoke the
+     *      subscription's entitlement (existing behavior).
+     *   2. Else (one-time/gift path): look up the originating Checkout
+     *      Session via the payment intent, then void unredeemed gift codes
+     *      from that session. Already-redeemed codes are logged for admin
+     *      review — recipient access is NOT auto-revoked because that would
+     *      penalize a third party (the redeemer) for the purchaser's refund.
+     */
     private function onChargeRefunded(?object $charge): string
     {
         $stripeCustomerId = (string) ( $charge->customer ?? '' );
@@ -220,7 +233,7 @@ final class EventHandler
             return "charge.refunded: no customer for {$stripeCustomerId}";
         }
 
-        // If we can find the subscription via the invoice on the charge, revoke that entitlement.
+        // Subscription path
         $invoiceId = (string) ( $charge->invoice ?? '' );
         if ( $invoiceId !== '' ) {
             try {
@@ -237,9 +250,43 @@ final class EventHandler
                     }
                 }
             } catch ( Throwable $e ) {
-                return "charge.refunded: failed lookup — {$e->getMessage()}";
+                return "charge.refunded: failed invoice lookup — {$e->getMessage()}";
             }
         }
-        return "charge.refunded: customer {$customer['id']} (no sub linkage; manual review)";
+
+        // Gift / one-time path
+        $paymentIntentId = (string) ( $charge->payment_intent ?? '' );
+        if ( $paymentIntentId === '' ) {
+            return "charge.refunded: customer {$customer['id']} (no PI; manual review)";
+        }
+
+        try {
+            $sessions = $this->stripe->listSessionsByPaymentIntent( $paymentIntentId );
+        } catch ( Throwable $e ) {
+            return "charge.refunded: failed session lookup — {$e->getMessage()}";
+        }
+        if ( $sessions === [] ) {
+            return "charge.refunded: customer {$customer['id']} (no session for PI {$paymentIntentId}; manual review)";
+        }
+
+        $sessionId = (string) ( $sessions[0]->id ?? '' );
+        if ( $sessionId === '' ) {
+            return "charge.refunded: customer {$customer['id']} (session id missing; manual review)";
+        }
+
+        $result = GiftCodeRepo::voidByStripeSessionId( $sessionId );
+        $vCount = count( $result['voided'] );
+        $rCount = count( $result['already_redeemed'] );
+
+        if ( $rCount > 0 ) {
+            error_log( sprintf(
+                'LGMS REFUND-REVIEW: gift codes already redeemed for charge=%s session=%s ids=[%s] — admin must decide on revocation.',
+                (string) ( $charge->id ?? '' ),
+                $sessionId,
+                implode( ',', $result['already_redeemed'] ),
+            ) );
+        }
+
+        return "charge.refunded: voided {$vCount} unredeemed gift code(s)" . ( $rCount > 0 ? ", flagged {$rCount} redeemed for admin review" : '' );
     }
 }
