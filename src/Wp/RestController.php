@@ -123,15 +123,29 @@ final class RestController
         $comments = sanitize_textarea_field( $comments );
         $name     = sanitize_text_field( $name );
 
-        $customer     = CustomerRepo::findByEmail( $email );
-        $customerLine = '(no customer record found for this email)';
-        $subsLines    = '';
+        // Detect Stripe mode from the configured key so dashboard URLs land
+        // in the matching environment (test/live).
+        $stripeKey = (string) get_option( 'lgms_stripe_secret_key', '' );
+        $modeSeg   = ( strpos( $stripeKey, 'sk_test_' ) === 0 ) ? '/test' : '';
+        $stripeBase = 'https://dashboard.stripe.com' . $modeSeg;
+
+        $customer       = CustomerRepo::findByEmail( $email );
+        $customerHtml   = '<em>(no customer record found for this email)</em>';
+        $subsHtml       = '';
         if ( $customer ) {
-            $customerLine = sprintf(
-                'Customer ID: %d | Stripe customer: %s',
-                (int) $customer['id'],
-                ! empty( $customer['stripe_customer_id'] ) ? $customer['stripe_customer_id'] : '(none)'
-            );
+            $stripeCustId = ! empty( $customer['stripe_customer_id'] ) ? (string) $customer['stripe_customer_id'] : '';
+            if ( $stripeCustId !== '' ) {
+                $custUrl = $stripeBase . '/customers/' . rawurlencode( $stripeCustId );
+                $customerHtml = sprintf(
+                    'Customer ID: %d &nbsp;|&nbsp; Stripe customer: <a href="%s">%s</a>',
+                    (int) $customer['id'],
+                    esc_url( $custUrl ),
+                    esc_html( $stripeCustId )
+                );
+            } else {
+                $customerHtml = sprintf( 'Customer ID: %d &nbsp;|&nbsp; Stripe customer: (none)', (int) $customer['id'] );
+            }
+
             $stmt = Db::pdo()->prepare(
                 "SELECT stripe_subscription_id, status, current_period_end FROM subscriptions
                  WHERE customer_id = ? AND status IN ('active','trialing','past_due')
@@ -140,31 +154,50 @@ final class RestController
             $stmt->execute( [ (int) $customer['id'] ] );
             $rows = $stmt->fetchAll( PDO::FETCH_ASSOC );
             if ( $rows ) {
-                $lines = [];
+                $items = [];
                 foreach ( $rows as $r ) {
-                    $lines[] = sprintf( '  - %s (%s, ends %s)', $r['stripe_subscription_id'], $r['status'], $r['current_period_end'] ?? 'n/a' );
+                    $subUrl = $stripeBase . '/subscriptions/' . rawurlencode( (string) $r['stripe_subscription_id'] );
+                    $items[] = sprintf(
+                        '<li><a href="%s">%s</a> &mdash; %s, ends %s</li>',
+                        esc_url( $subUrl ),
+                        esc_html( (string) $r['stripe_subscription_id'] ),
+                        esc_html( (string) $r['status'] ),
+                        esc_html( (string) ( $r['current_period_end'] ?? 'n/a' ) )
+                    );
                 }
-                $subsLines = "\nActive subscriptions:\n" . implode( "\n", $lines );
+                $subsHtml = '<p><strong>Active subscriptions:</strong></p><ul>' . implode( '', $items ) . '</ul>';
             } else {
-                $subsLines = "\nActive subscriptions: none";
+                $subsHtml = '<p><strong>Active subscriptions:</strong> none</p>';
             }
         }
 
-        $reasonBlock = "  - " . implode( "\n  - ", $reasons );
-        $bodyText  = "A customer has submitted a refund request.\n\n";
-        $bodyText .= "Name:  {$name}\nEmail: {$email}\n\n";
-        $bodyText .= "Reasons:\n{$reasonBlock}\n\n";
-        $bodyText .= "Comments:\n" . ( $comments !== '' ? $comments : '(none)' ) . "\n\n";
-        $bodyText .= "---\n{$customerLine}{$subsLines}\n\n";
-        $bodyText .= "To process: open the customer in the Stripe Dashboard and refund the relevant charge.\n";
-        $bodyText .= "Our system will catch the resulting charge.refunded event and revoke access automatically.\n";
+        $reasonItems = '';
+        foreach ( $reasons as $r ) {
+            $reasonItems .= '<li>' . esc_html( $r ) . '</li>';
+        }
+        $commentsHtml = $comments !== '' ? nl2br( esc_html( $comments ) ) : '<em>(none)</em>';
+
+        $modeLabel = $modeSeg === '/test' ? ' (Stripe TEST mode)' : '';
+
+        $html  = '<p>A customer has submitted a refund request' . $modeLabel . '.</p>';
+        $html .= '<p><strong>Name:</strong> ' . esc_html( $name ) . '<br>';
+        $html .= '<strong>Email:</strong> <a href="mailto:' . esc_attr( $email ) . '">' . esc_html( $email ) . '</a></p>';
+        $html .= '<p><strong>Reasons:</strong></p><ul>' . $reasonItems . '</ul>';
+        $html .= '<p><strong>Comments:</strong><br>' . $commentsHtml . '</p>';
+        $html .= '<hr>';
+        $html .= '<p>' . $customerHtml . '</p>';
+        $html .= $subsHtml;
+        $html .= '<p style="color:#666;font-size:0.9em;">To process: click a subscription above to open it in the Stripe Dashboard, then refund the relevant charge. Our system will catch the resulting <code>charge.refunded</code> event and revoke access automatically.</p>';
 
         $to = (string) get_option( 'lgms_refund_email', '' );
         if ( $to === '' ) { $to = (string) get_option( 'admin_email' ); }
         $subject = "Refund request from {$name} <{$email}>";
-        $headers = [ 'Reply-To: ' . $name . ' <' . $email . '>' ];
+        $headers = [
+            'Reply-To: ' . $name . ' <' . $email . '>',
+            'Content-Type: text/html; charset=UTF-8',
+        ];
 
-        $sent = wp_mail( $to, $subject, $bodyText, $headers );
+        $sent = wp_mail( $to, $subject, $html, $headers );
         if ( ! $sent ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not send your request. Please try again or email us directly.' ], 500 );
         }
