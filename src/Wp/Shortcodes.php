@@ -410,8 +410,9 @@ final class Shortcodes
             async function loadProducts() {
                 if (products !== null) return products;
                 try {
-                    const res = await fetch(PROD);
-                    products = await res.json();
+                    const res  = await fetch(PROD);
+                    const data = await res.json();
+                    products = Array.isArray(data) ? data : (data.products || []);
                 } catch (e) {
                     products = [];
                 }
@@ -495,11 +496,11 @@ final class Shortcodes
                             if (!pr.interval) return; // skip one-time
                             rows.push({
                                 product:  p.name,
-                                priceId:  pr.id,
+                                priceId:  pr.stripe_price_id,
                                 interval: pr.interval,
-                                amount:   pr.unit_amount,
+                                amount:   pr.unit_amount_cents,
                                 currency: (pr.currency || 'USD').toUpperCase(),
-                                isCurrent: pr.id === currentPriceId,
+                                isCurrent: pr.stripe_price_id === currentPriceId,
                             });
                         });
                     });
