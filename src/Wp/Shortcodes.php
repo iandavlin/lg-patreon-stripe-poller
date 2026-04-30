@@ -837,12 +837,19 @@ final class Shortcodes
         ], (array) $atts, 'lg_refund_request' );
 
         $user        = wp_get_current_user();
-        $emailValue  = $user->ID > 0 ? (string) $user->user_email : '';
-        $nameValue   = $user->ID > 0 ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
+        $loggedIn    = $user->ID > 0;
+        $emailValue  = $loggedIn ? (string) $user->user_email : '';
+        $nameValue   = $loggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
         $endpoint    = esc_url_raw( rest_url( 'lg-member-sync/v1/refund-request' ) );
         $heading     = esc_html( (string) $atts['heading'] );
         $emailAttr   = esc_attr( $emailValue );
         $nameAttr    = esc_attr( $nameValue );
+        $windowDays  = max( 1, (int) get_option( 'lgms_refund_window_days', '30' ) );
+
+        // For logged-in users, look up their actual purchases so we can show
+        // them what's eligible for refund. Anonymous users get a free-form
+        // request flow (no items shown; admin reviews everything).
+        $items = $loggedIn ? self::eligibleRefundItems( $emailValue, $windowDays ) : [];
 
         $reasons = [
             'I was charged in error or did not intend to subscribe',
@@ -858,7 +865,12 @@ final class Shortcodes
         ?>
         <div class="lg-refund">
             <h3 class="lg-refund__heading"><?php echo $heading; ?></h3>
-            <p class="lg-refund__intro">Sorry to see you go. Tell us a bit about why and we'll process your refund. We review every request personally.</p>
+            <p class="lg-refund__intro">Sorry to see you go. Tell us a bit about why and we'll process your refund.</p>
+            <p class="lg-refund__policy" style="font-size:0.95em;color:#444;">
+                <strong>Our refund policy:</strong> We refund subscription charges and gift purchases within
+                <strong><?php echo (int) $windowDays; ?> days</strong> of the original charge.
+                Items outside the window are reviewed case-by-case &mdash; submit a request and we'll get back to you.
+            </p>
             <form class="lg-refund__form" data-lg-refund>
                 <div class="lg-refund__row">
                     <label class="lg-refund__label"><span>Name</span>
@@ -868,6 +880,31 @@ final class Shortcodes
                         <input type="email" name="email" required value="<?php echo $emailAttr; ?>">
                     </label>
                 </div>
+
+                <?php if ( $loggedIn && $items !== [] ) : ?>
+                <fieldset class="lg-refund__fieldset">
+                    <legend>What would you like refunded? <em style="opacity:.6;">(select one or more)</em></legend>
+                    <div class="lg-refund__items">
+                        <?php foreach ( $items as $i => $item ) :
+                            $id    = 'lg-refund-item-' . $i;
+                            $value = $item['kind'] . ':' . $item['id'];
+                            $note  = $item['eligible']
+                                ? '<em style="color:#080;">Within refund window</em>'
+                                : '<em style="color:#b00;">Outside ' . (int) $windowDays . '-day window &mdash; we will still review your request</em>';
+                        ?>
+                            <label class="lg-refund__item" for="<?php echo esc_attr( $id ); ?>" style="display:block;padding:0.4em 0;">
+                                <input type="checkbox" id="<?php echo esc_attr( $id ); ?>" name="items[]" value="<?php echo esc_attr( $value ); ?>" data-eligible="<?php echo $item['eligible'] ? '1' : '0'; ?>">
+                                <strong><?php echo esc_html( $item['label'] ); ?></strong>
+                                <span style="color:#666;">&mdash; <?php echo esc_html( $item['detail'] ); ?></span>
+                                <br>
+                                <span style="margin-left:1.6em;font-size:0.9em;"><?php echo $note; ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </fieldset>
+                <?php elseif ( $loggedIn ) : ?>
+                    <p style="color:#666;font-style:italic;">We did not find any refundable purchases on your account. You can still submit a request below if you believe this is in error.</p>
+                <?php endif; ?>
 
                 <fieldset class="lg-refund__fieldset">
                     <legend>Why are you requesting a refund? <em style="opacity:.6;">(select all that apply)</em></legend>
@@ -905,6 +942,7 @@ final class Shortcodes
             form.addEventListener('submit', async function(e){
                 e.preventDefault();
                 const reasons = Array.from(form.querySelectorAll('input[name="reasons[]"]:checked')).map(i => i.value);
+                const items   = Array.from(form.querySelectorAll('input[name="items[]"]:checked')).map(i => i.value);
                 if (reasons.length === 0) {
                     resultEl.className   = 'lg-refund__result is-error';
                     resultEl.textContent = 'Please select at least one reason.';
@@ -914,6 +952,7 @@ final class Shortcodes
                     name:     (form.name.value     || '').trim(),
                     email:    (form.email.value    || '').trim(),
                     reasons:  reasons,
+                    items:    items,
                     comments: (form.comments.value || '').trim(),
                     website:  (form.website.value  || '').trim(),
                 };
@@ -946,6 +985,121 @@ final class Shortcodes
         </script>
         <?php
         return (string) ob_get_clean();
+    }
+
+    /**
+     * Refundable items for the given email. Returns subscriptions whose
+     * latest charge is within $windowDays plus gift purchases (grouped by
+     * checkout session) where any unredeemed/unvoided codes remain. Items
+     * outside the window are still returned with eligible=false so the
+     * customer can see them and request a manual review.
+     *
+     * @return list<array{kind:string,id:string,label:string,detail:string,eligible:bool}>
+     */
+    private static function eligibleRefundItems( string $email, int $windowDays ): array
+    {
+        try {
+            $customer = \LGMS\Repos\CustomerRepo::findByEmail( $email );
+        } catch ( \Throwable $_ ) {
+            return [];
+        }
+        if ( $customer === null ) {
+            return [];
+        }
+        $customerId = (int) $customer['id'];
+        $cutoffTs   = time() - ( $windowDays * 86400 );
+        $items      = [];
+
+        try {
+            // Active subscriptions. Use current_period_start as the effective
+            // "last charged at" -- accurate enough for the window check; the
+            // admin endpoint refunds the actual latest paid invoice.
+            $stmt = \LGMS\Db::pdo()->prepare(
+                "SELECT stripe_subscription_id, stripe_price_id, status, current_period_start, current_period_end
+                 FROM subscriptions
+                 WHERE customer_id = ? AND status IN ('active','trialing','past_due')
+                 ORDER BY id DESC"
+            );
+            $stmt->execute( [ $customerId ] );
+            foreach ( $stmt->fetchAll( \PDO::FETCH_ASSOC ) as $row ) {
+                $chargedAt = $row['current_period_start'];
+                $eligible  = $chargedAt && strtotime( (string) $chargedAt ) >= $cutoffTs;
+                $tier      = self::tierLabelForPrice( (string) $row['stripe_price_id'] );
+                $detail    = $tier
+                    ? "{$tier}, last charged " . self::shortDate( (string) $chargedAt )
+                    : 'last charged ' . self::shortDate( (string) $chargedAt );
+                $items[] = [
+                    'kind'     => 'subscription',
+                    'id'       => (string) $row['stripe_subscription_id'],
+                    'label'    => 'Subscription',
+                    'detail'   => $detail,
+                    'eligible' => (bool) $eligible,
+                ];
+            }
+
+            // Gift purchases grouped by checkout session.
+            $stmt = \LGMS\Db::pdo()->prepare(
+                "SELECT stripe_session_id, MIN(created_at) AS purchased_at, COUNT(*) AS qty,
+                        SUM(redeemed_at IS NOT NULL) AS redeemed,
+                        SUM(voided_at   IS NOT NULL) AS voided
+                 FROM gift_codes
+                 WHERE purchased_by = ? AND stripe_session_id IS NOT NULL
+                 GROUP BY stripe_session_id
+                 ORDER BY MIN(id) DESC"
+            );
+            $stmt->execute( [ $customerId ] );
+            foreach ( $stmt->fetchAll( \PDO::FETCH_ASSOC ) as $row ) {
+                $totalQty = (int) $row['qty'];
+                $voided   = (int) $row['voided'];
+                $redeemed = (int) $row['redeemed'];
+                $active   = $totalQty - $voided - $redeemed;
+                if ( $voided === $totalQty ) {
+                    continue; // already fully refunded
+                }
+                $purchasedAt = (string) $row['purchased_at'];
+                $eligible    = $purchasedAt && strtotime( $purchasedAt ) >= $cutoffTs;
+                $detail      = "{$totalQty}-seat purchase on " . self::shortDate( $purchasedAt );
+                if ( $redeemed > 0 ) {
+                    $detail .= " ({$redeemed} already redeemed; refund applies to unredeemed codes only)";
+                } else {
+                    $detail .= " ({$active} active codes)";
+                }
+                $items[] = [
+                    'kind'     => 'gift_purchase',
+                    'id'       => (string) $row['stripe_session_id'],
+                    'label'    => 'Gift purchase',
+                    'detail'   => $detail,
+                    'eligible' => (bool) $eligible,
+                ];
+            }
+        } catch ( \Throwable $_ ) {
+            return [];
+        }
+
+        return $items;
+    }
+
+    private static function tierLabelForPrice( string $priceId ): string
+    {
+        if ( $priceId === '' ) {
+            return '';
+        }
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'SELECT pr.name AS product_name FROM prices pp JOIN products pr ON pr.id = pp.product_id WHERE pp.stripe_price_id = ? LIMIT 1'
+            );
+            $stmt->execute( [ $priceId ] );
+            $row = $stmt->fetch( \PDO::FETCH_ASSOC );
+            return $row ? (string) $row['product_name'] : '';
+        } catch ( \Throwable $_ ) {
+            return '';
+        }
+    }
+
+    private static function shortDate( string $datetime ): string
+    {
+        $ts = $datetime ? strtotime( $datetime ) : false;
+        return $ts ? gmdate( 'M j, Y', $ts ) : 'unknown date';
     }
 
     /**

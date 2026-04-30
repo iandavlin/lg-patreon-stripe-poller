@@ -139,6 +139,7 @@ final class RestController
         $name     = trim( (string) ( $body['name']     ?? '' ) );
         $email    = trim( (string) ( $body['email']    ?? '' ) );
         $reasons  = (array)        ( $body['reasons']  ?? [] );
+        $items    = (array)        ( $body['items']    ?? [] );
         $comments = trim( (string) ( $body['comments'] ?? '' ) );
         $honeypot = trim( (string) ( $body['website']  ?? '' ) );
 
@@ -210,6 +211,56 @@ final class RestController
         }
         $commentsHtml = $comments !== '' ? nl2br( esc_html( $comments ) ) : '<em>(none)</em>';
 
+        // Build a list of customer-selected items with eligibility info.
+        $itemsHtml = '';
+        if ( $items !== [] ) {
+            $windowDays = max( 1, (int) get_option( 'lgms_refund_window_days', '30' ) );
+            $cutoffTs   = time() - ( $windowDays * 86400 );
+            $rows = [];
+            foreach ( $items as $token ) {
+                if ( ! is_string( $token ) || strpos( $token, ':' ) === false ) {
+                    continue;
+                }
+                [ $kind, $id ] = explode( ':', $token, 2 );
+                $kind = sanitize_text_field( $kind );
+                $id   = sanitize_text_field( $id );
+                if ( $kind === 'subscription' ) {
+                    $stmt = Db::pdo()->prepare(
+                        "SELECT current_period_start, status FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1"
+                    );
+                    $stmt->execute( [ $id ] );
+                    $row = $stmt->fetch( PDO::FETCH_ASSOC );
+                    if ( $row ) {
+                        $chargedAt = (string) ( $row['current_period_start'] ?? '' );
+                        $eligible  = $chargedAt && strtotime( $chargedAt ) >= $cutoffTs;
+                        $url       = $stripeBase . '/subscriptions/' . rawurlencode( $id );
+                        $rows[] = '<li>Subscription <a href="' . esc_url( $url ) . '">' . esc_html( $id ) . '</a> &mdash; status ' . esc_html( (string) $row['status'] ) . ', last charged ' . esc_html( $chargedAt ) . ' &mdash; <strong>' . ( $eligible ? '<span style="color:#080;">within ' . $windowDays . '-day window</span>' : '<span style="color:#b00;">outside window</span>' ) . '</strong></li>';
+                    } else {
+                        $rows[] = '<li>Subscription ' . esc_html( $id ) . ' (not found in DB)</li>';
+                    }
+                } elseif ( $kind === 'gift_purchase' ) {
+                    $stmt = Db::pdo()->prepare(
+                        "SELECT MIN(created_at) AS purchased_at, COUNT(*) AS qty,
+                                SUM(redeemed_at IS NOT NULL) AS redeemed,
+                                SUM(voided_at IS NOT NULL) AS voided
+                         FROM gift_codes WHERE stripe_session_id = ?"
+                    );
+                    $stmt->execute( [ $id ] );
+                    $row = $stmt->fetch( PDO::FETCH_ASSOC );
+                    if ( $row && (int) $row['qty'] > 0 ) {
+                        $purchasedAt = (string) ( $row['purchased_at'] ?? '' );
+                        $eligible    = $purchasedAt && strtotime( $purchasedAt ) >= $cutoffTs;
+                        $rows[] = '<li>Gift purchase <code>' . esc_html( substr( $id, 0, 24 ) ) . '...</code> &mdash; ' . (int) $row['qty'] . ' codes, ' . (int) $row['redeemed'] . ' redeemed, ' . (int) $row['voided'] . ' voided, purchased ' . esc_html( $purchasedAt ) . ' &mdash; <strong>' . ( $eligible ? '<span style="color:#080;">within ' . $windowDays . '-day window</span>' : '<span style="color:#b00;">outside window</span>' ) . '</strong></li>';
+                    } else {
+                        $rows[] = '<li>Gift session ' . esc_html( $id ) . ' (not found in DB)</li>';
+                    }
+                }
+            }
+            if ( $rows !== [] ) {
+                $itemsHtml = '<p><strong>Customer requested refund of:</strong></p><ul>' . implode( '', $rows ) . '</ul>';
+            }
+        }
+
         // If this customer is linked to a WP user, surface the admin profile
         // link -- the membership section there has Cancel & Refund / Block
         // buttons that don't require the Stripe Dashboard.
@@ -231,6 +282,7 @@ final class RestController
         $html  = '<p>A customer has submitted a refund request' . $modeLabel . '.</p>';
         $html .= '<p><strong>Name:</strong> ' . esc_html( $name ) . '<br>';
         $html .= '<strong>Email:</strong> <a href="mailto:' . esc_attr( $email ) . '">' . esc_html( $email ) . '</a></p>';
+        $html .= $itemsHtml;
         $html .= '<p><strong>Reasons:</strong></p><ul>' . $reasonItems . '</ul>';
         $html .= '<p><strong>Comments:</strong><br>' . $commentsHtml . '</p>';
         $html .= '<hr>';

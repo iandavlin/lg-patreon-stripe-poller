@@ -44,6 +44,7 @@ final class Admin
             'lgms_stripe_secret_key' => '',
             'lgms_shared_secret'     => '',
             'lgms_refund_email'      => '',
+            'lgms_refund_window_days' => '30',
         ];
         foreach ( $fields as $key => $_default ) {
             register_setting( self::OPT_GROUP, $key, [
@@ -96,9 +97,10 @@ final class Admin
                 </table>
 
                 <h2>Refund requests</h2>
-                <p class="description">Email destination for the <code>[lg_refund_request]</code> form. Leave blank to use the WordPress admin email.</p>
+                <p class="description">Settings for the <code>[lg_refund_request]</code> form.</p>
                 <table class="form-table">
-                    <tr><th><label>Refund email</label></th><td><input type="email" name="lgms_refund_email" value="<?php echo esc_attr( get_option( 'lgms_refund_email', '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>"></td></tr>
+                    <tr><th><label>Refund email</label></th><td><input type="email" name="lgms_refund_email" value="<?php echo esc_attr( get_option( 'lgms_refund_email', '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>"> <span class="description">Leave blank to use the WordPress admin email.</span></td></tr>
+                    <tr><th><label>Refund window (days)</label></th><td><input type="number" name="lgms_refund_window_days" value="<?php echo esc_attr( get_option( 'lgms_refund_window_days', '30' ) ); ?>" class="small-text" min="1" max="365"> <span class="description">Number of days after a charge that a customer is eligible for an automated refund. Items outside the window are shown to the customer as "outside the refund window" but they can still submit a request.</span></td></tr>
                 </table>
 
                 <h2>Slim ↔ plugin shared secret</h2>
