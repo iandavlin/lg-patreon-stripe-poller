@@ -588,9 +588,17 @@ final class Shortcodes
         $nameValue   = $isLoggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
         $endpointUrl = esc_url_raw( home_url( '/billing/v1/redeem' ) );
 
-        $heading = esc_html( (string) $atts['heading'] );
-        $email   = esc_attr( $emailValue );
-        $name    = esc_attr( $nameValue );
+        // Pre-fill the code from ?code=... in the URL (links from gift email).
+        $codeFromUrl = isset( $_GET['code'] ) ? (string) $_GET['code'] : '';
+        $codeFromUrl = strtoupper( preg_replace( '/[^A-Za-z0-9]/', '', $codeFromUrl ) );
+        if ( strlen( $codeFromUrl ) > 12 ) {
+            $codeFromUrl = substr( $codeFromUrl, 0, 12 );
+        }
+
+        $heading  = esc_html( (string) $atts['heading'] );
+        $email    = esc_attr( $emailValue );
+        $name     = esc_attr( $nameValue );
+        $codeAttr = esc_attr( $codeFromUrl );
         $endpoint = esc_js( $endpointUrl );
 
         ob_start();
@@ -609,6 +617,7 @@ final class Shortcodes
                         pattern="[A-Za-z0-9]{12}"
                         title="12-character gift code"
                         placeholder="ABCDEFGHIJKL"
+                        value="<?php echo $codeAttr; ?>"
                         style="text-transform:uppercase;letter-spacing:0.1em;"
                     >
                 </label>
