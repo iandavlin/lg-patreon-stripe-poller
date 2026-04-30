@@ -43,6 +43,7 @@ final class Admin
             'lgms_db_pass'           => '',
             'lgms_stripe_secret_key' => '',
             'lgms_shared_secret'     => '',
+            'lgms_refund_email'      => '',
         ];
         foreach ( $fields as $key => $_default ) {
             register_setting( self::OPT_GROUP, $key, [
@@ -92,6 +93,12 @@ final class Admin
                 <h2>Stripe</h2>
                 <table class="form-table">
                     <tr><th><label>Secret key</label></th><td><input type="password" name="lgms_stripe_secret_key" value="<?php echo esc_attr( get_option( 'lgms_stripe_secret_key', '' ) ); ?>" class="regular-text" autocomplete="off" placeholder="sk_test_... or sk_live_..."></td></tr>
+                </table>
+
+                <h2>Refund requests</h2>
+                <p class="description">Email destination for the <code>[lg_refund_request]</code> form. Leave blank to use the WordPress admin email.</p>
+                <table class="form-table">
+                    <tr><th><label>Refund email</label></th><td><input type="email" name="lgms_refund_email" value="<?php echo esc_attr( get_option( 'lgms_refund_email', '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>"></td></tr>
                 </table>
 
                 <h2>Slim ↔ plugin shared secret</h2>

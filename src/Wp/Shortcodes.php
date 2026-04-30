@@ -22,6 +22,8 @@ final class Shortcodes
         add_shortcode( 'lg_join',                [ self::class, 'join'               ] );
         add_shortcode( 'lg_manage_subscription', [ self::class, 'manageSubscription' ] );
         add_shortcode( 'lg_gift',                [ self::class, 'gift'               ] );
+        add_shortcode( 'lg_refund_request',      [ self::class, 'refundRequest'      ] );
+        add_shortcode( 'lg_member_nav',          [ self::class, 'memberNav'          ] );
     }
 
     /**
@@ -333,7 +335,7 @@ final class Shortcodes
                     });
                     const data = await res.json();
                     if (data.url) {
-                        window.location.href = data.url;
+                        window.open(data.url, '_blank', 'noopener');
                         return;
                     }
                     err.textContent = data.error || 'Could not open portal.';
@@ -661,9 +663,13 @@ final class Shortcodes
                 pending = null;
             }
 
-            function renderError(msg){
-                resultEl.className   = 'lg-redeem-gift__result is-error';
-                resultEl.textContent = msg;
+            function renderError(msg, portalUrl){
+                resultEl.className = 'lg-redeem-gift__result is-error';
+                if (portalUrl) {
+                    resultEl.innerHTML = msg + ' <a href="' + portalUrl + '" target="_blank">Manage your subscription</a>';
+                } else {
+                    resultEl.textContent = msg;
+                }
             }
 
             function renderChoice(json){
@@ -746,7 +752,7 @@ final class Shortcodes
                     } else if (json.ok) {
                         renderSuccess(json);
                     } else {
-                        renderError(json.error || 'Unable to redeem code.');
+                        renderError(json.error || 'Unable to redeem code.', json.portal_url);
                     }
                 } catch (err) {
                     renderError('Network error: ' + err.message);
@@ -822,5 +828,183 @@ final class Shortcodes
         </div>
         <?php
         return (string) ob_get_clean();
+    }
+
+    public static function refundRequest( $atts = [] ): string
+    {
+        $atts = shortcode_atts( [
+            'heading' => 'Request a refund',
+        ], (array) $atts, 'lg_refund_request' );
+
+        $user        = wp_get_current_user();
+        $emailValue  = $user->ID > 0 ? (string) $user->user_email : '';
+        $nameValue   = $user->ID > 0 ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
+        $endpoint    = esc_url_raw( rest_url( 'lg-member-sync/v1/refund-request' ) );
+        $heading     = esc_html( (string) $atts['heading'] );
+        $emailAttr   = esc_attr( $emailValue );
+        $nameAttr    = esc_attr( $nameValue );
+
+        $reasons = [
+            'I was charged in error or did not intend to subscribe',
+            'Duplicate or unauthorized charge',
+            'I was charged after canceling my subscription',
+            'I cannot access the content I paid for',
+            'The service is not working as advertised',
+            'A technical issue is preventing me from using the site',
+            'Other (please explain in comments)',
+        ];
+
+        ob_start();
+        ?>
+        <div class="lg-refund">
+            <h3 class="lg-refund__heading"><?php echo $heading; ?></h3>
+            <p class="lg-refund__intro">Sorry to see you go. Tell us a bit about why and we'll process your refund. We review every request personally.</p>
+            <form class="lg-refund__form" data-lg-refund>
+                <div class="lg-refund__row">
+                    <label class="lg-refund__label"><span>Name</span>
+                        <input type="text" name="name" required value="<?php echo $nameAttr; ?>">
+                    </label>
+                    <label class="lg-refund__label"><span>Email</span>
+                        <input type="email" name="email" required value="<?php echo $emailAttr; ?>">
+                    </label>
+                </div>
+
+                <fieldset class="lg-refund__fieldset">
+                    <legend>Why are you requesting a refund? <em style="opacity:.6;">(select all that apply)</em></legend>
+                    <div class="lg-refund__reasons">
+                        <?php foreach ( $reasons as $reason ) : $id = 'lg-refund-r-' . sanitize_title( $reason ); ?>
+                            <label class="lg-refund__reason" for="<?php echo esc_attr( $id ); ?>">
+                                <input type="checkbox" id="<?php echo esc_attr( $id ); ?>" name="reasons[]" value="<?php echo esc_attr( $reason ); ?>">
+                                <span><?php echo esc_html( $reason ); ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </fieldset>
+
+                <label class="lg-refund__label lg-refund__label--full">
+                    <span>Anything else you'd like us to know? <em style="opacity:.6;">(optional)</em></span>
+                    <textarea name="comments" rows="4"></textarea>
+                </label>
+
+                <input type="text" name="website" value="" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;" aria-hidden="true">
+
+                <div class="lg-refund__submit-row">
+                    <button type="submit" class="lg-refund__submit">Send refund request</button>
+                </div>
+            </form>
+            <div class="lg-refund__result" data-lg-refund-result aria-live="polite"></div>
+        </div>
+        <script>
+        (function(){
+            const ENDPOINT = '<?php echo esc_js( $endpoint ); ?>';
+            const form     = document.querySelector('[data-lg-refund]');
+            const resultEl = document.querySelector('[data-lg-refund-result]');
+            const submitBt = form ? form.querySelector('button[type="submit"]') : null;
+            if (!form) return;
+
+            form.addEventListener('submit', async function(e){
+                e.preventDefault();
+                const reasons = Array.from(form.querySelectorAll('input[name="reasons[]"]:checked')).map(i => i.value);
+                if (reasons.length === 0) {
+                    resultEl.className   = 'lg-refund__result is-error';
+                    resultEl.textContent = 'Please select at least one reason.';
+                    return;
+                }
+                const payload = {
+                    name:     (form.name.value     || '').trim(),
+                    email:    (form.email.value    || '').trim(),
+                    reasons:  reasons,
+                    comments: (form.comments.value || '').trim(),
+                    website:  (form.website.value  || '').trim(),
+                };
+                submitBt.disabled = true;
+                resultEl.className   = 'lg-refund__result is-pending';
+                resultEl.textContent = 'Sending...';
+                try {
+                    const res  = await fetch(ENDPOINT, {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify(payload),
+                    });
+                    const data = await res.json();
+                    if (data.ok) {
+                        form.style.display    = 'none';
+                        resultEl.className    = 'lg-refund__result is-success';
+                        resultEl.innerHTML    = '<strong>Thanks - we got your request.</strong> We will review it within a couple of business days and email you when the refund is processed.';
+                    } else {
+                        resultEl.className   = 'lg-refund__result is-error';
+                        resultEl.textContent = data.error || 'Could not send your request. Please try again.';
+                    }
+                } catch (err) {
+                    resultEl.className   = 'lg-refund__result is-error';
+                    resultEl.textContent = 'Network error: ' + err.message;
+                } finally {
+                    submitBt.disabled = false;
+                }
+            });
+        })();
+        </script>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * [lg_member_nav] - membership-pages navigation bar.
+     * Auto-discovers WP pages containing each membership shortcode and links to them.
+     * Hides items whose page does not exist. Highlights the current page.
+     */
+    public static function memberNav( $atts = [] ): string
+    {
+        global $wpdb, $post;
+
+        $items = [
+            [ 'label' => 'Join',                 'tag' => 'lg_join'                ],
+            [ 'label' => 'Gift Memberships',     'tag' => 'lg_gift'                ],
+            [ 'label' => 'Redeem a Gift',        'tag' => 'lg_redeem_gift'         ],
+            [ 'label' => 'Manage Subscription',  'tag' => 'lg_manage_subscription' ],
+            [ 'label' => 'Request a Refund',     'tag' => 'lg_refund_request'      ],
+        ];
+
+        $currentId = isset( $post ) && $post ? (int) $post->ID : 0;
+        $links     = [];
+
+        foreach ( $items as $item ) {
+            $needle = '[' . $item['tag'];
+            $sql = $wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts}
+                 WHERE post_type = 'page' AND post_status = 'publish'
+                   AND post_content LIKE %s
+                 ORDER BY ID ASC LIMIT 1",
+                '%' . $wpdb->esc_like( $needle ) . '%'
+            );
+            $pageId = (int) $wpdb->get_var( $sql );
+            if ( $pageId <= 0 ) {
+                continue;
+            }
+            $url    = get_permalink( $pageId );
+            $isHere = ( $pageId === $currentId );
+            $class  = 'lg-member-nav__link' . ( $isHere ? ' is-current' : '' );
+            $links[] = sprintf(
+                '<a class="%s" href="%s"%s>%s</a>',
+                esc_attr( $class ),
+                esc_url( $url ),
+                $isHere ? ' aria-current="page"' : '',
+                esc_html( $item['label'] )
+            );
+        }
+
+        if ( $links === [] ) {
+            return '';
+        }
+
+        $css = '
+            .lg-member-nav { margin: 0 0 1.5em; padding: 0.5em 0; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; flex-wrap: wrap; gap: 0.25em 1.25em; align-items: center; }
+            .lg-member-nav__link { display: inline-block; padding: 0.35em 0; color: inherit; text-decoration: none; font-size: 0.95em; opacity: 0.7; border-bottom: 2px solid transparent; transition: opacity .15s, border-color .15s; }
+            .lg-member-nav__link:hover { opacity: 1; }
+            .lg-member-nav__link.is-current { opacity: 1; font-weight: 600; border-bottom-color: currentColor; }
+        ';
+        $css = preg_replace( '/\s+/', ' ', $css );
+
+        return '<style>' . $css . '</style><nav class="lg-member-nav" aria-label="Membership">' . implode( '', $links ) . '</nav>';
     }
 }
