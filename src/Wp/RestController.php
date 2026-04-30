@@ -344,6 +344,7 @@ final class RestController
         $refund    = (bool)        ( $body['refund']    ?? false );
         $reason    = trim( (string) ( $body['reason']    ?? '' ) );
         $immediate = array_key_exists( 'immediate', $body ) ? (bool) $body['immediate'] : true;
+        $autoBlock = (bool) ( $body['auto_block'] ?? false );
 
         if ( $subId === '' || strpos( $subId, 'sub_' ) !== 0 ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid sub_id required.' ], 400 );
@@ -396,6 +397,23 @@ final class RestController
             }
 
             self::logAdminAction( $customerId, $action, $subId, $refundId, $refundAmt, $reason, true, null );
+
+            // Auto-block the customer from re-subscribing if requested.
+            // Only meaningful when refund=true (otherwise the admin would just
+            // use the dedicated block button). We swallow errors here so the
+            // main cancel/refund result is still reported.
+            if ( $refund && $autoBlock && $customerId > 0 ) {
+                try {
+                    $blockReason = $reason !== '' ? "Auto-blocked after refund: {$reason}" : "Auto-blocked after refund of {$subId}";
+                    Db::pdo()->prepare( 'UPDATE customers SET blocked_at = NOW(), block_reason = ? WHERE id = ?' )
+                        ->execute( [ $blockReason, $customerId ] );
+                    self::logAdminAction( $customerId, 'auto_block_after_refund', $subId, $refundId, null, $blockReason, true, null );
+                    $result['actions'][] = 'customer auto-blocked from re-subscribing';
+                } catch ( \Throwable $blockErr ) {
+                    self::logAdminAction( $customerId, 'auto_block_after_refund', $subId, null, null, '', false, $blockErr->getMessage() );
+                    $result['actions'][] = 'auto-block failed: ' . $blockErr->getMessage();
+                }
+            }
 
             return new WP_REST_Response( $result );
         } catch ( \Throwable $e ) {
@@ -624,15 +642,48 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'You are already on this plan.' ], 400 );
         }
 
+        // Guard: refuse if subscription is past_due. Adding more billing on
+        // top of an unpaid invoice compounds the problem; customer should
+        // fix the payment method first.
+        if ( ( $owner['status'] ?? '' ) === 'past_due' ) {
+            return new WP_REST_Response( [
+                'ok'    => false,
+                'error' => 'Your subscription has a payment issue right now. Please update your payment method via the billing portal first, then try again.',
+            ], 409 );
+        }
+
+        // Guard: rate limit. Refuse if customer changed plans within the cooldown window.
+        $cooldownHours = max( 0, (int) get_option( 'lgms_plan_switch_cooldown_hours', '24' ) );
+        if ( $cooldownHours > 0 ) {
+            $stmt = Db::pdo()->prepare(
+                "SELECT created_at FROM admin_action_log
+                 WHERE customer_id = ? AND action LIKE 'self\\_switch\\_plan%' AND success = 1
+                 ORDER BY id DESC LIMIT 1"
+            );
+            $stmt->execute( [ (int) $owner['customer_id'] ] );
+            $row = $stmt->fetch( PDO::FETCH_ASSOC );
+            if ( $row ) {
+                $lastTs   = strtotime( (string) $row['created_at'] );
+                $sinceHrs = ( time() - $lastTs ) / 3600;
+                if ( $lastTs && $sinceHrs < $cooldownHours ) {
+                    $remaining = (int) ceil( $cooldownHours - $sinceHrs );
+                    return new WP_REST_Response( [
+                        'ok'    => false,
+                        'error' => "You changed plans recently. Please wait about {$remaining} more hour" . ( $remaining === 1 ? '' : 's' ) . ' before changing again, or contact support if you need to switch sooner.',
+                    ], 429 );
+                }
+            }
+        }
+
         $action = 'self_switch_plan_' . $timing;
         $reason = "from {$owner['stripe_price_id']} to {$newPriceId} (timing={$timing})";
 
         try {
             $stripe = new StripeClient();
+            $sub    = $stripe->retrieveSubscription( $subId );
 
             if ( $timing === 'now' ) {
                 // Immediate switch + invoice for prorated difference.
-                $sub    = $stripe->retrieveSubscription( $subId );
                 $items  = (array) ( $sub->items->data ?? [] );
                 if ( $items === [] ) {
                     throw new \RuntimeException( 'Subscription has no items.' );
@@ -654,6 +705,15 @@ final class RestController
                     'message' => $msg,
                     'status'  => (string) ( $updated->status ?? 'unknown' ),
                 ] );
+            }
+
+            // Guard: refuse if a Subscription Schedule is already attached
+            // (e.g. customer already scheduled a switch for next period).
+            if ( ! empty( $sub->schedule ) ) {
+                return new WP_REST_Response( [
+                    'ok'    => false,
+                    'error' => 'You already have a pending plan change scheduled for your next renewal. Please wait for it to take effect, or contact support if you need to change it.',
+                ], 409 );
             }
 
             // timing === 'period_end': use Subscription Schedule to defer change.

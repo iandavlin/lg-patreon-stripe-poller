@@ -45,6 +45,7 @@ final class Admin
             'lgms_shared_secret'     => '',
             'lgms_refund_email'      => '',
             'lgms_refund_window_days' => '30',
+            'lgms_plan_switch_cooldown_hours' => '24',
         ];
         foreach ( $fields as $key => $_default ) {
             register_setting( self::OPT_GROUP, $key, [
@@ -101,6 +102,7 @@ final class Admin
                 <table class="form-table">
                     <tr><th><label>Refund email</label></th><td><input type="email" name="lgms_refund_email" value="<?php echo esc_attr( get_option( 'lgms_refund_email', '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>"> <span class="description">Leave blank to use the WordPress admin email.</span></td></tr>
                     <tr><th><label>Refund window (days)</label></th><td><input type="number" name="lgms_refund_window_days" value="<?php echo esc_attr( get_option( 'lgms_refund_window_days', '30' ) ); ?>" class="small-text" min="1" max="365"> <span class="description">Number of days after a charge that a customer is eligible for an automated refund. Items outside the window are shown to the customer as "outside the refund window" but they can still submit a request.</span></td></tr>
+                    <tr><th><label>Plan-switch cooldown (hours)</label></th><td><input type="number" name="lgms_plan_switch_cooldown_hours" value="<?php echo esc_attr( get_option( 'lgms_plan_switch_cooldown_hours', '24' ) ); ?>" class="small-text" min="0" max="720"> <span class="description">Minimum hours between customer-initiated plan changes. Prevents abuse / accidental rapid switching. Set to 0 to disable.</span></td></tr>
                 </table>
 
                 <h2>Slim ↔ plugin shared secret</h2>

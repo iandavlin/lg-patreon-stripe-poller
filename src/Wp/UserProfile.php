@@ -263,16 +263,20 @@ final class UserProfile
                         const refund = action === 'cancel-refund';
                         const verb   = refund ? 'cancel AND refund the latest charge for' : 'cancel';
                         if (!confirm('Are you sure you want to ' + verb + ' subscription ' + subId + '? This is immediate and cannot be undone.')) return;
-                        const reason = refund ? (prompt('Optional reason (will be saved to Stripe metadata):', '') || '') : '';
+                        const reason = refund ? (prompt('Optional reason (will be saved to Stripe metadata + our log):', '') || '') : '';
+                        const autoBlock = refund
+                            ? confirm('Also block this customer from re-subscribing? Recommended when the refund is for fraud / abuse / chargeback risk. You can manually unblock later.')
+                            : false;
                         btn.disabled = true;
                         const orig   = btn.textContent;
                         btn.textContent = 'Working...';
                         try {
                             const { status, body } = await postJson(ENDPOINTS.cancel, {
-                                sub_id:    subId,
-                                refund:    refund,
-                                reason:    reason,
-                                immediate: true,
+                                sub_id:     subId,
+                                refund:     refund,
+                                reason:     reason,
+                                immediate:  true,
+                                auto_block: autoBlock,
                             });
                             if (status === 200 && body.ok) {
                                 showResult('Subscription ' + subId + ': ' + (body.actions || []).join('; '), false);
