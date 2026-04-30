@@ -883,7 +883,7 @@ final class Shortcodes
 
                 <?php if ( $loggedIn && $items !== [] ) : ?>
                 <fieldset class="lg-refund__fieldset">
-                    <legend>What would you like refunded? <em style="opacity:.6;">(select one or more)</em></legend>
+                    <legend>What would you like refunded? <em style="opacity:.6;">(pick one &mdash; submit again for additional items)</em></legend>
                     <div class="lg-refund__items">
                         <?php foreach ( $items as $i => $item ) :
                             $id    = 'lg-refund-item-' . $i;
@@ -893,7 +893,7 @@ final class Shortcodes
                                 : '<em style="color:#b00;">Outside ' . (int) $windowDays . '-day window &mdash; we will still review your request</em>';
                         ?>
                             <label class="lg-refund__item" for="<?php echo esc_attr( $id ); ?>" style="display:block;padding:0.4em 0;">
-                                <input type="checkbox" id="<?php echo esc_attr( $id ); ?>" name="items[]" value="<?php echo esc_attr( $value ); ?>" data-eligible="<?php echo $item['eligible'] ? '1' : '0'; ?>">
+                                <input type="radio" id="<?php echo esc_attr( $id ); ?>" name="items[]" value="<?php echo esc_attr( $value ); ?>" data-eligible="<?php echo $item['eligible'] ? '1' : '0'; ?>">
                                 <strong><?php echo esc_html( $item['label'] ); ?></strong>
                                 <span style="color:#666;">&mdash; <?php echo esc_html( $item['detail'] ); ?></span>
                                 <br>
