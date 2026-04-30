@@ -70,6 +70,12 @@ final class RestController
             'callback'            => [ self::class, 'adminBlockCustomer' ],
             'permission_callback' => [ self::class, 'authAdmin' ],
         ] );
+
+        register_rest_route( self::NAMESPACE, '/admin/refund-gift-purchase', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'adminRefundGiftPurchase' ],
+            'permission_callback' => [ self::class, 'authAdmin' ],
+        ] );
     }
 
     /**
@@ -377,6 +383,95 @@ final class RestController
                 'reason'      => $reason,
             ], $e );
             return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage() ], 500 );
+        }
+    }
+
+    /**
+     * POST /admin/refund-gift-purchase
+     * Body: { stripe_session_id: string, reason?: string }
+     *
+     * Refunds the original gift purchase via Stripe and immediately voids
+     * unredeemed codes locally (instead of waiting for the charge.refunded
+     * webhook/poller). Already-redeemed codes are left alone but reported
+     * back so the admin can decide whether to revoke recipient access.
+     */
+    public static function adminRefundGiftPurchase(WP_REST_Request $req): WP_REST_Response
+    {
+        $body      = (array) $req->get_json_params();
+        $sessionId = trim( (string) ( $body['stripe_session_id'] ?? '' ) );
+        $reason    = trim( (string) ( $body['reason'] ?? '' ) );
+
+        if ( $sessionId === '' || strpos( $sessionId, 'cs_' ) !== 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid stripe_session_id required.' ], 400 );
+        }
+
+        // Resolve customer_id (the buyer) from any gift_code in this batch.
+        $stmt = Db::pdo()->prepare( 'SELECT purchased_by FROM gift_codes WHERE stripe_session_id = ? LIMIT 1' );
+        $stmt->execute( [ $sessionId ] );
+        $customerId = (int) ( $stmt->fetchColumn() ?: 0 );
+        if ( $customerId <= 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'No gift codes found for that session.' ], 404 );
+        }
+
+        $action  = 'refund_gift_purchase';
+        $context = [ 'session_id' => $sessionId, 'reason' => $reason ];
+        $refundId = null;
+        $refundAmt = null;
+        $result   = [ 'ok' => true, 'session_id' => $sessionId, 'actions' => [] ];
+
+        try {
+            $stripe  = new StripeClient();
+            $session = $stripe->retrieveCheckoutSession( $sessionId );
+            $pi      = (string) ( $session->payment_intent ?? '' );
+
+            if ( $pi !== '' ) {
+                $refundParams = [ 'payment_intent' => $pi ];
+                if ( $reason !== '' ) {
+                    $refundParams['reason']   = 'requested_by_customer';
+                    $refundParams['metadata'] = [ 'admin_reason' => substr( $reason, 0, 500 ) ];
+                }
+                $refundObj = $stripe->createRefund( $refundParams );
+                $refundId  = (string) ( $refundObj->id ?? '' );
+                $refundAmt = (int) ( $refundObj->amount ?? 0 );
+                $result['refund_id']  = $refundId;
+                $result['actions'][]  = 'stripe refund ' . $refundId . ' (' . $refundAmt . ' cents)';
+            } else {
+                $result['actions'][] = 'no payment_intent on session; nothing to refund in Stripe';
+            }
+
+            // Void unredeemed codes locally (poller would do this on next tick;
+            // doing it inline closes the race so codes can't be redeemed
+            // between the Stripe refund and the next poll).
+            $voidStmt = Db::pdo()->prepare(
+                "UPDATE gift_codes SET voided_at = NOW()
+                 WHERE stripe_session_id = ? AND redeemed_at IS NULL AND voided_at IS NULL"
+            );
+            $voidStmt->execute( [ $sessionId ] );
+            $voided = $voidStmt->rowCount();
+            $result['voided_unredeemed'] = $voided;
+            $result['actions'][] = "voided {$voided} unredeemed code(s)";
+
+            // Report redeemed codes so the admin can decide whether to revoke.
+            $redStmt = Db::pdo()->prepare(
+                "SELECT gc.id, gc.code, gc.redeemed_at, c.email AS recipient_email
+                 FROM gift_codes gc
+                 LEFT JOIN customers c ON c.id = gc.redeemed_by
+                 WHERE gc.stripe_session_id = ? AND gc.redeemed_at IS NOT NULL
+                 ORDER BY gc.id"
+            );
+            $redStmt->execute( [ $sessionId ] );
+            $redeemed = $redStmt->fetchAll( PDO::FETCH_ASSOC );
+            $result['already_redeemed'] = $redeemed;
+            if ( $redeemed !== [] ) {
+                $result['actions'][] = count( $redeemed ) . ' code(s) already redeemed; flagged for admin review (entitlements not auto-revoked).';
+            }
+
+            self::logAdminAction( $customerId, $action, $sessionId, $refundId, $refundAmt, $reason, true, null );
+            return new WP_REST_Response( $result );
+        } catch ( \Throwable $e ) {
+            self::logAdminAction( $customerId, $action, $sessionId, $refundId, $refundAmt, $reason, false, $e->getMessage() );
+            AdminAlerts::sendFailureAlert( 'refund-gift-purchase', $context, $e );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage(), 'partial' => $result['actions'] ], 500 );
         }
     }
 

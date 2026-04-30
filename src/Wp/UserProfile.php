@@ -35,8 +35,9 @@ final class UserProfile
         $stripeBase = 'https://dashboard.stripe.com' . $modeSeg;
 
         $endpoints = [
-            'cancel' => esc_url_raw( rest_url( 'lg-member-sync/v1/admin/cancel-subscription' ) ),
-            'block'  => esc_url_raw( rest_url( 'lg-member-sync/v1/admin/block-customer' ) ),
+            'cancel'     => esc_url_raw( rest_url( 'lg-member-sync/v1/admin/cancel-subscription' ) ),
+            'block'      => esc_url_raw( rest_url( 'lg-member-sync/v1/admin/block-customer' ) ),
+            'refundGift' => esc_url_raw( rest_url( 'lg-member-sync/v1/admin/refund-gift-purchase' ) ),
         ];
         $nonce = wp_create_nonce( 'wp_rest' );
 
@@ -109,6 +110,51 @@ final class UserProfile
                 <?php endforeach; ?>
                 </tbody>
             </table>
+        <?php endif; ?>
+
+        <h3>Gift purchases</h3>
+        <?php $purchases = self::giftPurchasesForCustomer( (int) $customer['id'] ); ?>
+        <?php if ( $purchases === [] ) : ?>
+            <p style="color:#666;"><em>None.</em></p>
+        <?php else : ?>
+            <table class="widefat striped" style="max-width:1100px;">
+                <thead><tr><th>Session</th><th>Purchased</th><th>Total</th><th>Redeemed</th><th>Voided</th><th>Active</th><th style="width:200px;">Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ( $purchases as $p ) :
+                    $sid       = (string) $p['stripe_session_id'];
+                    $sessUrl   = $stripeBase . '/payments?query=' . rawurlencode( $sid );
+                    $totalCnt  = (int) $p['total'];
+                    $redeemed  = (int) $p['redeemed'];
+                    $voided    = (int) $p['voided'];
+                    $active    = $totalCnt - $redeemed - $voided;
+                    $allVoided = $voided === $totalCnt;
+                    $allDone   = ( $voided + $redeemed ) === $totalCnt;
+                ?>
+                    <tr data-lgms-gift-row="<?php echo esc_attr( $sid ); ?>">
+                        <td style="font-family:monospace;font-size:0.85em;">
+                            <a href="<?php echo esc_url( $sessUrl ); ?>" target="_blank" rel="noopener" title="Search payments in Stripe Dashboard">
+                                <?php echo esc_html( substr( $sid, 0, 18 ) . '…' ); ?>
+                            </a>
+                        </td>
+                        <td><?php echo esc_html( (string) $p['purchased_at'] ); ?></td>
+                        <td><?php echo $totalCnt; ?></td>
+                        <td><?php echo $redeemed; ?></td>
+                        <td><?php echo $voided; ?></td>
+                        <td><?php echo $active; ?></td>
+                        <td>
+                            <?php if ( $active > 0 ) : ?>
+                                <button type="button" class="button button-primary" data-lgms-action="refund-gift" data-lgms-session="<?php echo esc_attr( $sid ); ?>" data-lgms-active="<?php echo $active; ?>" data-lgms-redeemed="<?php echo $redeemed; ?>">Refund &amp; Void</button>
+                            <?php elseif ( $allVoided ) : ?>
+                                <em style="color:#666;">All voided</em>
+                            <?php else : ?>
+                                <em style="color:#666;">Fully redeemed</em>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p style="color:#666;font-size:0.9em;margin-top:6px;">"Refund &amp; Void" issues a full Stripe refund for the original purchase and immediately marks unredeemed codes as void so they can&apos;t be redeemed. Already-redeemed codes keep their entitlements unless you separately revoke them on each recipient&apos;s profile.</p>
         <?php endif; ?>
 
         <h3>Active gift entitlements</h3>
@@ -243,6 +289,45 @@ final class UserProfile
                         }
                     }
 
+                    if (action === 'refund-gift') {
+                        const sid      = btn.dataset.lgmsSession;
+                        const active   = parseInt(btn.dataset.lgmsActive || '0', 10);
+                        const redeemed = parseInt(btn.dataset.lgmsRedeemed || '0', 10);
+                        const warn     = redeemed > 0
+                            ? '\n\nNOTE: ' + redeemed + ' code(s) in this batch have already been redeemed. They will NOT be auto-revoked — recipients keep their entitlement unless you revoke each one separately.'
+                            : '';
+                        if (!confirm('Refund this gift purchase and void ' + active + ' unredeemed code(s)?' + warn)) return;
+                        const reason = prompt('Optional reason (saved to Stripe metadata + our log):', '') || '';
+                        btn.disabled = true;
+                        const orig   = btn.textContent;
+                        btn.textContent = 'Working...';
+                        try {
+                            const { status, body } = await postJson(ENDPOINTS.refundGift, {
+                                stripe_session_id: sid,
+                                reason:            reason,
+                            });
+                            if (status === 200 && body.ok) {
+                                let msg = (body.actions || []).join('; ');
+                                if (body.already_redeemed && body.already_redeemed.length) {
+                                    msg += '<br><strong>Redeemed codes (review for entitlement revoke):</strong> ' +
+                                        body.already_redeemed.map(r => r.code + ' → ' + (r.recipient_email || 'unknown')).join(', ');
+                                }
+                                showResult(msg, false);
+                                const row = document.querySelector('[data-lgms-gift-row="' + sid + '"]');
+                                if (row) row.style.opacity = '0.5';
+                                btn.textContent = 'Done';
+                            } else {
+                                showResult('Failed: ' + (body.error || 'unknown') + (body.partial ? ' (partial: ' + body.partial.join('; ') + ')' : ''), true);
+                                btn.disabled = false;
+                                btn.textContent = orig;
+                            }
+                        } catch (err) {
+                            showResult('Network error: ' + err.message, true);
+                            btn.disabled = false;
+                            btn.textContent = orig;
+                        }
+                    }
+
                     if (action === 'block' || action === 'unblock') {
                         const blocking = action === 'block';
                         const ta       = document.querySelector('[data-lgms-block-reason]');
@@ -294,6 +379,28 @@ final class UserProfile
                AND revoked_at IS NULL
                AND (expires_at IS NULL OR expires_at > NOW())
              ORDER BY id DESC"
+        );
+        $stmt->execute( [ $customerId ] );
+        return $stmt->fetchAll( PDO::FETCH_ASSOC );
+    }
+
+    /**
+     * Gift purchases by this customer, grouped by checkout session, with
+     * code-status counts.
+     */
+    private static function giftPurchasesForCustomer( int $customerId ): array
+    {
+        $stmt = Db::pdo()->prepare(
+            "SELECT
+                stripe_session_id,
+                MIN(created_at)  AS purchased_at,
+                COUNT(*)         AS total,
+                SUM(CASE WHEN redeemed_at IS NOT NULL THEN 1 ELSE 0 END) AS redeemed,
+                SUM(CASE WHEN voided_at   IS NOT NULL THEN 1 ELSE 0 END) AS voided
+             FROM gift_codes
+             WHERE purchased_by = ? AND stripe_session_id IS NOT NULL
+             GROUP BY stripe_session_id
+             ORDER BY MIN(id) DESC"
         );
         $stmt->execute( [ $customerId ] );
         return $stmt->fetchAll( PDO::FETCH_ASSOC );
