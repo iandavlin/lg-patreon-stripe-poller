@@ -435,7 +435,7 @@ final class Shortcodes
             // Cancel button → reveal cancel section
             document.querySelectorAll('[data-lg-action="cancel"]').forEach(function(btn){
                 btn.addEventListener('click', function(){
-                    const card = btn.closest('[data-lg-sub]');
+                    const card = btn.closest('.lg-manage-sub__card');
                     card.querySelector('[data-lg-canceller]').style.display = 'block';
                     card.querySelector('[data-lg-switcher]').style.display = 'none';
                 });
@@ -449,7 +449,7 @@ final class Shortcodes
             // Cancel confirm
             document.querySelectorAll('[data-lg-action="cancel-confirm"]').forEach(function(btn){
                 btn.addEventListener('click', async function(){
-                    const card = btn.closest('[data-lg-sub]');
+                    const card = btn.closest('.lg-manage-sub__card');
                     const subId = btn.dataset.lgSub;
                     const when = card.querySelector('input[name="cancel-when-' + subId + '"]:checked').value;
                     const immediate = when === 'immediate';
@@ -479,7 +479,7 @@ final class Shortcodes
             // Switch plan button → load products + reveal picker
             document.querySelectorAll('[data-lg-action="switch"]').forEach(function(btn){
                 btn.addEventListener('click', async function(){
-                    const card = btn.closest('[data-lg-sub]');
+                    const card = btn.closest('.lg-manage-sub__card');
                     const switcher = card.querySelector('[data-lg-switcher]');
                     const plansEl  = card.querySelector('[data-lg-plans]');
                     switcher.style.display = 'block';
