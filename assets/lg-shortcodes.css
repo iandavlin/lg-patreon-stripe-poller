@@ -1,11 +1,39 @@
 /* ----------------------------------------------------------------
  * LG Membership shortcodes — baseline polish.
- * Targets the form/state classes used across [lg_redeem_gift],
- * [lg_refund_request], [lg_manage_subscription], [lg_gift].
- * Intentionally avoids dictating colors/fonts so the theme can
- * still drive overall look. Enqueued only on pages that contain
- * one of our shortcodes.
+ * Targets the form/state classes used across the membership
+ * shortcodes. Enqueued only on pages that contain one of our
+ * shortcodes.
+ * Brand palette pulled from the Looth Group logo.
  * ---------------------------------------------------------------- */
+
+/* Brand palette (matches Elementor theme kit). Variable names kept
+ * stable so other rules can use them without semantic changes -- e.g.
+ * --lg-orange now points at the amber/gold the brand actually uses. */
+:root {
+    /* Sage green ladder (LG Green 1 → 5) */
+    --lg-green-bg:    #F1F4E8;  /* "LG Green Super Light (BG)" */
+    --lg-green-light: #D4E0B8;  /* "LG Green 1 Light Heading"   */
+    --lg-green-200:   #C2D5AA;  /* "LG Green 2"                 */
+    --lg-green-mid:   #A8BE8B;  /* "LG Green 3 Mid Heading"     */
+    --lg-green-400:   #97A97C;  /* "LG Green 4"                 */
+    --lg-green-dark:  #87986A;  /* "LG Green 5" / system Primary */
+    --lg-green-darker:#6a7a52;  /* hover tone (computed darker)  */
+
+    /* Amber / gold (system Links + Button BG; they call it "Orange") */
+    --lg-orange:      #ECB351;
+    --lg-orange-dark: #c89329;
+    --lg-gold:        #ECB351;
+    --lg-amber-pale:  #F1DE8C;  /* "LG Light Orange" */
+
+    /* Accent + neutrals */
+    --lg-accent-red:  #FE654F;
+    --lg-cream:       #F1F4E8;
+    --lg-cream-dark:  #e6ead7;
+    --lg-ink:         #292929;
+    --lg-muted:       #5b6066;
+    --lg-grey:        #B9B9B9;
+    --lg-border:      #d8d3c5;
+}
 
 /* === Result states (success / error / pending) ================= */
 .lg-redeem-gift__result,
@@ -241,9 +269,205 @@
     line-height: 1.5;
 }
 .lg-refund__policy {
-    background: #f7f8fa;
-    border-left: 3px solid #6a8db5;
+    background: var(--lg-cream);
+    border-left: 3px solid var(--lg-green-dark);
     padding: 0.75em 1em;
     border-radius: 0 4px 4px 0;
     font-size: 0.95em;
+}
+
+/* === [lg_join] tier cards (side-by-side on desktop) =========== */
+.lg-join {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+.lg-join__hero {
+    text-align: center;
+    margin-bottom: 2em;
+}
+.lg-join__hero h2 {
+    color: var(--lg-green-dark);
+    margin: 0 0 0.3em;
+    font-size: 2.2em;
+}
+.lg-join__hero p {
+    color: var(--lg-muted);
+    font-size: 1.15em;
+    max-width: 640px;
+    margin: 0 auto;
+    line-height: 1.5;
+}
+.lg-join__hero ul {
+    list-style: none;
+    padding: 0;
+    margin: 1.2em auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.2em;
+    max-width: 720px;
+}
+.lg-join__hero li {
+    color: var(--lg-ink);
+    font-weight: 500;
+}
+.lg-join__hero li::before {
+    content: "✓ ";
+    color: var(--lg-orange);
+    font-weight: 700;
+    margin-right: 0.25em;
+}
+
+.lg-join__form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1em;
+    max-width: 720px;
+    margin: 0 auto 2em;
+    background: var(--lg-cream);
+    padding: 1.2em 1.4em;
+    border-radius: 8px;
+    border: 1px solid var(--lg-border);
+}
+.lg-join__field label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    font-size: 0.95em;
+    font-weight: 500;
+}
+.lg-join__field input {
+    padding: 0.55em 0.7em;
+    border: 1px solid var(--lg-border);
+    border-radius: 4px;
+    font-size: 1em;
+    background: #fff;
+}
+.lg-join__field input:focus {
+    outline: none;
+    border-color: var(--lg-green-dark);
+    box-shadow: 0 0 0 2px rgba(45, 94, 62, 0.18);
+}
+.lg-join__field small {
+    opacity: 0.7;
+}
+.lg-join__promo {
+    grid-column: 1 / -1;
+    color: var(--lg-green-darker);
+    font-weight: 500;
+}
+
+.lg-join__tiers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5em;
+    align-items: stretch;
+}
+.lg-join__loading {
+    text-align: center;
+    color: var(--lg-muted);
+    grid-column: 1 / -1;
+}
+
+.lg-join__tier {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid var(--lg-border);
+    border-radius: 12px;
+    padding: 1.6em 1.4em 1.4em;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.lg-join__tier:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    border-color: var(--lg-green-light);
+}
+.lg-join__tier.is-popular {
+    border-color: var(--lg-orange);
+    border-width: 2px;
+    padding: calc(1.6em - 1px) calc(1.4em - 1px) calc(1.4em - 1px);
+}
+.lg-join__tier-badge {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--lg-gold);
+    color: var(--lg-ink);
+    font-size: 0.78em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.25em 0.85em;
+    border-radius: 999px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.lg-join__tier-name {
+    margin: 0 0 0.2em;
+    color: var(--lg-green-dark);
+    font-size: 1.5em;
+}
+.lg-join__tier-tagline {
+    color: var(--lg-muted);
+    margin: 0 0 1.2em;
+    font-size: 0.95em;
+    min-height: 1.4em;
+}
+.lg-join__tier-prices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    margin-top: auto;
+}
+.lg-join__buy {
+    display: block;
+    width: 100%;
+    padding: 0.75em 1em;
+    border: 1px solid var(--lg-border);
+    background: #fff;
+    color: var(--lg-ink);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.97em;
+    font-weight: 500;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.lg-join__buy:hover {
+    background: var(--lg-cream);
+    border-color: var(--lg-orange);
+}
+.lg-join__buy.is-primary {
+    background: var(--lg-orange);
+    border-color: var(--lg-orange-dark);
+    color: #fff;
+    font-weight: 600;
+}
+.lg-join__buy.is-primary:hover {
+    background: var(--lg-orange-dark);
+    border-color: var(--lg-orange-dark);
+    color: #fff;
+}
+.lg-join__buy:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.lg-join__checkout:not(:empty) {
+    margin: 2em auto 0;
+    max-width: 720px;
+}
+
+.lg-join__error {
+    color: #8a1c1c;
+    text-align: center;
+    margin-top: 1em;
+    font-weight: 500;
+}
+
+@media (max-width: 600px) {
+    .lg-join__hero h2 { font-size: 1.7em; }
+    .lg-join__tiers { gap: 1em; }
 }

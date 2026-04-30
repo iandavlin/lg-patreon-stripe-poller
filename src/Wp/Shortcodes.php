@@ -611,7 +611,11 @@ final class Shortcodes
     public static function join( $atts = [] ): string
     {
         $atts = shortcode_atts( [
-            'heading' => 'Choose your membership',
+            'heading'    => 'Choose your membership',
+            'subheading' => '',
+            'bullets'    => '',           // pipe-separated, e.g. "Forums|Archive|Sponsor benefits"
+            'popular'    => 'looth3',     // product ref to mark "Most popular"
+            'taglines'   => '',           // ref:tagline pipe-separated, e.g. "looth2:Members-only forum access|looth3:Everything in LITE plus exclusive content"
         ], (array) $atts, 'lg_join' );
 
         $user        = wp_get_current_user();
@@ -637,15 +641,42 @@ final class Shortcodes
         $promoFromUrl = preg_replace( '/[^A-Za-z0-9_\-]/', '', $promoFromUrl );
 
         $heading      = esc_html( (string) $atts['heading'] );
+        $subheading   = esc_html( (string) $atts['subheading'] );
+        $bulletsRaw   = trim( (string) $atts['bullets'] );
+        $bullets      = $bulletsRaw !== '' ? array_filter( array_map( 'trim', explode( '|', $bulletsRaw ) ) ) : [];
+        $popularRef   = (string) $atts['popular'];
+        $taglinesRaw  = trim( (string) $atts['taglines'] );
+        $taglineMap   = [];
+        if ( $taglinesRaw !== '' ) {
+            foreach ( explode( '|', $taglinesRaw ) as $pair ) {
+                $parts = explode( ':', $pair, 2 );
+                if ( count( $parts ) === 2 ) {
+                    $taglineMap[ trim( $parts[0] ) ] = trim( $parts[1] );
+                }
+            }
+        }
         $email        = esc_attr( $emailValue );
         $name         = esc_attr( $nameValue );
         $promoEsc     = esc_attr( (string) $promoFromUrl );
         $endpointsJs  = wp_json_encode( $endpoints );
+        $configJs     = wp_json_encode( [ 'popular' => $popularRef, 'taglines' => $taglineMap ] );
 
         ob_start();
         ?>
         <div class="lg-join">
-            <h2 class="lg-join__heading"><?php echo $heading; ?></h2>
+            <header class="lg-join__hero">
+                <h2><?php echo $heading; ?></h2>
+                <?php if ( $subheading !== '' ) : ?>
+                    <p><?php echo $subheading; ?></p>
+                <?php endif; ?>
+                <?php if ( $bullets !== [] ) : ?>
+                    <ul>
+                        <?php foreach ( $bullets as $b ) : ?>
+                            <li><?php echo esc_html( $b ); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </header>
 
             <div class="lg-join__form">
                 <div class="lg-join__field">
@@ -653,7 +684,7 @@ final class Shortcodes
                 </div>
                 <div class="lg-join__field">
                     <label>Name <input type="text" name="name" value="<?php echo $name; ?>" required></label>
-                    <small style="opacity:.7;">Used for your account / community profile.</small>
+                    <small>Used for your account / community profile.</small>
                 </div>
                 <?php if ( $promoFromUrl !== '' ) : ?>
                     <div class="lg-join__promo">
@@ -664,12 +695,12 @@ final class Shortcodes
             </div>
 
             <div class="lg-join__tiers" data-lg-join-tiers>
-                <p class="lg-join__loading">Loading tiers…</p>
+                <p class="lg-join__loading">Loading plans&hellip;</p>
             </div>
 
-            <div class="lg-join__checkout" data-lg-join-checkout style="margin-top:24px;"></div>
+            <div class="lg-join__checkout" data-lg-join-checkout></div>
 
-            <div class="lg-join__error" data-lg-join-error aria-live="polite" style="color:#b00;"></div>
+            <div class="lg-join__error" data-lg-join-error aria-live="polite"></div>
         </div>
 
         <script src="https://js.stripe.com/v3/"></script>
@@ -677,6 +708,7 @@ final class Shortcodes
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
+            const CONFIG    = <?php echo $configJs; ?>;
 
             const tiersEl    = document.querySelector('[data-lg-join-tiers]');
             const checkoutEl = document.querySelector('[data-lg-join-checkout]');
@@ -737,29 +769,36 @@ final class Shortcodes
                 products.forEach(function(prod){
                     const card = document.createElement('div');
                     card.className = 'lg-join__tier';
-                    card.style.border = '1px solid rgba(0,0,0,0.15)';
-                    card.style.borderRadius = '8px';
-                    card.style.padding = '16px';
-                    card.style.margin = '12px 0';
-                    card.style.maxWidth = '480px';
+                    if (prod.ref && CONFIG.popular && prod.ref === CONFIG.popular) {
+                        card.classList.add('is-popular');
+                        const badge = document.createElement('span');
+                        badge.className = 'lg-join__tier-badge';
+                        badge.textContent = 'Most popular';
+                        card.appendChild(badge);
+                    }
 
                     const title = document.createElement('h3');
+                    title.className = 'lg-join__tier-name';
                     title.textContent = prod.name;
-                    title.style.marginTop = '0';
                     card.appendChild(title);
 
+                    const tagline = document.createElement('p');
+                    tagline.className = 'lg-join__tier-tagline';
+                    tagline.textContent = (CONFIG.taglines && CONFIG.taglines[prod.ref]) || '';
+                    card.appendChild(tagline);
+
                     const list = document.createElement('div');
-                    list.className = 'lg-join__prices';
-                    sortPrices(prod.prices).forEach(function(price){
+                    list.className = 'lg-join__tier-prices';
+                    const sorted = sortPrices(prod.prices);
+                    sorted.forEach(function(price, idx){
                         const btn = document.createElement('button');
                         btn.type = 'button';
                         btn.className = 'lg-join__buy';
+                        // Highlight the yearly subscription as the primary CTA
+                        if (price.type === 'recurring' && price.interval === 'year') {
+                            btn.classList.add('is-primary');
+                        }
                         btn.textContent = priceLabel(price);
-                        btn.style.display = 'block';
-                        btn.style.margin = '6px 0';
-                        btn.style.padding = '10px 16px';
-                        btn.style.minWidth = '260px';
-                        btn.style.cursor = 'pointer';
                         btn.addEventListener('click', () => startCheckout(price.stripe_price_id, btn));
                         list.appendChild(btn);
                     });
