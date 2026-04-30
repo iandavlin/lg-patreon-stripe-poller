@@ -72,7 +72,7 @@ final class Shortcodes
 
                 <div class="lg-gift__field">
                     <label>Quantity (seats)
-                        <input type="number" name="quantity" value="2" min="2" step="1" required style="width:120px;">
+                        <input type="number" name="quantity" value="1" min="1" step="1" required style="width:120px;">
                     </label>
                 </div>
 
@@ -81,12 +81,6 @@ final class Shortcodes
                         <input type="email" name="email" value="<?php echo $email; ?>" required>
                     </label>
                     <small style="opacity:.7;">Codes will be sent here.</small>
-                </div>
-
-                <div class="lg-gift__field">
-                    <label>Your name <em style="opacity:.6;">(optional)</em>
-                        <input type="text" name="name" value="<?php echo $name; ?>">
-                    </label>
                 </div>
             </div>
 
@@ -125,7 +119,6 @@ final class Shortcodes
             const checkoutEl  = document.querySelector('[data-lg-gift-checkout]');
             const qtyInput    = document.querySelector('input[name="quantity"]');
             const emailInput  = document.querySelector('input[name="email"]');
-            const nameInput   = document.querySelector('input[name="name"]');
 
             let products       = [];
             let bulkTiers      = [];
@@ -166,7 +159,7 @@ final class Shortcodes
             function recompute(){
                 const tier  = selectedTier();
                 const price = pickAnnualPrice(tier);
-                const qty   = Math.max(2, parseInt(qtyInput.value, 10) || 2);
+                const qty   = Math.max(1, parseInt(qtyInput.value, 10) || 1);
                 if (!price) {
                     summarySub.textContent  = '—';
                     summaryDisc.textContent = '—';
@@ -235,7 +228,7 @@ final class Shortcodes
                 const price = pickAnnualPrice(tier);
                 if (!price) { showError('Please pick a tier.'); return; }
 
-                const qty   = Math.max(2, parseInt(qtyInput.value, 10) || 2);
+                const qty   = Math.max(1, parseInt(qtyInput.value, 10) || 1);
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
 
@@ -256,7 +249,7 @@ final class Shortcodes
                             price_id: price.stripe_price_id,
                             quantity: qty,
                             email:    email,
-                            name:     (nameInput.value || '').trim(),
+                            gift:     true,
                         }),
                     });
                     const sessData = await sessRes.json();
@@ -407,9 +400,8 @@ final class Shortcodes
                     <label>Email <input type="email" name="email" value="<?php echo $email; ?>" required></label>
                 </div>
                 <div class="lg-join__field">
-                    <label>Name <em style="opacity:.6;">(optional)</em>
-                        <input type="text" name="name" value="<?php echo $name; ?>">
-                    </label>
+                    <label>Name <input type="text" name="name" value="<?php echo $name; ?>" required></label>
+                    <small style="opacity:.7;">Used for your account / community profile.</small>
                 </div>
                 <?php if ( $promoFromUrl !== '' ) : ?>
                     <div class="lg-join__promo">
