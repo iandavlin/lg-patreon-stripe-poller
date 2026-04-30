@@ -18,8 +18,77 @@ final class Shortcodes
 {
     public static function register(): void
     {
-        add_shortcode( 'lg_redeem_gift', [ self::class, 'redeemGift' ] );
-        add_shortcode( 'lg_join',        [ self::class, 'join'       ] );
+        add_shortcode( 'lg_redeem_gift',         [ self::class, 'redeemGift'         ] );
+        add_shortcode( 'lg_join',                [ self::class, 'join'               ] );
+        add_shortcode( 'lg_manage_subscription', [ self::class, 'manageSubscription' ] );
+    }
+
+    /**
+     * [lg_manage_subscription] — button that opens the Stripe Customer Portal
+     * for the logged-in user, where they can upgrade / downgrade / cancel
+     * their subscription, update payment methods, and view invoices.
+     *
+     * Renders nothing for non-logged-in users or users without a customer
+     * record. Use [lg_join] instead for those cases.
+     */
+    public static function manageSubscription( $atts = [] ): string
+    {
+        $atts = shortcode_atts( [
+            'label' => 'Manage your subscription',
+        ], (array) $atts, 'lg_manage_subscription' );
+
+        $user = wp_get_current_user();
+        if ( $user->ID === 0 ) {
+            return '';
+        }
+        $email = (string) $user->user_email;
+        if ( $email === '' ) {
+            return '';
+        }
+
+        $endpoint = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/portal' );
+        $label    = esc_html( (string) $atts['label'] );
+        $emailEsc = esc_attr( $email );
+
+        ob_start();
+        ?>
+        <div class="lg-manage-sub">
+            <button type="button" class="lg-manage-sub__btn" data-lg-manage-sub data-email="<?php echo $emailEsc; ?>"><?php echo $label; ?></button>
+            <span class="lg-manage-sub__error" data-lg-manage-sub-error style="color:#b00;margin-left:12px;"></span>
+        </div>
+        <script>
+        (function(){
+            const btn = document.querySelector('[data-lg-manage-sub]');
+            const err = document.querySelector('[data-lg-manage-sub-error]');
+            if (!btn) return;
+            btn.addEventListener('click', async function(){
+                err.textContent = '';
+                btn.disabled = true;
+                const orig = btn.textContent;
+                btn.textContent = 'Loading…';
+                try {
+                    const res = await fetch('<?php echo esc_js( $endpoint ); ?>', {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify({ email: btn.dataset.email }),
+                    });
+                    const data = await res.json();
+                    if (data.url) {
+                        window.location.href = data.url;
+                        return;
+                    }
+                    err.textContent = data.error || 'Could not open portal.';
+                } catch (e) {
+                    err.textContent = 'Network error: ' + e.message;
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = orig;
+                }
+            });
+        })();
+        </script>
+        <?php
+        return (string) ob_get_clean();
     }
 
     /**
@@ -38,6 +107,13 @@ final class Shortcodes
         $isLoggedIn  = $user->ID > 0;
         $emailValue  = $isLoggedIn ? (string) $user->user_email : '';
         $nameValue   = $isLoggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
+
+        // If the logged-in user already has an active subscription, point them
+        // at the Stripe Customer Portal instead of letting them double-buy.
+        $activeSub = $isLoggedIn && $emailValue !== '' ? self::lookupActiveSub( $emailValue ) : null;
+        if ( $activeSub !== null ) {
+            return self::renderActiveSubBlock( $activeSub );
+        }
 
         $base       = rtrim( (string) home_url( '/billing' ), '/' );
         $endpoints  = [
@@ -413,6 +489,70 @@ final class Shortcodes
             });
         })();
         </script>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * Look up the active subscription (active/trialing/past_due) for an email,
+     * if any. Returns a compact array for rendering, or null.
+     *
+     * @return array{tier:?string, price_label:string, current_period_end:?string}|null
+     */
+    private static function lookupActiveSub( string $email ): ?array
+    {
+        $pdo = \LGMS\Db::pdo();
+
+        $stmt = $pdo->prepare( 'SELECT id FROM customers WHERE email = ? AND deleted_at IS NULL LIMIT 1' );
+        $stmt->execute( [ $email ] );
+        $cid = $stmt->fetchColumn();
+        if ( $cid === false ) {
+            return null;
+        }
+
+        $stmt = $pdo->prepare(
+            "SELECT s.stripe_price_id, s.status, s.current_period_end, p.ref AS tier, pr.unit_amount_cents, pr.interval AS itv
+             FROM subscriptions s
+             JOIN prices   pr ON pr.stripe_price_id = s.stripe_price_id
+             JOIN products p  ON p.id = pr.product_id
+             WHERE s.customer_id = ?
+               AND s.status IN ('active','trialing','past_due')
+             ORDER BY s.id DESC LIMIT 1"
+        );
+        $stmt->execute( [ (int) $cid ] );
+        $row = $stmt->fetch( \PDO::FETCH_ASSOC );
+        if ( $row === false ) {
+            return null;
+        }
+
+        $cents = (int) $row['unit_amount_cents'];
+        $itv   = (string) ( $row['itv'] ?? '' );
+        $price = '$' . number_format( $cents / 100, $cents % 100 === 0 ? 0 : 2 ) . '/' . ( $itv ?: 'month' );
+
+        return [
+            'tier'               => $row['tier'] !== null ? (string) $row['tier'] : null,
+            'status'             => (string) $row['status'],
+            'price_label'        => $price,
+            'current_period_end' => $row['current_period_end'] !== null ? (string) $row['current_period_end'] : null,
+        ];
+    }
+
+    private static function renderActiveSubBlock( array $sub ): string
+    {
+        $tier   = esc_html( (string) ( $sub['tier'] ?? 'membership' ) );
+        $price  = esc_html( $sub['price_label'] );
+        $status = esc_html( $sub['status'] );
+        $end    = $sub['current_period_end'] !== null ? esc_html( substr( $sub['current_period_end'], 0, 10 ) ) : '';
+
+        ob_start();
+        ?>
+        <div class="lg-join lg-join--existing-sub" style="border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:20px;max-width:560px;">
+            <h3 style="margin-top:0;">You're already a member</h3>
+            <p>Active <strong><?php echo $tier; ?></strong> subscription &middot; <?php echo $price; ?> &middot; status <?php echo $status; ?><?php echo $end !== '' ? ' &middot; renews ' . $end : ''; ?></p>
+            <p style="margin-bottom:0;">
+                <?php echo do_shortcode( '[lg_manage_subscription label="Manage your subscription"]' ); ?>
+            </p>
+        </div>
         <?php
         return (string) ob_get_clean();
     }
