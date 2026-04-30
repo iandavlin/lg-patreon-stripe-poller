@@ -319,16 +319,59 @@
 }
 
 .lg-join__form {
+    max-width: 720px;
+    margin: 2em auto 0;
+    background: var(--lg-cream);
+    padding: 1.4em 1.6em;
+    border-radius: 8px;
+    border: 1px solid var(--lg-border);
+    animation: lg-join-slide-in 0.25s ease-out;
+}
+.lg-join__form[hidden] { display: none !important; }
+@keyframes lg-join-slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.lg-join__form-heading {
+    margin: 0 0 1em;
+    color: var(--lg-green-dark);
+    font-size: 1.25em;
+}
+.lg-join__form-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1em;
-    max-width: 720px;
-    margin: 0 auto 2em;
-    background: var(--lg-cream);
-    padding: 1.2em 1.4em;
-    border-radius: 8px;
-    border: 1px solid var(--lg-border);
 }
+.lg-join__form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6em;
+    margin-top: 1.2em;
+    align-items: center;
+}
+.lg-join__continue {
+    padding: 0.7em 1.4em;
+    border-radius: 6px;
+    border: 1px solid var(--lg-orange-dark);
+    background: var(--lg-orange);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background 0.15s;
+}
+.lg-join__continue:hover { background: var(--lg-orange-dark); }
+.lg-join__continue:disabled { opacity: 0.6; cursor: not-allowed; }
+.lg-join__back {
+    padding: 0.7em 1em;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--lg-muted);
+    cursor: pointer;
+    font-size: 0.95em;
+    text-decoration: underline;
+}
+.lg-join__back:hover { color: var(--lg-ink); }
 .lg-join__field label {
     display: flex;
     flex-direction: column;
@@ -389,6 +432,15 @@
     border-color: var(--lg-orange);
     border-width: 2px;
     padding: calc(1.6em - 1px) calc(1.4em - 1px) calc(1.4em - 1px);
+}
+.lg-join__tier.is-selected {
+    border-color: var(--lg-green-dark);
+    border-width: 2px;
+    box-shadow: 0 6px 18px rgba(45, 94, 62, 0.18);
+    padding: calc(1.6em - 1px) calc(1.4em - 1px) calc(1.4em - 1px);
+}
+.lg-join__tier.is-selected.is-popular {
+    border-color: var(--lg-green-dark);
 }
 .lg-join__tier-badge {
     position: absolute;

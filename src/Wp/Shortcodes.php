@@ -678,13 +678,20 @@ final class Shortcodes
                 <?php endif; ?>
             </header>
 
-            <div class="lg-join__form">
-                <div class="lg-join__field">
-                    <label>Email <input type="email" name="email" value="<?php echo $email; ?>" required></label>
-                </div>
-                <div class="lg-join__field">
-                    <label>Name <input type="text" name="name" value="<?php echo $name; ?>" required></label>
-                    <small>Used for your account / community profile.</small>
+            <div class="lg-join__tiers" data-lg-join-tiers>
+                <p class="lg-join__loading">Loading plans&hellip;</p>
+            </div>
+
+            <div class="lg-join__form" data-lg-join-form hidden>
+                <h3 class="lg-join__form-heading" data-lg-form-heading>Almost there</h3>
+                <div class="lg-join__form-grid">
+                    <div class="lg-join__field">
+                        <label>Email <input type="email" name="email" value="<?php echo $email; ?>" required></label>
+                    </div>
+                    <div class="lg-join__field">
+                        <label>Name <input type="text" name="name" value="<?php echo $name; ?>" required></label>
+                        <small>Used for your account / community profile.</small>
+                    </div>
                 </div>
                 <?php if ( $promoFromUrl !== '' ) : ?>
                     <div class="lg-join__promo">
@@ -692,10 +699,10 @@ final class Shortcodes
                     </div>
                     <input type="hidden" name="promo_code" value="<?php echo $promoEsc; ?>">
                 <?php endif; ?>
-            </div>
-
-            <div class="lg-join__tiers" data-lg-join-tiers>
-                <p class="lg-join__loading">Loading plans&hellip;</p>
+                <div class="lg-join__form-actions">
+                    <button type="button" class="lg-join__continue is-primary" data-lg-continue>Continue to checkout</button>
+                    <button type="button" class="lg-join__back" data-lg-back>Change plan</button>
+                </div>
             </div>
 
             <div class="lg-join__checkout" data-lg-join-checkout></div>
@@ -711,13 +718,19 @@ final class Shortcodes
             const CONFIG    = <?php echo $configJs; ?>;
 
             const tiersEl    = document.querySelector('[data-lg-join-tiers]');
+            const formEl     = document.querySelector('[data-lg-join-form]');
+            const formHeadEl = document.querySelector('[data-lg-form-heading]');
+            const continueBt = document.querySelector('[data-lg-continue]');
+            const backBt     = document.querySelector('[data-lg-back]');
             const checkoutEl = document.querySelector('[data-lg-join-checkout]');
             const errorEl    = document.querySelector('[data-lg-join-error]');
             const emailInput = document.querySelector('input[name="email"]');
             const nameInput  = document.querySelector('input[name="name"]');
 
-            let stripe        = null;
+            let stripe         = null;
             let mountedSession = null;
+            let pendingPriceId = null;
+            let pendingLabel   = '';
 
             function showError(msg){ errorEl.textContent = msg || ''; }
 
@@ -799,7 +812,7 @@ final class Shortcodes
                             btn.classList.add('is-primary');
                         }
                         btn.textContent = priceLabel(price);
-                        btn.addEventListener('click', () => startCheckout(price.stripe_price_id, btn));
+                        btn.addEventListener('click', () => selectPrice(price, prod, btn));
                         list.appendChild(btn);
                     });
                     card.appendChild(list);
@@ -807,23 +820,46 @@ final class Shortcodes
                 });
             }
 
-            async function startCheckout(priceId, btn){
+            // Step 1: customer picks a price → highlight selected card, reveal form panel.
+            function selectPrice(price, prod, btn){
+                showError('');
+                pendingPriceId = price.stripe_price_id;
+                pendingLabel   = priceLabel(price);
+
+                // Highlight selected card
+                document.querySelectorAll('.lg-join__tier').forEach(c => c.classList.remove('is-selected'));
+                const card = btn.closest('.lg-join__tier');
+                if (card) card.classList.add('is-selected');
+
+                formHeadEl.textContent = 'Continue to ' + prod.name + ' — ' + pendingLabel.replace(/^Subscribe\s*—\s*|^Pay once\s*—\s*/, '');
+                formEl.hidden = false;
+                // If checkout was already mounted (user clicked again), tear it down.
+                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; checkoutEl.innerHTML = ''; }
+                formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Auto-focus email if blank (anon user); otherwise focus continue button.
+                if (!emailInput.value.trim()) {
+                    emailInput.focus();
+                } else {
+                    continueBt.focus();
+                }
+            }
+
+            // Step 2: customer confirms → mount Stripe Checkout.
+            async function startCheckout(){
                 showError('');
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
+                if (!pendingPriceId) { showError('Pick a plan first.'); return; }
 
-                if (mountedSession) {
-                    try { mountedSession.destroy(); } catch (e) {}
-                    mountedSession = null;
-                }
+                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
                 checkoutEl.innerHTML = '';
-                btn.disabled = true;
-                btn.dataset.origText = btn.textContent;
-                btn.textContent = 'Loading…';
+                continueBt.disabled = true;
+                const orig = continueBt.textContent;
+                continueBt.textContent = 'Loading…';
 
                 try {
                     const body = {
-                        price_id: priceId,
+                        price_id: pendingPriceId,
                         email:    email,
                         name:     (nameInput.value || '').trim(),
                     };
@@ -842,10 +878,7 @@ final class Shortcodes
 
                     if (!stripe) {
                         const cfg = await (await fetch(ENDPOINTS.config)).json();
-                        if (!cfg.publishableKey) {
-                            showError('Stripe not configured.');
-                            return;
-                        }
+                        if (!cfg.publishableKey) { showError('Stripe not configured.'); return; }
                         stripe = Stripe(cfg.publishableKey);
                     }
 
@@ -855,10 +888,20 @@ final class Shortcodes
                 } catch (err) {
                     showError('Network error: ' + err.message);
                 } finally {
-                    btn.disabled    = false;
-                    btn.textContent = btn.dataset.origText || btn.textContent;
+                    continueBt.disabled    = false;
+                    continueBt.textContent = orig;
                 }
             }
+
+            // Wire step 2 buttons
+            continueBt.addEventListener('click', startCheckout);
+            backBt.addEventListener('click', function(){
+                formEl.hidden = true;
+                pendingPriceId = null;
+                document.querySelectorAll('.lg-join__tier').forEach(c => c.classList.remove('is-selected'));
+                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; checkoutEl.innerHTML = ''; }
+                tiersEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
 
             loadProducts();
         })();
