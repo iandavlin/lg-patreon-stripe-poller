@@ -130,6 +130,46 @@ final class UserProfile
             </table>
         <?php endif; ?>
 
+        <h3>Recent admin actions</h3>
+        <?php $log = self::adminActionLog( (int) $customer['id'] ); ?>
+        <?php if ( $log === [] ) : ?>
+            <p style="color:#666;"><em>None.</em></p>
+        <?php else : ?>
+            <table class="widefat striped" style="max-width:1100px;">
+                <thead><tr><th>When</th><th>Action</th><th>Subject</th><th>Reason</th><th>Result</th><th>By</th></tr></thead>
+                <tbody>
+                <?php foreach ( $log as $row ) :
+                    $actor = (int) ( $row['actor_wp_user'] ?? 0 );
+                    $actorName = $actor > 0 ? ( get_userdata( $actor )->user_login ?? "user#{$actor}" ) : '(system)';
+                    $subject = '';
+                    if ( ! empty( $row['sub_id'] ) ) {
+                        $subUrl  = $stripeBase . '/subscriptions/' . rawurlencode( (string) $row['sub_id'] );
+                        $subject = '<a href="' . esc_url( $subUrl ) . '" target="_blank" rel="noopener">' . esc_html( (string) $row['sub_id'] ) . '</a>';
+                    }
+                    if ( ! empty( $row['refund_id'] ) ) {
+                        $subject .= '<br><span style="color:#666;font-size:0.9em;">refund ' . esc_html( (string) $row['refund_id'] );
+                        if ( ! empty( $row['refund_amount'] ) ) {
+                            $subject .= ' (' . number_format( ( (int) $row['refund_amount'] ) / 100, 2 ) . ')';
+                        }
+                        $subject .= '</span>';
+                    }
+                    $statusHtml = ( (int) ( $row['success'] ?? 0 ) === 1 )
+                        ? '<span style="color:#080;">✓ ok</span>'
+                        : '<span style="color:#b00;">✗ failed</span><br><em style="font-size:0.85em;">' . esc_html( (string) ( $row['error_message'] ?? '' ) ) . '</em>';
+                ?>
+                    <tr>
+                        <td><?php echo esc_html( (string) $row['created_at'] ); ?></td>
+                        <td><?php echo esc_html( (string) $row['action'] ); ?></td>
+                        <td><?php echo $subject !== '' ? $subject : '<em>—</em>'; ?></td>
+                        <td><?php echo $row['reason'] !== null && $row['reason'] !== '' ? esc_html( (string) $row['reason'] ) : '<em>—</em>'; ?></td>
+                        <td><?php echo $statusHtml; ?></td>
+                        <td><?php echo esc_html( (string) $actorName ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+
         <h3>Block status</h3>
         <p>
             <?php if ( $blocked ) : ?>
@@ -252,5 +292,21 @@ final class UserProfile
         );
         $stmt->execute( [ $customerId ] );
         return $stmt->fetchAll( PDO::FETCH_ASSOC );
+    }
+
+    private static function adminActionLog( int $customerId, int $limit = 20 ): array
+    {
+        try {
+            $stmt = Db::pdo()->prepare(
+                'SELECT created_at, action, sub_id, refund_id, refund_amount, reason, success, error_message, actor_wp_user
+                 FROM admin_action_log WHERE customer_id = ? ORDER BY id DESC LIMIT ?'
+            );
+            $stmt->bindValue( 1, $customerId, PDO::PARAM_INT );
+            $stmt->bindValue( 2, $limit, PDO::PARAM_INT );
+            $stmt->execute();
+            return $stmt->fetchAll( PDO::FETCH_ASSOC );
+        } catch ( \Throwable $_ ) {
+            return [];
+        }
     }
 }

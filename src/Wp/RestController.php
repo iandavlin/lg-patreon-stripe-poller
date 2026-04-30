@@ -268,13 +268,20 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid sub_id required.' ], 400 );
         }
 
+        // Resolve customer_id from sub_id so log rows are correctly anchored.
+        $stmt = Db::pdo()->prepare( 'SELECT customer_id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1' );
+        $stmt->execute( [ $subId ] );
+        $customerId = (int) ( $stmt->fetchColumn() ?: 0 );
+
+        $action  = $refund ? 'cancel_and_refund' : 'cancel_subscription';
         $context = [ 'sub_id' => $subId, 'refund' => $refund ? 'yes' : 'no', 'immediate' => $immediate ? 'yes' : 'no', 'reason' => $reason ];
         $result  = [ 'ok' => true, 'sub_id' => $subId, 'actions' => [] ];
+        $refundId = null;
+        $refundAmt = null;
 
         try {
             $stripe = new StripeClient();
 
-            // 1. Cancel (or schedule cancellation at period end)
             if ( $immediate ) {
                 $sub = $stripe->cancelSubscription( $subId );
                 $result['actions'][] = 'canceled (immediate)';
@@ -284,7 +291,6 @@ final class RestController
             }
             $result['status'] = (string) ( $sub->status ?? 'unknown' );
 
-            // 2. Optionally refund the latest paid invoice's payment intent.
             if ( $refund ) {
                 $inv = $stripe->latestPaidInvoiceForSubscription( $subId );
                 if ( $inv === null ) {
@@ -299,15 +305,20 @@ final class RestController
                             $refundParams['reason']   = 'requested_by_customer';
                             $refundParams['metadata'] = [ 'admin_reason' => substr( $reason, 0, 500 ) ];
                         }
-                        $refundObj = $stripe->createRefund( $refundParams );
-                        $result['actions'][] = 'refunded ' . (string) ( $refundObj->id ?? 'unknown' ) . ' (' . (int) ( $refundObj->amount ?? 0 ) . ' cents)';
-                        $result['refund_id'] = (string) ( $refundObj->id ?? '' );
+                        $refundObj  = $stripe->createRefund( $refundParams );
+                        $refundId   = (string) ( $refundObj->id ?? '' );
+                        $refundAmt  = (int) ( $refundObj->amount ?? 0 );
+                        $result['actions'][]   = 'refunded ' . $refundId . ' (' . $refundAmt . ' cents)';
+                        $result['refund_id']   = $refundId;
                     }
                 }
             }
 
+            self::logAdminAction( $customerId, $action, $subId, $refundId, $refundAmt, $reason, true, null );
+
             return new WP_REST_Response( $result );
         } catch ( \Throwable $e ) {
+            self::logAdminAction( $customerId, $action, $subId, $refundId, $refundAmt, $reason, false, $e->getMessage() );
             AdminAlerts::sendFailureAlert( 'cancel-subscription', $context, $e );
             return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage(), 'partial' => $result['actions'] ], 500 );
         }
@@ -336,6 +347,7 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Customer not found' ], 404 );
         }
 
+        $action = $blocked ? 'block' : 'unblock';
         try {
             if ( $blocked ) {
                 $stmt = Db::pdo()->prepare(
@@ -348,6 +360,7 @@ final class RestController
                 );
                 $stmt->execute( [ $customerId ] );
             }
+            self::logAdminAction( $customerId, $action, null, null, null, $reason, true, null );
             $fresh = CustomerRepo::findById( $customerId );
             return new WP_REST_Response( [
                 'ok'           => true,
@@ -357,12 +370,52 @@ final class RestController
                 'block_reason' => $fresh['block_reason'] ?? null,
             ] );
         } catch ( \Throwable $e ) {
+            self::logAdminAction( $customerId, $action, null, null, null, $reason, false, $e->getMessage() );
             AdminAlerts::sendFailureAlert( 'block-customer', [
                 'customer_id' => $customerId,
                 'blocked'     => $blocked ? 'yes' : 'no',
                 'reason'      => $reason,
             ], $e );
             return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage() ], 500 );
+        }
+    }
+
+    /**
+     * Append a row to admin_action_log. Best-effort: never throws (we don't
+     * want logging failures to break the actual action).
+     */
+    private static function logAdminAction(
+        int $customerId,
+        string $action,
+        ?string $subId,
+        ?string $refundId,
+        ?int $refundAmount,
+        string $reason,
+        bool $success,
+        ?string $errorMessage
+    ): void {
+        try {
+            if ( $customerId <= 0 ) {
+                return;
+            }
+            $stmt = Db::pdo()->prepare(
+                'INSERT INTO admin_action_log
+                    (customer_id, actor_wp_user, action, sub_id, refund_id, refund_amount, reason, success, error_message)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute( [
+                $customerId,
+                get_current_user_id() ?: null,
+                $action,
+                $subId ?: null,
+                $refundId ?: null,
+                $refundAmount,
+                $reason !== '' ? $reason : null,
+                $success ? 1 : 0,
+                $errorMessage,
+            ] );
+        } catch ( \Throwable $_ ) {
+            // Swallow — logging is best-effort.
         }
     }
 }
