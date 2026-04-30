@@ -294,58 +294,293 @@ final class Shortcodes
      */
     public static function manageSubscription( $atts = [] ): string
     {
-        $atts = shortcode_atts( [
-            'label' => 'Manage your subscription',
-        ], (array) $atts, 'lg_manage_subscription' );
+        shortcode_atts( [], (array) $atts, 'lg_manage_subscription' );
 
         $user = wp_get_current_user();
         if ( $user->ID === 0 ) {
-            return '';
+            return '<p><em>Please sign in to manage your subscription.</em></p>';
         }
         $email = (string) $user->user_email;
         if ( $email === '' ) {
             return '';
         }
 
-        $endpoint = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/portal' );
-        $label    = esc_html( (string) $atts['label'] );
-        $emailEsc = esc_attr( $email );
+        $customer = \LGMS\Repos\CustomerRepo::findByEmail( $email );
+        if ( $customer === null ) {
+            return '<p><em>No membership record found on this account.</em></p>';
+        }
+
+        // Active subs from our DB.
+        $subs = [];
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                "SELECT stripe_subscription_id, stripe_price_id, status, current_period_start, current_period_end, cancel_at_period_end
+                 FROM subscriptions
+                 WHERE customer_id = ? AND status IN ('active','trialing','past_due')
+                 ORDER BY id DESC"
+            );
+            $stmt->execute( [ (int) $customer['id'] ] );
+            $subs = $stmt->fetchAll( \PDO::FETCH_ASSOC );
+        } catch ( \Throwable $_ ) {
+            $subs = [];
+        }
+
+        $portalEndpoint  = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/portal' );
+        $productsUrl     = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/products' );
+        $cancelEndpoint  = esc_url_raw( rest_url( 'lg-member-sync/v1/me/cancel-subscription' ) );
+        $switchEndpoint  = esc_url_raw( rest_url( 'lg-member-sync/v1/me/switch-plan' ) );
+        $nonce           = wp_create_nonce( 'wp_rest' );
+        $emailEsc        = esc_attr( $email );
 
         ob_start();
         ?>
         <div class="lg-manage-sub">
-            <button type="button" class="lg-manage-sub__btn" data-lg-manage-sub data-email="<?php echo $emailEsc; ?>"><?php echo $label; ?></button>
-            <span class="lg-manage-sub__error" data-lg-manage-sub-error style="color:#b00;margin-left:12px;"></span>
+            <?php if ( $subs === [] ) : ?>
+                <p>You don't have an active subscription right now.</p>
+                <p><a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">Pick a plan to get started &rarr;</a></p>
+            <?php else : ?>
+                <?php foreach ( $subs as $sub ) :
+                    $subId = (string) $sub['stripe_subscription_id'];
+                    $tier  = self::tierLabelForPrice( (string) $sub['stripe_price_id'] );
+                    $endsAt = (string) ( $sub['current_period_end'] ?? '' );
+                    $cape   = (int) ( $sub['cancel_at_period_end'] ?? 0 ) === 1;
+                ?>
+                <div class="lg-manage-sub__card" style="border:1px solid #ddd;border-radius:6px;padding:1em 1.2em;margin-bottom:1em;max-width:640px;" data-lg-sub="<?php echo esc_attr( $subId ); ?>">
+                    <h4 style="margin:0 0 0.5em;"><?php echo esc_html( $tier ?: 'Membership' ); ?></h4>
+                    <p style="margin:0.2em 0;color:#444;">
+                        Status: <strong><?php echo esc_html( (string) $sub['status'] ); ?></strong><br>
+                        <?php if ( $cape ) : ?>
+                            Ends on <strong><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong> &mdash; will not renew.
+                        <?php else : ?>
+                            Renews on <strong><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong>
+                        <?php endif; ?>
+                    </p>
+
+                    <div class="lg-manage-sub__actions" style="margin-top:1em;">
+                        <button type="button" class="lg-manage-sub__btn" data-lg-action="switch" data-lg-sub="<?php echo esc_attr( $subId ); ?>" data-lg-current-price="<?php echo esc_attr( (string) $sub['stripe_price_id'] ); ?>">Change plan</button>
+                        <?php if ( ! $cape ) : ?>
+                            <button type="button" class="lg-manage-sub__btn" data-lg-action="cancel" data-lg-sub="<?php echo esc_attr( $subId ); ?>" style="margin-left:8px;">Cancel subscription</button>
+                        <?php else : ?>
+                            <em style="margin-left:8px;color:#666;">Already scheduled for cancellation.</em>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="lg-manage-sub__switcher" data-lg-switcher style="display:none;margin-top:1em;border-top:1px solid #eee;padding-top:1em;">
+                        <p>Pick a plan to switch to:</p>
+                        <div data-lg-plans>Loading plans&hellip;</div>
+                    </div>
+
+                    <div class="lg-manage-sub__cancel" data-lg-canceller style="display:none;margin-top:1em;border-top:1px solid #eee;padding-top:1em;">
+                        <p>When would you like the cancellation to take effect?</p>
+                        <label style="display:block;margin:0.3em 0;">
+                            <input type="radio" name="cancel-when-<?php echo esc_attr( $subId ); ?>" value="period_end" checked>
+                            <strong>At the end of my current billing period</strong> (<?php echo esc_html( self::shortDate( $endsAt ) ); ?>) &mdash; recommended.
+                        </label>
+                        <label style="display:block;margin:0.3em 0;">
+                            <input type="radio" name="cancel-when-<?php echo esc_attr( $subId ); ?>" value="immediate">
+                            <strong>Immediately</strong> &mdash; access ends right away. (Refunds are reviewed via the <a href="<?php echo esc_url( home_url( '/request-refund/' ) ); ?>">refund request form</a>.)
+                        </label>
+                        <button type="button" class="lg-manage-sub__btn" data-lg-action="cancel-confirm" data-lg-sub="<?php echo esc_attr( $subId ); ?>">Confirm cancellation</button>
+                        <button type="button" class="lg-manage-sub__btn" data-lg-action="cancel-back" style="margin-left:6px;">Never mind</button>
+                    </div>
+
+                    <div class="lg-manage-sub__result" data-lg-result aria-live="polite" style="margin-top:1em;"></div>
+                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+
+            <p style="margin-top:1em;color:#444;">
+                Need to update your card or download invoices?
+                <a href="#" data-lg-portal>Open the Stripe billing portal &rarr;</a>
+                <span data-lg-portal-error style="color:#b00;margin-left:8px;"></span>
+            </p>
         </div>
+
         <script>
         (function(){
-            const btn = document.querySelector('[data-lg-manage-sub]');
-            const err = document.querySelector('[data-lg-manage-sub-error]');
-            if (!btn) return;
-            btn.addEventListener('click', async function(){
-                err.textContent = '';
-                btn.disabled = true;
-                const orig = btn.textContent;
-                btn.textContent = 'Loading…';
+            const PORTAL  = '<?php echo esc_js( $portalEndpoint ); ?>';
+            const PROD    = '<?php echo esc_js( $productsUrl ); ?>';
+            const CANCEL  = '<?php echo esc_js( $cancelEndpoint ); ?>';
+            const SWITCH  = '<?php echo esc_js( $switchEndpoint ); ?>';
+            const NONCE   = <?php echo wp_json_encode( $nonce ); ?>;
+            const EMAIL   = <?php echo wp_json_encode( $email ); ?>;
+
+            let products = null;
+
+            async function loadProducts() {
+                if (products !== null) return products;
                 try {
-                    const res = await fetch('<?php echo esc_js( $endpoint ); ?>', {
-                        method:  'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body:    JSON.stringify({ email: btn.dataset.email }),
+                    const res = await fetch(PROD);
+                    products = await res.json();
+                } catch (e) {
+                    products = [];
+                }
+                return products;
+            }
+
+            function showResult(card, html, isError) {
+                const el = card.querySelector('[data-lg-result]');
+                el.innerHTML = '<div style="padding:8px 12px;border-radius:4px;background:' + (isError ? '#fde8e8' : '#e8f7ec') + ';color:' + (isError ? '#900' : '#080') + ';">' + html + '</div>';
+            }
+
+            async function postJson(url, payload) {
+                const res = await fetch(url, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': NONCE },
+                    body:    JSON.stringify(payload),
+                });
+                return { status: res.status, body: await res.json() };
+            }
+
+            // Cancel button → reveal cancel section
+            document.querySelectorAll('[data-lg-action="cancel"]').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    const card = btn.closest('[data-lg-sub]');
+                    card.querySelector('[data-lg-canceller]').style.display = 'block';
+                    card.querySelector('[data-lg-switcher]').style.display = 'none';
+                });
+            });
+            document.querySelectorAll('[data-lg-action="cancel-back"]').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    btn.closest('[data-lg-canceller]').style.display = 'none';
+                });
+            });
+
+            // Cancel confirm
+            document.querySelectorAll('[data-lg-action="cancel-confirm"]').forEach(function(btn){
+                btn.addEventListener('click', async function(){
+                    const card = btn.closest('[data-lg-sub]');
+                    const subId = btn.dataset.lgSub;
+                    const when = card.querySelector('input[name="cancel-when-' + subId + '"]:checked').value;
+                    const immediate = when === 'immediate';
+                    if (!confirm('Cancel this subscription ' + (immediate ? 'immediately (you will lose access right away)' : 'at the end of your current billing period') + '?')) return;
+                    btn.disabled = true;
+                    btn.textContent = 'Working...';
+                    try {
+                        const { status, body } = await postJson(CANCEL, { sub_id: subId, immediate: immediate });
+                        if (status === 200 && body.ok) {
+                            showResult(card, body.message, false);
+                            card.querySelector('[data-lg-canceller]').style.display = 'none';
+                            // Visually mark the card as scheduled-for-cancellation.
+                            card.style.opacity = '0.7';
+                        } else {
+                            showResult(card, body.error || 'Could not cancel.', true);
+                            btn.disabled = false;
+                            btn.textContent = 'Confirm cancellation';
+                        }
+                    } catch (err) {
+                        showResult(card, 'Network error: ' + err.message, true);
+                        btn.disabled = false;
+                        btn.textContent = 'Confirm cancellation';
+                    }
+                });
+            });
+
+            // Switch plan button → load products + reveal picker
+            document.querySelectorAll('[data-lg-action="switch"]').forEach(function(btn){
+                btn.addEventListener('click', async function(){
+                    const card = btn.closest('[data-lg-sub]');
+                    const switcher = card.querySelector('[data-lg-switcher]');
+                    const plansEl  = card.querySelector('[data-lg-plans]');
+                    switcher.style.display = 'block';
+                    card.querySelector('[data-lg-canceller]').style.display = 'none';
+                    const list = await loadProducts();
+                    const currentPriceId = btn.dataset.lgCurrentPrice;
+                    const subId = btn.dataset.lgSub;
+
+                    // Flatten product → price options. Skip one-time prices (no recurring interval).
+                    const rows = [];
+                    (Array.isArray(list) ? list : []).forEach(p => {
+                        (p.prices || []).forEach(pr => {
+                            if (!pr.interval) return; // skip one-time
+                            rows.push({
+                                product:  p.name,
+                                priceId:  pr.id,
+                                interval: pr.interval,
+                                amount:   pr.unit_amount,
+                                currency: (pr.currency || 'USD').toUpperCase(),
+                                isCurrent: pr.id === currentPriceId,
+                            });
+                        });
                     });
-                    const data = await res.json();
-                    if (data.url) {
-                        window.open(data.url, '_blank', 'noopener');
+                    if (rows.length === 0) {
+                        plansEl.innerHTML = '<em>No plans available.</em>';
                         return;
                     }
-                    err.textContent = data.error || 'Could not open portal.';
-                } catch (e) {
-                    err.textContent = 'Network error: ' + e.message;
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = orig;
-                }
+                    plansEl.innerHTML = rows.map(r => {
+                        const dollars = (r.amount / 100).toFixed(2);
+                        const label = r.product + ' &mdash; $' + dollars + '/' + r.interval + (r.isCurrent ? ' (current)' : '');
+                        const disabled = r.isCurrent ? ' disabled' : '';
+                        return '<label style="display:block;padding:0.3em 0;">' +
+                            '<input type="radio" name="newprice-' + subId + '" value="' + r.priceId + '"' + disabled + '> ' +
+                            label + '</label>';
+                    }).join('') +
+                    '<div style="margin-top:1em;">' +
+                        '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-confirm" data-lg-sub="' + subId + '">Confirm change</button> ' +
+                        '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-back">Never mind</button>' +
+                        '<p style="color:#666;margin-top:0.6em;font-size:0.9em;">Stripe will adjust your next invoice for the prorated difference.</p>' +
+                    '</div>';
+
+                    // Wire confirm + back buttons inside the dynamically inserted block.
+                    plansEl.parentElement.querySelector('[data-lg-action="switch-back"]').addEventListener('click', function(){
+                        switcher.style.display = 'none';
+                    });
+                    plansEl.parentElement.querySelector('[data-lg-action="switch-confirm"]').addEventListener('click', async function(ev){
+                        const picked = card.querySelector('input[name="newprice-' + subId + '"]:checked');
+                        if (!picked) {
+                            showResult(card, 'Pick a plan first.', true);
+                            return;
+                        }
+                        if (!confirm('Switch to this plan? Your next invoice will reflect the prorated difference.')) return;
+                        ev.target.disabled = true;
+                        ev.target.textContent = 'Working...';
+                        try {
+                            const { status, body } = await postJson(SWITCH, { sub_id: subId, new_price_id: picked.value });
+                            if (status === 200 && body.ok) {
+                                showResult(card, body.message + ' Reload the page to see the new plan.', false);
+                                switcher.style.display = 'none';
+                            } else {
+                                showResult(card, body.error || 'Could not switch plans.', true);
+                                ev.target.disabled = false;
+                                ev.target.textContent = 'Confirm change';
+                            }
+                        } catch (err) {
+                            showResult(card, 'Network error: ' + err.message, true);
+                            ev.target.disabled = false;
+                            ev.target.textContent = 'Confirm change';
+                        }
+                    });
+                });
             });
+
+            // Stripe portal link (for card / invoice management).
+            const portalLink = document.querySelector('[data-lg-portal]');
+            const portalErr  = document.querySelector('[data-lg-portal-error]');
+            if (portalLink) {
+                portalLink.addEventListener('click', async function(e){
+                    e.preventDefault();
+                    portalErr.textContent = '';
+                    portalLink.textContent = 'Opening...';
+                    try {
+                        const res = await fetch(PORTAL, {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({ email: EMAIL }),
+                        });
+                        const data = await res.json();
+                        if (data.url) {
+                            window.open(data.url, '_blank', 'noopener');
+                            portalLink.textContent = 'Open the Stripe billing portal →';
+                            return;
+                        }
+                        portalErr.textContent = data.error || 'Could not open portal.';
+                    } catch (err) {
+                        portalErr.textContent = 'Network error: ' + err.message;
+                    } finally {
+                        portalLink.textContent = 'Open the Stripe billing portal →';
+                    }
+                });
+            }
         })();
         </script>
         <?php

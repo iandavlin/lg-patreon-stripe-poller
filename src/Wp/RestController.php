@@ -76,6 +76,29 @@ final class RestController
             'callback'            => [ self::class, 'adminRefundGiftPurchase' ],
             'permission_callback' => [ self::class, 'authAdmin' ],
         ] );
+
+        // Customer self-service: cancel + switch plan, gated by WP login and
+        // the customer's ownership of the subscription (verified per call).
+        register_rest_route( self::NAMESPACE, '/me/cancel-subscription', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meCancelSubscription' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/me/switch-plan', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meSwitchPlan' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+    }
+
+    public static function authLoggedInUser(WP_REST_Request $req): bool
+    {
+        if ( ! is_user_logged_in() ) {
+            return false;
+        }
+        $nonce = (string) $req->get_header( 'x-wp-nonce' );
+        return $nonce !== '' && wp_verify_nonce( $nonce, 'wp_rest' ) !== false;
     }
 
     /**
@@ -525,6 +548,135 @@ final class RestController
             AdminAlerts::sendFailureAlert( 'refund-gift-purchase', $context, $e );
             return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage(), 'partial' => $result['actions'] ], 500 );
         }
+    }
+
+    /**
+     * POST /me/cancel-subscription
+     * Body: { sub_id: string, immediate?: bool }
+     *
+     * Customer-initiated cancel. Verifies ownership before calling Stripe.
+     * Default is cancel-at-period-end so the customer keeps the access they
+     * already paid for; passing immediate=true cuts access right away.
+     */
+    public static function meCancelSubscription(WP_REST_Request $req): WP_REST_Response
+    {
+        $body      = (array) $req->get_json_params();
+        $subId     = trim( (string) ( $body['sub_id'] ?? '' ) );
+        $immediate = (bool) ( $body['immediate'] ?? false );
+
+        if ( $subId === '' || strpos( $subId, 'sub_' ) !== 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid sub_id required.' ], 400 );
+        }
+
+        // Verify ownership: sub must belong to the customer with this email.
+        $owner = self::resolveOwnedSub( $subId );
+        if ( $owner === null ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Subscription not found or not yours.' ], 403 );
+        }
+
+        try {
+            $stripe = new StripeClient();
+            if ( $immediate ) {
+                $sub = $stripe->cancelSubscription( $subId );
+                $msg = 'Your subscription has been canceled. Access will end shortly.';
+            } else {
+                $sub = $stripe->updateSubscription( $subId, [ 'cancel_at_period_end' => true ] );
+                $msg = 'Your subscription will end at the close of the current billing period.';
+            }
+            self::logAdminAction( $owner['customer_id'], 'self_cancel' . ( $immediate ? '_immediate' : '_at_period_end' ), $subId, null, null, '', true, null );
+            return new WP_REST_Response( [ 'ok' => true, 'message' => $msg, 'status' => (string) ( $sub->status ?? 'unknown' ) ] );
+        } catch ( \Throwable $e ) {
+            self::logAdminAction( $owner['customer_id'], 'self_cancel', $subId, null, null, '', false, $e->getMessage() );
+            AdminAlerts::sendFailureAlert( 'self-cancel-subscription', [ 'sub_id' => $subId, 'customer_id' => $owner['customer_id'], 'immediate' => $immediate ? 'yes' : 'no' ], $e );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not cancel right now. Our team has been notified -- please email us if this persists.' ], 500 );
+        }
+    }
+
+    /**
+     * POST /me/switch-plan
+     * Body: { sub_id: string, new_price_id: string }
+     *
+     * Customer-initiated plan change. Verifies ownership, fetches the sub
+     * from Stripe to get the subscription_item ID, then updates with the
+     * new price. Stripe handles proration automatically.
+     */
+    public static function meSwitchPlan(WP_REST_Request $req): WP_REST_Response
+    {
+        $body       = (array) $req->get_json_params();
+        $subId      = trim( (string) ( $body['sub_id']       ?? '' ) );
+        $newPriceId = trim( (string) ( $body['new_price_id'] ?? '' ) );
+
+        if ( $subId === '' || strpos( $subId, 'sub_' ) !== 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid sub_id required.' ], 400 );
+        }
+        if ( $newPriceId === '' || strpos( $newPriceId, 'price_' ) !== 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid new_price_id required.' ], 400 );
+        }
+
+        $owner = self::resolveOwnedSub( $subId );
+        if ( $owner === null ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Subscription not found or not yours.' ], 403 );
+        }
+
+        // Refuse no-op (selecting current price).
+        if ( $owner['stripe_price_id'] === $newPriceId ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'You are already on this plan.' ], 400 );
+        }
+
+        try {
+            $stripe = new StripeClient();
+            $sub    = $stripe->retrieveSubscription( $subId );
+            $items  = (array) ( $sub->items->data ?? [] );
+            if ( $items === [] ) {
+                throw new \RuntimeException( 'Subscription has no items.' );
+            }
+            $itemId = (string) ( $items[0]->id ?? '' );
+            if ( $itemId === '' ) {
+                throw new \RuntimeException( 'Could not determine subscription item id.' );
+            }
+            $updated = $stripe->updateSubscription( $subId, [
+                'items' => [
+                    [ 'id' => $itemId, 'price' => $newPriceId ],
+                ],
+                'proration_behavior' => 'create_prorations',
+            ] );
+            self::logAdminAction( $owner['customer_id'], 'self_switch_plan', $subId, null, null, "from {$owner['stripe_price_id']} to {$newPriceId}", true, null );
+            return new WP_REST_Response( [
+                'ok'      => true,
+                'message' => 'Your plan has been updated. Stripe will adjust your next invoice for the prorated difference.',
+                'status'  => (string) ( $updated->status ?? 'unknown' ),
+            ] );
+        } catch ( \Throwable $e ) {
+            self::logAdminAction( $owner['customer_id'], 'self_switch_plan', $subId, null, null, "to {$newPriceId}", false, $e->getMessage() );
+            AdminAlerts::sendFailureAlert( 'self-switch-plan', [ 'sub_id' => $subId, 'customer_id' => $owner['customer_id'], 'new_price_id' => $newPriceId ], $e );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not switch plans right now. Our team has been notified -- please email us if this persists.' ], 500 );
+        }
+    }
+
+    /**
+     * Returns the {customer_id, stripe_price_id} for a subscription if it
+     * belongs to the currently logged-in user, or null otherwise.
+     */
+    private static function resolveOwnedSub( string $subId ): ?array
+    {
+        $user = wp_get_current_user();
+        if ( ! $user || $user->ID <= 0 ) {
+            return null;
+        }
+        $email = (string) $user->user_email;
+        if ( $email === '' ) {
+            return null;
+        }
+        $stmt = Db::pdo()->prepare(
+            "SELECT s.customer_id, s.stripe_price_id, s.status
+             FROM subscriptions s
+             JOIN customers c ON c.id = s.customer_id
+             WHERE s.stripe_subscription_id = ? AND c.email = ?
+             LIMIT 1"
+        );
+        $stmt->execute( [ $subId, $email ] );
+        $row = $stmt->fetch( PDO::FETCH_ASSOC );
+        return $row ?: null;
     }
 
     /**
