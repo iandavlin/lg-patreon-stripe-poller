@@ -350,9 +350,9 @@ final class Shortcodes
                     <p style="margin:0.2em 0;color:#444;">
                         Status: <strong><?php echo esc_html( (string) $sub['status'] ); ?></strong><br>
                         <?php if ( $cape ) : ?>
-                            Ends on <strong><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong> &mdash; will not renew.
+                            Ends on <strong data-lg-renew-date><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong> &mdash; will not renew.
                         <?php else : ?>
-                            Renews on <strong><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong>
+                            Renews on <strong data-lg-renew-date><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong>
                         <?php endif; ?>
                     </p>
 
@@ -508,6 +508,7 @@ final class Shortcodes
                         plansEl.innerHTML = '<em>No plans available.</em>';
                         return;
                     }
+                    const renewDate = card.querySelector('[data-lg-renew-date]')?.textContent || 'your next renewal date';
                     plansEl.innerHTML = rows.map(r => {
                         const dollars = (r.amount / 100).toFixed(2);
                         const label = r.product + ' &mdash; $' + dollars + '/' + r.interval + (r.isCurrent ? ' (current)' : '');
@@ -516,29 +517,42 @@ final class Shortcodes
                             '<input type="radio" name="newprice-' + subId + '" value="' + r.priceId + '"' + disabled + '> ' +
                             label + '</label>';
                     }).join('') +
+                    '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;">' +
+                        '<legend>When should the change take effect?</legend>' +
+                        '<label style="display:block;margin:0.3em 0;">' +
+                            '<input type="radio" name="timing-' + subId + '" value="now" checked> ' +
+                            '<strong>Switch now</strong> &mdash; you will be billed the prorated difference today and your access changes immediately.' +
+                        '</label>' +
+                        '<label style="display:block;margin:0.3em 0;">' +
+                            '<input type="radio" name="timing-' + subId + '" value="period_end"> ' +
+                            '<strong>Switch on ' + renewDate + '</strong> &mdash; no charge today; the change takes effect at your next renewal.' +
+                        '</label>' +
+                    '</fieldset>' +
                     '<div style="margin-top:1em;">' +
                         '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-confirm" data-lg-sub="' + subId + '">Confirm change</button> ' +
                         '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-back">Never mind</button>' +
-                        '<p style="color:#666;margin-top:0.6em;font-size:0.9em;">Stripe will adjust your next invoice for the prorated difference.</p>' +
                     '</div>';
 
-                    // Wire confirm + back buttons inside the dynamically inserted block.
                     plansEl.parentElement.querySelector('[data-lg-action="switch-back"]').addEventListener('click', function(){
                         switcher.style.display = 'none';
                     });
                     plansEl.parentElement.querySelector('[data-lg-action="switch-confirm"]').addEventListener('click', async function(ev){
                         const picked = card.querySelector('input[name="newprice-' + subId + '"]:checked');
+                        const timing = (card.querySelector('input[name="timing-' + subId + '"]:checked') || {}).value || 'now';
                         if (!picked) {
                             showResult(card, 'Pick a plan first.', true);
                             return;
                         }
-                        if (!confirm('Switch to this plan? Your next invoice will reflect the prorated difference.')) return;
+                        const msg = timing === 'now'
+                            ? 'Switch to this plan now and be charged the prorated difference today?'
+                            : 'Schedule the switch for ' + renewDate + '? You will not be charged today.';
+                        if (!confirm(msg)) return;
                         ev.target.disabled = true;
                         ev.target.textContent = 'Working...';
                         try {
-                            const { status, body } = await postJson(SWITCH, { sub_id: subId, new_price_id: picked.value });
+                            const { status, body } = await postJson(SWITCH, { sub_id: subId, new_price_id: picked.value, timing: timing });
                             if (status === 200 && body.ok) {
-                                showResult(card, body.message + ' Reload the page to see the new plan.', false);
+                                showResult(card, body.message + ' Reload the page to see the updated state.', false);
                                 switcher.style.display = 'none';
                             } else {
                                 showResult(card, body.error || 'Could not switch plans.', true);

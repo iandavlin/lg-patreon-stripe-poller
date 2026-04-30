@@ -92,4 +92,14 @@ final class Client
     {
         return $this->sdk->refunds->create( $params );
     }
+
+    public function createSubscriptionSchedule(array $params): object
+    {
+        return $this->sdk->subscriptionSchedules->create( $params );
+    }
+
+    public function updateSubscriptionSchedule(string $id, array $params): object
+    {
+        return $this->sdk->subscriptionSchedules->update( $id, $params );
+    }
 }

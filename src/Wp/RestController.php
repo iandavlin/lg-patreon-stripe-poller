@@ -605,6 +605,8 @@ final class RestController
         $body       = (array) $req->get_json_params();
         $subId      = trim( (string) ( $body['sub_id']       ?? '' ) );
         $newPriceId = trim( (string) ( $body['new_price_id'] ?? '' ) );
+        $timingRaw  = trim( (string) ( $body['timing']       ?? 'now' ) );
+        $timing     = $timingRaw === 'period_end' ? 'period_end' : 'now';
 
         if ( $subId === '' || strpos( $subId, 'sub_' ) !== 0 ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid sub_id required.' ], 400 );
@@ -618,37 +620,86 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Subscription not found or not yours.' ], 403 );
         }
 
-        // Refuse no-op (selecting current price).
         if ( $owner['stripe_price_id'] === $newPriceId ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'You are already on this plan.' ], 400 );
         }
 
+        $action = 'self_switch_plan_' . $timing;
+        $reason = "from {$owner['stripe_price_id']} to {$newPriceId} (timing={$timing})";
+
         try {
             $stripe = new StripeClient();
-            $sub    = $stripe->retrieveSubscription( $subId );
-            $items  = (array) ( $sub->items->data ?? [] );
-            if ( $items === [] ) {
-                throw new \RuntimeException( 'Subscription has no items.' );
+
+            if ( $timing === 'now' ) {
+                // Immediate switch + invoice for prorated difference.
+                $sub    = $stripe->retrieveSubscription( $subId );
+                $items  = (array) ( $sub->items->data ?? [] );
+                if ( $items === [] ) {
+                    throw new \RuntimeException( 'Subscription has no items.' );
+                }
+                $itemId = (string) ( $items[0]->id ?? '' );
+                if ( $itemId === '' ) {
+                    throw new \RuntimeException( 'Could not determine subscription item id.' );
+                }
+                $updated = $stripe->updateSubscription( $subId, [
+                    'items' => [
+                        [ 'id' => $itemId, 'price' => $newPriceId ],
+                    ],
+                    'proration_behavior' => 'always_invoice',
+                ] );
+                $msg = 'Your plan has been updated and you have been billed the prorated difference for the rest of this period.';
+                self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, true, null );
+                return new WP_REST_Response( [
+                    'ok'      => true,
+                    'message' => $msg,
+                    'status'  => (string) ( $updated->status ?? 'unknown' ),
+                ] );
             }
-            $itemId = (string) ( $items[0]->id ?? '' );
-            if ( $itemId === '' ) {
-                throw new \RuntimeException( 'Could not determine subscription item id.' );
+
+            // timing === 'period_end': use Subscription Schedule to defer change.
+            $schedule = $stripe->createSubscriptionSchedule( [ 'from_subscription' => $subId ] );
+
+            // Re-emit existing phases verbatim, then append the new phase.
+            $phases = [];
+            foreach ( (array) ( $schedule->phases ?? [] ) as $p ) {
+                $items = [];
+                foreach ( (array) ( $p->items ?? [] ) as $it ) {
+                    $price = $it->price ?? null;
+                    $priceId = is_string( $price ) ? $price : ( is_object( $price ) ? (string) $price->id : '' );
+                    if ( $priceId === '' ) {
+                        continue;
+                    }
+                    $items[] = [
+                        'price'    => $priceId,
+                        'quantity' => (int) ( $it->quantity ?? 1 ),
+                    ];
+                }
+                $phases[] = [
+                    'items'      => $items,
+                    'start_date' => (int) $p->start_date,
+                    'end_date'   => (int) $p->end_date,
+                ];
             }
-            $updated = $stripe->updateSubscription( $subId, [
-                'items' => [
-                    [ 'id' => $itemId, 'price' => $newPriceId ],
-                ],
-                'proration_behavior' => 'create_prorations',
+            $phases[] = [
+                'items'      => [ [ 'price' => $newPriceId, 'quantity' => 1 ] ],
+                'iterations' => 1,
+            ];
+
+            $stripe->updateSubscriptionSchedule( (string) $schedule->id, [
+                'phases'       => $phases,
+                'end_behavior' => 'release',
             ] );
-            self::logAdminAction( $owner['customer_id'], 'self_switch_plan', $subId, null, null, "from {$owner['stripe_price_id']} to {$newPriceId}", true, null );
+
+            $msg = 'Plan switch scheduled. Your current plan continues until your next renewal, then your new plan kicks in -- no charge today.';
+            self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, true, null );
             return new WP_REST_Response( [
-                'ok'      => true,
-                'message' => 'Your plan has been updated. Stripe will adjust your next invoice for the prorated difference.',
-                'status'  => (string) ( $updated->status ?? 'unknown' ),
+                'ok'          => true,
+                'message'     => $msg,
+                'schedule_id' => (string) $schedule->id,
             ] );
         } catch ( \Throwable $e ) {
-            self::logAdminAction( $owner['customer_id'], 'self_switch_plan', $subId, null, null, "to {$newPriceId}", false, $e->getMessage() );
-            AdminAlerts::sendFailureAlert( 'self-switch-plan', [ 'sub_id' => $subId, 'customer_id' => $owner['customer_id'], 'new_price_id' => $newPriceId ], $e );
+            self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, false, $e->getMessage() );
+            AdminAlerts::sendFailureAlert( 'self-switch-plan', [ 'sub_id' => $subId, 'customer_id' => $owner['customer_id'], 'new_price_id' => $newPriceId, 'timing' => $timing ], $e );
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not switch plans right now. Our team has been notified -- please email us if this persists.' ], 500 );
         }
     }
