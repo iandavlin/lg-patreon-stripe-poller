@@ -21,6 +21,272 @@ final class Shortcodes
         add_shortcode( 'lg_redeem_gift',         [ self::class, 'redeemGift'         ] );
         add_shortcode( 'lg_join',                [ self::class, 'join'               ] );
         add_shortcode( 'lg_manage_subscription', [ self::class, 'manageSubscription' ] );
+        add_shortcode( 'lg_gift',                [ self::class, 'gift'               ] );
+    }
+
+    /**
+     * [lg_gift] — gift purchase flow. Buyer picks tier, qty (>=2), pays.
+     * Codes are emailed to the buyer after Stripe completes the charge;
+     * each code can be passed on and redeemed independently via [lg_redeem_gift].
+     *
+     * Independent of [lg_join] — an active subscriber can buy gifts without
+     * blocking. Codes never expire.
+     */
+    public static function gift( $atts = [] ): string
+    {
+        $atts = shortcode_atts( [
+            'heading' => 'Give the gift of Looth',
+        ], (array) $atts, 'lg_gift' );
+
+        $user       = wp_get_current_user();
+        $isLoggedIn = $user->ID > 0;
+        $emailValue = $isLoggedIn ? (string) $user->user_email : '';
+        $nameValue  = $isLoggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
+
+        $base      = rtrim( (string) home_url( '/billing' ), '/' );
+        $endpoints = [
+            'products' => esc_url_raw( $base . '/v1/products' ),
+            'config'   => esc_url_raw( $base . '/v1/config' ),
+            'checkout' => esc_url_raw( $base . '/v1/checkout' ),
+        ];
+
+        $heading     = esc_html( (string) $atts['heading'] );
+        $email       = esc_attr( $emailValue );
+        $name        = esc_attr( $nameValue );
+        $endpointsJs = wp_json_encode( $endpoints );
+
+        ob_start();
+        ?>
+        <div class="lg-gift">
+            <h2 class="lg-gift__heading"><?php echo $heading; ?></h2>
+            <p class="lg-gift__intro">
+                Buy gift codes to share with anyone. Each code grants a 1-year membership
+                when redeemed. Bulk discounts kick in at 10, 20, and 50 seats.
+            </p>
+
+            <div class="lg-gift__form">
+                <fieldset class="lg-gift__tiers" data-lg-gift-tiers>
+                    <legend>Tier</legend>
+                    <p class="lg-gift__loading">Loading tiers…</p>
+                </fieldset>
+
+                <div class="lg-gift__field">
+                    <label>Quantity (seats)
+                        <input type="number" name="quantity" value="2" min="2" step="1" required style="width:120px;">
+                    </label>
+                </div>
+
+                <div class="lg-gift__field">
+                    <label>Your email
+                        <input type="email" name="email" value="<?php echo $email; ?>" required>
+                    </label>
+                    <small style="opacity:.7;">Codes will be sent here.</small>
+                </div>
+
+                <div class="lg-gift__field">
+                    <label>Your name <em style="opacity:.6;">(optional)</em>
+                        <input type="text" name="name" value="<?php echo $name; ?>">
+                    </label>
+                </div>
+            </div>
+
+            <div class="lg-gift__summary" data-lg-gift-summary
+                style="margin:16px 0;padding:12px 16px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;max-width:480px;font-family:monospace;">
+                <div class="lg-gift__summary-line" data-lg-gift-line-sub>—</div>
+                <div class="lg-gift__summary-line" data-lg-gift-line-disc>—</div>
+                <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0;">
+                <div class="lg-gift__summary-line" data-lg-gift-line-total style="font-weight:bold;">—</div>
+            </div>
+
+            <p class="lg-gift__no-expiry" style="opacity:.7;font-size:0.9em;">
+                ⓘ Codes never expire — your recipient(s) can redeem whenever they're ready.
+            </p>
+
+            <button type="button" class="lg-gift__submit" data-lg-gift-submit
+                style="padding:10px 20px;cursor:pointer;">
+                Continue to checkout
+            </button>
+
+            <div class="lg-gift__error" data-lg-gift-error style="color:#b00;margin-top:12px;" aria-live="polite"></div>
+
+            <div class="lg-gift__checkout" data-lg-gift-checkout style="margin-top:24px;"></div>
+        </div>
+
+        <script src="https://js.stripe.com/v3/"></script>
+        <script>
+        (function(){
+            const ENDPOINTS = <?php echo $endpointsJs; ?>;
+            const tiersEl    = document.querySelector('[data-lg-gift-tiers]');
+            const summarySub  = document.querySelector('[data-lg-gift-line-sub]');
+            const summaryDisc = document.querySelector('[data-lg-gift-line-disc]');
+            const summaryTot  = document.querySelector('[data-lg-gift-line-total]');
+            const submitBtn   = document.querySelector('[data-lg-gift-submit]');
+            const errorEl     = document.querySelector('[data-lg-gift-error]');
+            const checkoutEl  = document.querySelector('[data-lg-gift-checkout]');
+            const qtyInput    = document.querySelector('input[name="quantity"]');
+            const emailInput  = document.querySelector('input[name="email"]');
+            const nameInput   = document.querySelector('input[name="name"]');
+
+            let products       = [];
+            let bulkTiers      = [];
+            let stripe         = null;
+            let mountedSession = null;
+
+            function dollars(cents){
+                return '$' + (cents / 100).toFixed(2);
+            }
+
+            function showError(msg){ errorEl.textContent = msg || ''; }
+
+            function selectedTier(){
+                const radio = tiersEl.querySelector('input[name="tier"]:checked');
+                if (!radio) return null;
+                const productId = radio.value;
+                return products.find(p => p.stripe_product_id === productId) || null;
+            }
+
+            function pickAnnualPrice(prod){
+                if (!prod) return null;
+                return prod.prices.find(p => p.type === 'recurring' && p.interval === 'year') || null;
+            }
+
+            function discountPctFor(qty){
+                let pct = 0;
+                bulkTiers.forEach(t => { if (qty >= t.min_qty && t.discount_pct > pct) pct = t.discount_pct; });
+                return pct;
+            }
+
+            function nextTierHint(qty){
+                const upcoming = bulkTiers.filter(t => qty < t.min_qty).sort((a,b) => a.min_qty - b.min_qty)[0];
+                if (!upcoming) return '';
+                const need = upcoming.min_qty - qty;
+                return ' (need ' + need + ' more for ' + upcoming.discount_pct + '% off)';
+            }
+
+            function recompute(){
+                const tier  = selectedTier();
+                const price = pickAnnualPrice(tier);
+                const qty   = Math.max(2, parseInt(qtyInput.value, 10) || 2);
+                if (!price) {
+                    summarySub.textContent  = '—';
+                    summaryDisc.textContent = '—';
+                    summaryTot.textContent  = '—';
+                    return;
+                }
+                const subCents   = price.unit_amount_cents * qty;
+                const pct        = discountPctFor(qty);
+                const discCents  = Math.round(subCents * pct / 100);
+                const totalCents = subCents - discCents;
+
+                summarySub.textContent  = qty + ' × ' + dollars(price.unit_amount_cents) + ' = ' + dollars(subCents);
+                summaryDisc.textContent = 'Bulk discount: ' + (pct > 0 ? '-' + dollars(discCents) + ' (' + pct + '% off)' : '$0.00' + nextTierHint(qty));
+                summaryTot.textContent  = 'Total: ' + dollars(totalCents);
+            }
+
+            async function loadProducts(){
+                showError('');
+                try {
+                    const res  = await fetch(ENDPOINTS.products);
+                    const json = await res.json();
+                    products  = json.products || [];
+                    bulkTiers = json.bulk_discount_tiers || [];
+                    renderTiers();
+                    recompute();
+                } catch (err) {
+                    showError('Failed to load tiers: ' + err.message);
+                }
+            }
+
+            function renderTiers(){
+                tiersEl.innerHTML = '';
+                const legend = document.createElement('legend');
+                legend.textContent = 'Tier';
+                tiersEl.appendChild(legend);
+
+                products.forEach(function(prod, idx){
+                    const price = pickAnnualPrice(prod);
+                    if (!price) return;
+
+                    const id = 'lg-gift-tier-' + prod.stripe_product_id;
+                    const wrap = document.createElement('label');
+                    wrap.className = 'lg-gift__tier';
+                    wrap.style.display = 'block';
+                    wrap.style.margin  = '6px 0';
+
+                    const radio = document.createElement('input');
+                    radio.type    = 'radio';
+                    radio.name    = 'tier';
+                    radio.value   = prod.stripe_product_id;
+                    radio.id      = id;
+                    radio.checked = idx === 0;
+                    radio.addEventListener('change', recompute);
+
+                    wrap.appendChild(radio);
+                    wrap.appendChild(document.createTextNode(' ' + prod.name + ' — ' + dollars(price.unit_amount_cents) + '/year'));
+                    tiersEl.appendChild(wrap);
+                });
+            }
+
+            qtyInput.addEventListener('input', recompute);
+
+            submitBtn.addEventListener('click', async function(){
+                showError('');
+                const tier  = selectedTier();
+                const price = pickAnnualPrice(tier);
+                if (!price) { showError('Please pick a tier.'); return; }
+
+                const qty   = Math.max(2, parseInt(qtyInput.value, 10) || 2);
+                const email = (emailInput.value || '').trim();
+                if (!email) { showError('Email is required.'); emailInput.focus(); return; }
+
+                if (mountedSession) {
+                    try { mountedSession.destroy(); } catch (e) {}
+                    mountedSession = null;
+                }
+                checkoutEl.innerHTML = '';
+                submitBtn.disabled    = true;
+                const orig = submitBtn.textContent;
+                submitBtn.textContent = 'Loading…';
+
+                try {
+                    const sessRes = await fetch(ENDPOINTS.checkout, {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            price_id: price.stripe_price_id,
+                            quantity: qty,
+                            email:    email,
+                            name:     (nameInput.value || '').trim(),
+                        }),
+                    });
+                    const sessData = await sessRes.json();
+                    if (!sessData.clientSecret) {
+                        showError(sessData.error || 'Could not start checkout.');
+                        return;
+                    }
+
+                    if (!stripe) {
+                        const cfg = await (await fetch(ENDPOINTS.config)).json();
+                        if (!cfg.publishableKey) { showError('Stripe not configured.'); return; }
+                        stripe = Stripe(cfg.publishableKey);
+                    }
+
+                    mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
+                    mountedSession.mount(checkoutEl);
+                    checkoutEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (err) {
+                    showError('Network error: ' + err.message);
+                } finally {
+                    submitBtn.disabled    = false;
+                    submitBtn.textContent = orig;
+                }
+            });
+
+            loadProducts();
+        })();
+        </script>
+        <?php
+        return (string) ob_get_clean();
     }
 
     /**
