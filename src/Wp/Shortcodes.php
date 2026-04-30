@@ -1053,14 +1053,14 @@ final class Shortcodes
                 $voided   = (int) $row['voided'];
                 $redeemed = (int) $row['redeemed'];
                 $active   = $totalQty - $voided - $redeemed;
-                if ( $voided === $totalQty ) {
-                    continue; // already fully refunded
+                if ( $active <= 0 ) {
+                    continue; // nothing left to refund (already redeemed or voided)
                 }
                 $purchasedAt = (string) $row['purchased_at'];
                 $eligible    = $purchasedAt && strtotime( $purchasedAt ) >= $cutoffTs;
                 $detail      = "{$totalQty}-seat purchase on " . self::shortDate( $purchasedAt );
                 if ( $redeemed > 0 ) {
-                    $detail .= " ({$redeemed} already redeemed; refund applies to unredeemed codes only)";
+                    $detail .= " ({$active} unredeemed codes refundable; {$redeemed} already used)";
                 } else {
                     $detail .= " ({$active} active codes)";
                 }

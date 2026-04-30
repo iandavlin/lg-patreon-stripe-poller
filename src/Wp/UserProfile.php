@@ -144,6 +144,8 @@ final class UserProfile
                         <td>
                             <?php if ( $active > 0 ) : ?>
                                 <button type="button" class="button button-primary" data-lgms-action="refund-gift" data-lgms-session="<?php echo esc_attr( $sid ); ?>" data-lgms-active="<?php echo $active; ?>" data-lgms-redeemed="<?php echo $redeemed; ?>">Refund &amp; Void</button>
+                            <?php elseif ( $voided > 0 && $redeemed > 0 ) : ?>
+                                <em style="color:#666;">Refunded (<?php echo $redeemed; ?> used first)</em>
                             <?php elseif ( $allVoided ) : ?>
                                 <em style="color:#666;">All voided</em>
                             <?php else : ?>
