@@ -63,4 +63,33 @@ final class Client
         ] );
         return iterator_to_array( $resp->data ?? [] );
     }
+
+    public function cancelSubscription(string $id): object
+    {
+        return $this->sdk->subscriptions->cancel( $id, [] );
+    }
+
+    public function updateSubscription(string $id, array $params): object
+    {
+        return $this->sdk->subscriptions->update( $id, $params );
+    }
+
+    /**
+     * Most-recent paid invoice for a subscription, or null if none paid yet.
+     */
+    public function latestPaidInvoiceForSubscription(string $subscriptionId): ?object
+    {
+        $resp = $this->sdk->invoices->all( [
+            'subscription' => $subscriptionId,
+            'status'       => 'paid',
+            'limit'        => 1,
+        ] );
+        $data = $resp->data ?? [];
+        return $data !== [] ? $data[0] : null;
+    }
+
+    public function createRefund(array $params): object
+    {
+        return $this->sdk->refunds->create( $params );
+    }
 }

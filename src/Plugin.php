@@ -44,6 +44,7 @@ final class Plugin
         // Admin screens.
         if ( is_admin() ) {
             Admin::boot();
+            Wp\UserProfile::boot();
         }
     }
 }

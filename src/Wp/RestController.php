@@ -6,6 +6,8 @@ namespace LGMS\Wp;
 
 use LGMS\Db;
 use LGMS\Repos\CustomerRepo;
+use LGMS\Repos\EntitlementRepo;
+use LGMS\Stripe\Client as StripeClient;
 use LGMS\Sync;
 use LGMS\Tick;
 use PDO;
@@ -56,6 +58,31 @@ final class RestController
             'callback'            => [ self::class, 'refundRequest' ],
             'permission_callback' => '__return_true',
         ] );
+
+        register_rest_route( self::NAMESPACE, '/admin/cancel-subscription', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'adminCancelSubscription' ],
+            'permission_callback' => [ self::class, 'authAdmin' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/admin/block-customer', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'adminBlockCustomer' ],
+            'permission_callback' => [ self::class, 'authAdmin' ],
+        ] );
+    }
+
+    /**
+     * Authorize admin-only endpoints. Requires manage_options capability AND
+     * a valid REST nonce (X-WP-Nonce header).
+     */
+    public static function authAdmin(WP_REST_Request $req): bool
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return false;
+        }
+        $nonce = (string) $req->get_header( 'x-wp-nonce' );
+        return $nonce !== '' && wp_verify_nonce( $nonce, 'wp_rest' ) !== false;
     }
 
     public static function auth(WP_REST_Request $req): bool
@@ -177,6 +204,22 @@ final class RestController
         }
         $commentsHtml = $comments !== '' ? nl2br( esc_html( $comments ) ) : '<em>(none)</em>';
 
+        // If this customer is linked to a WP user, surface the admin profile
+        // link -- the membership section there has Cancel & Refund / Block
+        // buttons that don't require the Stripe Dashboard.
+        $wpProfileLink = '';
+        if ( $customer ) {
+            $stmt = Db::pdo()->prepare(
+                'SELECT wp_user_id FROM wp_user_bridge WHERE customer_id = ? LIMIT 1'
+            );
+            $stmt->execute( [ (int) $customer['id'] ] );
+            $row = $stmt->fetch( PDO::FETCH_ASSOC );
+            if ( $row && (int) $row['wp_user_id'] > 0 ) {
+                $editUrl = admin_url( 'user-edit.php?user_id=' . (int) $row['wp_user_id'] . '#lgms-membership' );
+                $wpProfileLink = '<p><strong>One-click action:</strong> <a href="' . esc_url( $editUrl ) . '">Open this customer in WP admin</a> -- the Membership section at the bottom has Cancel &amp; Refund and Block buttons that handle Stripe for you.</p>';
+            }
+        }
+
         $modeLabel = $modeSeg === '/test' ? ' (Stripe TEST mode)' : '';
 
         $html  = '<p>A customer has submitted a refund request' . $modeLabel . '.</p>';
@@ -185,9 +228,10 @@ final class RestController
         $html .= '<p><strong>Reasons:</strong></p><ul>' . $reasonItems . '</ul>';
         $html .= '<p><strong>Comments:</strong><br>' . $commentsHtml . '</p>';
         $html .= '<hr>';
+        $html .= $wpProfileLink;
         $html .= '<p>' . $customerHtml . '</p>';
         $html .= $subsHtml;
-        $html .= '<p style="color:#666;font-size:0.9em;">To process: click a subscription above to open it in the Stripe Dashboard, then refund the relevant charge. Our system will catch the resulting <code>charge.refunded</code> event and revoke access automatically.</p>';
+        $html .= '<p style="color:#666;font-size:0.9em;">Or, to process directly in Stripe: click a subscription above to open it in the Stripe Dashboard, then refund the relevant charge. Our system will catch the resulting <code>charge.refunded</code> event and revoke access automatically.</p>';
 
         $to = (string) get_option( 'lgms_refund_email', '' );
         if ( $to === '' ) { $to = (string) get_option( 'admin_email' ); }
@@ -202,5 +246,123 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not send your request. Please try again or email us directly.' ], 500 );
         }
         return new WP_REST_Response( [ 'ok' => true ] );
+    }
+
+    /**
+     * POST /admin/cancel-subscription
+     * Body: { sub_id: string, refund: bool, reason?: string, immediate?: bool }
+     *
+     * Cancels a Stripe subscription and (optionally) refunds its latest paid
+     * invoice. On Stripe failure: returns 500 with the error and emails an
+     * admin alert. Webhooks/poller pick up the state change and revoke access.
+     */
+    public static function adminCancelSubscription(WP_REST_Request $req): WP_REST_Response
+    {
+        $body      = (array) $req->get_json_params();
+        $subId     = trim( (string) ( $body['sub_id']    ?? '' ) );
+        $refund    = (bool)        ( $body['refund']    ?? false );
+        $reason    = trim( (string) ( $body['reason']    ?? '' ) );
+        $immediate = array_key_exists( 'immediate', $body ) ? (bool) $body['immediate'] : true;
+
+        if ( $subId === '' || strpos( $subId, 'sub_' ) !== 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Valid sub_id required.' ], 400 );
+        }
+
+        $context = [ 'sub_id' => $subId, 'refund' => $refund ? 'yes' : 'no', 'immediate' => $immediate ? 'yes' : 'no', 'reason' => $reason ];
+        $result  = [ 'ok' => true, 'sub_id' => $subId, 'actions' => [] ];
+
+        try {
+            $stripe = new StripeClient();
+
+            // 1. Cancel (or schedule cancellation at period end)
+            if ( $immediate ) {
+                $sub = $stripe->cancelSubscription( $subId );
+                $result['actions'][] = 'canceled (immediate)';
+            } else {
+                $sub = $stripe->updateSubscription( $subId, [ 'cancel_at_period_end' => true ] );
+                $result['actions'][] = 'cancel_at_period_end set';
+            }
+            $result['status'] = (string) ( $sub->status ?? 'unknown' );
+
+            // 2. Optionally refund the latest paid invoice's payment intent.
+            if ( $refund ) {
+                $inv = $stripe->latestPaidInvoiceForSubscription( $subId );
+                if ( $inv === null ) {
+                    $result['actions'][] = 'refund skipped: no paid invoice';
+                } else {
+                    $pi = (string) ( $inv->payment_intent ?? '' );
+                    if ( $pi === '' ) {
+                        $result['actions'][] = 'refund skipped: invoice has no payment_intent';
+                    } else {
+                        $refundParams = [ 'payment_intent' => $pi ];
+                        if ( $reason !== '' ) {
+                            $refundParams['reason']   = 'requested_by_customer';
+                            $refundParams['metadata'] = [ 'admin_reason' => substr( $reason, 0, 500 ) ];
+                        }
+                        $refundObj = $stripe->createRefund( $refundParams );
+                        $result['actions'][] = 'refunded ' . (string) ( $refundObj->id ?? 'unknown' ) . ' (' . (int) ( $refundObj->amount ?? 0 ) . ' cents)';
+                        $result['refund_id'] = (string) ( $refundObj->id ?? '' );
+                    }
+                }
+            }
+
+            return new WP_REST_Response( $result );
+        } catch ( \Throwable $e ) {
+            AdminAlerts::sendFailureAlert( 'cancel-subscription', $context, $e );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage(), 'partial' => $result['actions'] ], 500 );
+        }
+    }
+
+    /**
+     * POST /admin/block-customer
+     * Body: { customer_id: int, blocked: bool, reason?: string }
+     *
+     * Sets/unsets blocked_at + block_reason on the customers row. Existing
+     * entitlements are NOT touched -- cancel/refund those separately.
+     */
+    public static function adminBlockCustomer(WP_REST_Request $req): WP_REST_Response
+    {
+        $body       = (array) $req->get_json_params();
+        $customerId = (int)  ( $body['customer_id'] ?? 0 );
+        $blocked    = (bool) ( $body['blocked']     ?? false );
+        $reason     = trim( (string) ( $body['reason'] ?? '' ) );
+
+        if ( $customerId <= 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'customer_id required' ], 400 );
+        }
+
+        $existing = CustomerRepo::findById( $customerId );
+        if ( $existing === null ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Customer not found' ], 404 );
+        }
+
+        try {
+            if ( $blocked ) {
+                $stmt = Db::pdo()->prepare(
+                    'UPDATE customers SET blocked_at = NOW(), block_reason = ? WHERE id = ?'
+                );
+                $stmt->execute( [ $reason !== '' ? $reason : null, $customerId ] );
+            } else {
+                $stmt = Db::pdo()->prepare(
+                    'UPDATE customers SET blocked_at = NULL, block_reason = NULL WHERE id = ?'
+                );
+                $stmt->execute( [ $customerId ] );
+            }
+            $fresh = CustomerRepo::findById( $customerId );
+            return new WP_REST_Response( [
+                'ok'           => true,
+                'customer_id'  => $customerId,
+                'blocked'      => $fresh !== null && ! empty( $fresh['blocked_at'] ),
+                'blocked_at'   => $fresh['blocked_at']   ?? null,
+                'block_reason' => $fresh['block_reason'] ?? null,
+            ] );
+        } catch ( \Throwable $e ) {
+            AdminAlerts::sendFailureAlert( 'block-customer', [
+                'customer_id' => $customerId,
+                'blocked'     => $blocked ? 'yes' : 'no',
+                'reason'      => $reason,
+            ], $e );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => $e->getMessage() ], 500 );
+        }
     }
 }
