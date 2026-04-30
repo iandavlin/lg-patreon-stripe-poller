@@ -171,14 +171,18 @@ final class UserProfile
         <?php endif; ?>
 
         <h3>Block status</h3>
-        <p>
-            <?php if ( $blocked ) : ?>
+        <?php if ( $blocked ) : ?>
+            <p>
                 <button type="button" class="button" data-lgms-action="unblock">Unblock customer</button>
-            <?php else : ?>
+                <span style="margin-left:10px;color:#666;">Existing reason: <em><?php echo $blockReason !== '' ? esc_html( $blockReason ) : '(none on file)'; ?></em></span>
+            </p>
+        <?php else : ?>
+            <p>Add an optional reason (saved internally for audit) and confirm to block this customer from future subscriptions and gift redemptions. Existing entitlements are not touched.</p>
+            <p>
+                <textarea data-lgms-block-reason rows="3" cols="60" style="width:100%;max-width:600px;display:block;margin-bottom:8px;" placeholder="e.g. Refunded for chargeback risk; previously gamed gift codes; etc."></textarea>
                 <button type="button" class="button" data-lgms-action="block">Block from future subscriptions</button>
-            <?php endif; ?>
-            <span data-lgms-block-status style="margin-left:10px;color:#666;"></span>
-        </p>
+            </p>
+        <?php endif; ?>
 
         <div data-lgms-result style="margin-top:1em;"></div>
 
@@ -241,7 +245,8 @@ final class UserProfile
 
                     if (action === 'block' || action === 'unblock') {
                         const blocking = action === 'block';
-                        const reason   = blocking ? (prompt('Reason for blocking (optional, shown internally):', '') || '') : '';
+                        const ta       = document.querySelector('[data-lgms-block-reason]');
+                        const reason   = blocking ? (ta ? (ta.value || '').trim() : '') : '';
                         if (!confirm((blocking ? 'Block' : 'Unblock') + ' this customer from future subscriptions and gift redemptions?')) return;
                         btn.disabled = true;
                         try {
