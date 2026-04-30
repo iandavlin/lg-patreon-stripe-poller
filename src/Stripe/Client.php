@@ -13,6 +13,13 @@ use Stripe\StripeClient;
  */
 final class Client
 {
+    /**
+     * Pinned Stripe API version — must match Slim's LiveStripeGateway so
+     * webhook payloads and response shapes are consistent across both
+     * services. Bump intentionally after testing.
+     */
+    private const STRIPE_API_VERSION = '2024-12-18.acacia';
+
     private readonly StripeClient $sdk;
 
     public function __construct()
@@ -21,7 +28,10 @@ final class Client
         if ( $key === '' ) {
             throw new RuntimeException( 'LGMS: Stripe secret key not configured. Visit Settings → LG Member Sync.' );
         }
-        $this->sdk = new StripeClient( $key );
+        $this->sdk = new StripeClient( [
+            'api_key'        => $key,
+            'stripe_version' => self::STRIPE_API_VERSION,
+        ] );
     }
 
     /** @return iterable<\Stripe\Event> */

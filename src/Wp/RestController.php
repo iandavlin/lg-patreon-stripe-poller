@@ -602,6 +602,13 @@ final class RestController
                 $msg = 'Your subscription will end at the close of the current billing period.';
             }
             self::logAdminAction( $owner['customer_id'], 'self_cancel' . ( $immediate ? '_immediate' : '_at_period_end' ), $subId, null, null, '', true, null );
+            self::sendSelfActionEmail(
+                $owner['customer_id'],
+                'Your subscription has been canceled',
+                $immediate
+                    ? '<p>You canceled your subscription. Access will end shortly.</p><p>Sorry to see you go &mdash; if you change your mind, you can resubscribe any time.</p>'
+                    : '<p>You scheduled your subscription to end at the close of your current billing period. You will keep your access until then, and you will not be charged again.</p><p>If you change your mind, you can resume from <a href="' . esc_url( home_url( '/manage-subscription/' ) ) . '">your account</a> any time before the period ends.</p>'
+            );
             return new WP_REST_Response( [ 'ok' => true, 'message' => $msg, 'status' => (string) ( $sub->status ?? 'unknown' ) ] );
         } catch ( \Throwable $e ) {
             self::logAdminAction( $owner['customer_id'], 'self_cancel', $subId, null, null, '', false, $e->getMessage() );
@@ -700,6 +707,11 @@ final class RestController
                 ] );
                 $msg = 'Your plan has been updated and you have been billed the prorated difference for the rest of this period.';
                 self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, true, null );
+                self::sendSelfActionEmail(
+                    $owner['customer_id'],
+                    'Your plan has changed',
+                    '<p>Your plan was switched and you have been billed the prorated difference for the rest of this billing period.</p><p>Your <a href="' . esc_url( home_url( '/manage-subscription/' ) ) . '">subscription page</a> shows the current state.</p>'
+                );
                 return new WP_REST_Response( [
                     'ok'      => true,
                     'message' => $msg,
@@ -752,6 +764,11 @@ final class RestController
 
             $msg = 'Plan switch scheduled. Your current plan continues until your next renewal, then your new plan kicks in -- no charge today.';
             self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, true, null );
+            self::sendSelfActionEmail(
+                $owner['customer_id'],
+                'Your plan change is scheduled',
+                '<p>You scheduled a plan change for your next renewal date. Your current plan continues until then, and you will be billed the new amount on your next renewal.</p><p>If you change your mind, contact support before the renewal date and we can adjust.</p>'
+            );
             return new WP_REST_Response( [
                 'ok'          => true,
                 'message'     => $msg,
@@ -788,6 +805,36 @@ final class RestController
         $stmt->execute( [ $subId, $email ] );
         $row = $stmt->fetch( PDO::FETCH_ASSOC );
         return $row ?: null;
+    }
+
+    /**
+     * Send a confirmation email to a customer after a self-service action
+     * (cancel, switch plan). Best-effort: never throws so a mail failure
+     * does not break the action result the customer just saw succeed.
+     */
+    private static function sendSelfActionEmail( int $customerId, string $subject, string $bodyHtml ): void
+    {
+        try {
+            $stmt = Db::pdo()->prepare( 'SELECT email, name FROM customers WHERE id = ? LIMIT 1' );
+            $stmt->execute( [ $customerId ] );
+            $row = $stmt->fetch( PDO::FETCH_ASSOC );
+            if ( ! $row || empty( $row['email'] ) ) {
+                return;
+            }
+            $email = (string) $row['email'];
+            $name  = trim( (string) ( $row['name'] ?? '' ) );
+            $hello = $name !== '' ? "Hi " . esc_html( $name ) . "," : "Hi,";
+            $site  = (string) get_bloginfo( 'name' );
+            $html  = '<p>' . $hello . '</p>' . $bodyHtml . '<p style="color:#666;font-size:0.9em;">Sent automatically by ' . esc_html( $site ) . ' &mdash; reply to this email if you have questions.</p>';
+            wp_mail(
+                $email,
+                '[' . $site . '] ' . $subject,
+                $html,
+                [ 'Content-Type: text/html; charset=UTF-8' ]
+            );
+        } catch ( \Throwable $_ ) {
+            // Swallow.
+        }
     }
 
     /**

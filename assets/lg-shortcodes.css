@@ -1,0 +1,249 @@
+/* ----------------------------------------------------------------
+ * LG Membership shortcodes — baseline polish.
+ * Targets the form/state classes used across [lg_redeem_gift],
+ * [lg_refund_request], [lg_manage_subscription], [lg_gift].
+ * Intentionally avoids dictating colors/fonts so the theme can
+ * still drive overall look. Enqueued only on pages that contain
+ * one of our shortcodes.
+ * ---------------------------------------------------------------- */
+
+/* === Result states (success / error / pending) ================= */
+.lg-redeem-gift__result,
+.lg-refund__result,
+.lg-manage-sub__result {
+    margin-top: 1em;
+    border-radius: 6px;
+    transition: opacity 0.15s;
+}
+.lg-redeem-gift__result:empty,
+.lg-refund__result:empty,
+.lg-manage-sub__result:empty {
+    display: none;
+}
+.lg-redeem-gift__result.is-success,
+.lg-refund__result.is-success,
+.lg-manage-sub__result.is-success {
+    background: #e8f7ec;
+    color: #1a5d2c;
+    border: 1px solid #c1e6cc;
+    padding: 0.75em 1em;
+}
+.lg-redeem-gift__result.is-error,
+.lg-refund__result.is-error,
+.lg-manage-sub__result.is-error {
+    background: #fde8e8;
+    color: #8a1c1c;
+    border: 1px solid #f5b3b3;
+    padding: 0.75em 1em;
+}
+.lg-redeem-gift__result.is-pending,
+.lg-refund__result.is-pending,
+.lg-manage-sub__result.is-pending {
+    background: #f0f1f3;
+    color: #555;
+    border: 1px solid #ddd;
+    padding: 0.75em 1em;
+    font-style: italic;
+}
+.lg-refund__result a,
+.lg-redeem-gift__result a,
+.lg-manage-sub__result a {
+    color: inherit;
+    text-decoration: underline;
+    font-weight: 600;
+}
+
+/* === Generic form layout ======================================= */
+.lg-refund__form,
+.lg-redeem-gift__form {
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+    max-width: 680px;
+}
+.lg-refund__row {
+    display: flex;
+    gap: 1em;
+    flex-wrap: wrap;
+}
+.lg-refund__row > .lg-refund__label {
+    flex: 1 1 220px;
+}
+.lg-refund__label,
+.lg-redeem-gift__label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    font-size: 0.95em;
+}
+.lg-refund__label--full {
+    flex-basis: 100%;
+}
+
+.lg-refund__form input[type="text"],
+.lg-refund__form input[type="email"],
+.lg-refund__form textarea,
+.lg-redeem-gift__form input[type="text"],
+.lg-redeem-gift__form input[type="email"] {
+    padding: 0.5em 0.7em;
+    border: 1px solid #c5c8cc;
+    border-radius: 4px;
+    font-size: 1em;
+    background: #fff;
+}
+.lg-refund__form input:focus,
+.lg-refund__form textarea:focus,
+.lg-redeem-gift__form input:focus {
+    outline: none;
+    border-color: #6a8db5;
+    box-shadow: 0 0 0 2px rgba(106, 141, 181, 0.2);
+}
+
+/* === Fieldsets (refund reasons / redeem options) =============== */
+.lg-refund__fieldset,
+.lg-redeem-gift__choice {
+    border: 1px solid #e0e0e0;
+    padding: 1em 1.25em;
+    border-radius: 6px;
+    margin: 0;
+}
+.lg-refund__fieldset legend,
+.lg-redeem-gift__choice legend {
+    padding: 0 0.5em;
+    font-weight: 600;
+}
+.lg-refund__reasons,
+.lg-redeem-gift__options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    margin-top: 0.5em;
+}
+.lg-refund__reason,
+.lg-redeem-gift__option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    cursor: pointer;
+    padding: 0.25em 0;
+}
+.lg-refund__reason:hover,
+.lg-redeem-gift__option:hover {
+    color: #333;
+}
+.lg-refund__reason input,
+.lg-redeem-gift__option input {
+    margin-top: 0.25em;
+}
+
+/* === Refund form: items section (radio list) =================== */
+.lg-refund__items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    margin-top: 0.5em;
+}
+.lg-refund__item {
+    display: block;
+    padding: 0.5em 0.75em;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.lg-refund__item:hover {
+    background: #f7f8fa;
+    border-color: #e0e0e0;
+}
+.lg-refund__item input[type="radio"],
+.lg-refund__item input[type="checkbox"] {
+    margin-right: 0.4em;
+}
+
+/* === Submit buttons ============================================ */
+.lg-refund__submit,
+.lg-redeem-gift__submit {
+    align-self: flex-start;
+    padding: 0.6em 1.4em;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+.lg-refund__submit:disabled,
+.lg-redeem-gift__submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* === Manage subscription cards ================================= */
+.lg-manage-sub__card {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1.2em 1.4em;
+    margin-bottom: 1em;
+    max-width: 680px;
+    background: #fff;
+    transition: opacity 0.2s;
+}
+.lg-manage-sub__card h4 {
+    margin: 0 0 0.5em;
+    font-size: 1.1em;
+}
+.lg-manage-sub__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    margin-top: 1em;
+}
+.lg-manage-sub__btn {
+    cursor: pointer;
+    padding: 0.5em 1em;
+    border-radius: 4px;
+    border: 1px solid #c5c8cc;
+    background: #f7f8fa;
+    font-size: 0.95em;
+    transition: background 0.15s, border-color 0.15s;
+}
+.lg-manage-sub__btn:hover {
+    background: #eef0f3;
+    border-color: #a8acb1;
+}
+.lg-manage-sub__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.lg-manage-sub__switcher,
+.lg-manage-sub__cancel {
+    border-top: 1px solid #eee;
+    padding-top: 1em;
+    margin-top: 1em;
+}
+.lg-manage-sub__switcher label,
+.lg-manage-sub__cancel label {
+    display: block;
+    padding: 0.3em 0;
+    cursor: pointer;
+}
+
+/* === Gift checkout / redeem form ============================== */
+.lg-gift__error {
+    margin-top: 12px;
+}
+.lg-redeem-gift__heading,
+.lg-refund__heading {
+    margin-bottom: 0.5em;
+}
+.lg-refund__intro,
+.lg-refund__policy {
+    max-width: 680px;
+    line-height: 1.5;
+}
+.lg-refund__policy {
+    background: #f7f8fa;
+    border-left: 3px solid #6a8db5;
+    padding: 0.75em 1em;
+    border-radius: 0 4px 4px 0;
+    font-size: 0.95em;
+}

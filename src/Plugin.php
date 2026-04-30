@@ -41,10 +41,34 @@ final class Plugin
         // Front-end shortcodes (gift redemption etc.).
         add_action( 'init', [ Wp\Shortcodes::class, 'register' ] );
 
+        // Conditionally enqueue the shortcode stylesheet only on pages
+        // that actually contain one of our shortcodes.
+        add_action( 'wp_enqueue_scripts', [ self::class, 'maybeEnqueueShortcodeStyles' ] );
+
         // Admin screens.
         if ( is_admin() ) {
             Admin::boot();
             Wp\UserProfile::boot();
+        }
+    }
+
+    public static function maybeEnqueueShortcodeStyles(): void
+    {
+        global $post;
+        if ( ! $post || ! is_singular() ) {
+            return;
+        }
+        $tags = [ 'lg_redeem_gift', 'lg_refund_request', 'lg_manage_subscription', 'lg_gift', 'lg_join' ];
+        foreach ( $tags as $tag ) {
+            if ( has_shortcode( (string) $post->post_content, $tag ) ) {
+                wp_enqueue_style(
+                    'lg-shortcodes',
+                    LGPO_PLUGIN_URL . 'assets/lg-shortcodes.css',
+                    [],
+                    LGPO_VERSION
+                );
+                return;
+            }
         }
     }
 }
