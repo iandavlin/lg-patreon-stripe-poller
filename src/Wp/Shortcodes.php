@@ -727,8 +727,28 @@ final class Shortcodes
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
-            const COUNTRY   = <?php echo wp_json_encode( $countryFromUrl ); ?>;
+            const COUNTRY_OVERRIDE = <?php echo wp_json_encode( $countryFromUrl ); ?>;
             const CONFIG    = <?php echo $configJs; ?>;
+            // Resolved at runtime: URL override > Cloudflare trace > none.
+            let DETECTED_COUNTRY = COUNTRY_OVERRIDE || '';
+
+            // Cloudflare's /cdn-cgi/trace is served by the edge for any
+            // CF-proxied zone — gives us the visitor's country even when
+            // the CF-IPCountry header isn't reaching origin (which is the
+            // current dev situation). Falls through silently otherwise.
+            async function detectCountryViaCloudflare(){
+                if (DETECTED_COUNTRY) return DETECTED_COUNTRY;
+                try {
+                    const res = await fetch('/cdn-cgi/trace', { cache: 'no-store' });
+                    if (!res.ok) return '';
+                    const text = await res.text();
+                    const m = text.match(/^loc=([A-Z]{2})$/m);
+                    if (m && m[1] !== 'XX' && m[1] !== 'T1') {
+                        DETECTED_COUNTRY = m[1];
+                    }
+                } catch (_) { /* offline / not behind CF */ }
+                return DETECTED_COUNTRY;
+            }
 
             const tiersEl    = document.querySelector('[data-lg-join-tiers]');
             const formEl     = document.querySelector('[data-lg-join-form]');
@@ -778,7 +798,8 @@ final class Shortcodes
             async function loadProducts(){
                 showError('');
                 try {
-                    const url  = ENDPOINTS.products + (COUNTRY ? '?country=' + encodeURIComponent(COUNTRY) : '');
+                    await detectCountryViaCloudflare();
+                    const url  = ENDPOINTS.products + (DETECTED_COUNTRY ? '?country=' + encodeURIComponent(DETECTED_COUNTRY) : '');
                     const res  = await fetch(url);
                     const json = await res.json();
                     if (!json.products || json.products.length === 0) {
@@ -892,7 +913,7 @@ final class Shortcodes
                     const typedPromo = promoInput ? (promoInput.value || '').trim() : '';
                     const finalPromo = typedPromo !== '' ? typedPromo : (PROMO || '');
                     if (finalPromo) body.promo_code = finalPromo;
-                    if (COUNTRY) body.country = COUNTRY;
+                    if (DETECTED_COUNTRY) body.country = DETECTED_COUNTRY;
 
                     const sessRes  = await fetch(ENDPOINTS.checkout, {
                         method:  'POST',
