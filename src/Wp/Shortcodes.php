@@ -678,6 +678,8 @@ final class Shortcodes
                 <?php endif; ?>
             </header>
 
+            <div class="lg-join__region-note" data-lg-region-note hidden></div>
+
             <div class="lg-join__tiers" data-lg-join-tiers>
                 <p class="lg-join__loading">Loading plans&hellip;</p>
             </div>
@@ -693,12 +695,13 @@ final class Shortcodes
                         <small>Used for your account / community profile.</small>
                     </div>
                 </div>
-                <?php if ( $promoFromUrl !== '' ) : ?>
-                    <div class="lg-join__promo">
-                        Promo code <strong><?php echo esc_html( $promoFromUrl ); ?></strong> will be applied at checkout.
+                <details class="lg-join__discount" <?php echo $promoFromUrl !== '' ? 'open' : ''; ?>>
+                    <summary>Have a discount code?</summary>
+                    <div class="lg-join__discount-row">
+                        <input type="text" name="promo_code" placeholder="e.g. PATREON5" value="<?php echo $promoEsc; ?>" autocomplete="off" maxlength="64">
+                        <small data-lg-promo-status></small>
                     </div>
-                    <input type="hidden" name="promo_code" value="<?php echo $promoEsc; ?>">
-                <?php endif; ?>
+                </details>
                 <div class="lg-join__form-actions">
                     <button type="button" class="lg-join__continue is-primary" data-lg-continue>Continue to checkout</button>
                     <button type="button" class="lg-join__back" data-lg-back>Change plan</button>
@@ -770,6 +773,17 @@ final class Shortcodes
                     if (!json.products || json.products.length === 0) {
                         tiersEl.innerHTML = '<p>No memberships available right now.</p>';
                         return;
+                    }
+                    // If any returned price has a region_tag, show a small note
+                    // ("Regional pricing for IN") so customers understand why
+                    // the price they see may differ from a friend's.
+                    const hasRegional = json.products.some(p => (p.prices || []).some(pr => pr.region_tag));
+                    if (hasRegional && json.detected_country) {
+                        const noteEl = document.querySelector('[data-lg-region-note]');
+                        if (noteEl) {
+                            noteEl.innerHTML = '<strong>Regional pricing</strong> applied for ' + json.detected_country + '.';
+                            noteEl.hidden = false;
+                        }
                     }
                     renderTiers(json.products);
                 } catch (err) {
@@ -863,7 +877,10 @@ final class Shortcodes
                         email:    email,
                         name:     (nameInput.value || '').trim(),
                     };
-                    if (PROMO) body.promo_code = PROMO;
+                    const promoInput = document.querySelector('input[name="promo_code"]');
+                    const typedPromo = promoInput ? (promoInput.value || '').trim() : '';
+                    const finalPromo = typedPromo !== '' ? typedPromo : (PROMO || '');
+                    if (finalPromo) body.promo_code = finalPromo;
 
                     const sessRes  = await fetch(ENDPOINTS.checkout, {
                         method:  'POST',
