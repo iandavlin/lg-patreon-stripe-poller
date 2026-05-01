@@ -23,6 +23,7 @@ final class Shortcodes
         add_shortcode( 'lg_manage_subscription', [ self::class, 'manageSubscription' ] );
         add_shortcode( 'lg_gift',                [ self::class, 'gift'               ] );
         add_shortcode( 'lg_refund_request',      [ self::class, 'refundRequest'      ] );
+        add_shortcode( 'lg_regional_fail',       [ self::class, 'regionalFail'       ] );
         add_shortcode( 'lg_member_nav',          [ self::class, 'memberNav'          ] );
     }
 
@@ -1541,6 +1542,113 @@ final class Shortcodes
     {
         $ts = $datetime ? strtotime( $datetime ) : false;
         return $ts ? gmdate( 'M j, Y', $ts ) : 'unknown date';
+    }
+
+    /**
+     * [lg_regional_fail] — landing page after a regional verify-fail.
+     *
+     * Slim's ReturnHandler::handleRegionalVerify() 302's the browser here when
+     * the billing-address country and/or card-issuer country don't match the
+     * region_tag the customer tried to buy at. The redirect URL carries:
+     *   ?reason=region_mismatch
+     *   &region_tag=regional_a|regional_b
+     *   &billing_country=XX (from PaymentMethod.billing_details.address.country)
+     *   &issuer_country=YY  (from PaymentMethod.card.country — bank-set, can't be spoofed)
+     *   &standard_price_id=price_xxx (the equivalent standard-tier price for upsell)
+     *
+     * No state changes here — pure render of the diagnostic. The PM was already
+     * detached server-side; no charge ever happened.
+     */
+    public static function regionalFail( $atts = [] ): string
+    {
+        $atts = shortcode_atts( [
+            'heading' => "We couldn't apply regional pricing",
+        ], (array) $atts, 'lg_regional_fail' );
+
+        $reason          = isset( $_GET['reason'] ) ? (string) $_GET['reason'] : '';
+        $regionTag       = isset( $_GET['region_tag'] ) ? preg_replace( '/[^a-z_]/', '', (string) $_GET['region_tag'] ) : '';
+        $billingCountry  = isset( $_GET['billing_country'] ) ? strtoupper( preg_replace( '/[^A-Za-z]/', '', (string) $_GET['billing_country'] ) ) : '';
+        $issuerCountry   = isset( $_GET['issuer_country'] )  ? strtoupper( preg_replace( '/[^A-Za-z]/', '', (string) $_GET['issuer_country']  ) ) : '';
+        $standardPriceId = isset( $_GET['standard_price_id'] ) ? preg_replace( '/[^A-Za-z0-9_]/', '', (string) $_GET['standard_price_id'] ) : '';
+
+        $billingCountry  = strlen( $billingCountry ) === 2 ? $billingCountry : '';
+        $issuerCountry   = strlen( $issuerCountry  ) === 2 ? $issuerCountry  : '';
+
+        // ?country=US on the join link forces standard pricing irrespective of
+        // the visitor's actual auto-detected country, so the customer doesn't
+        // bounce back into the same regional flow.
+        $joinUrl       = home_url( '/lgjoin/?country=US' );
+        $supportEmail  = (string) get_option( 'lgms_refund_email', get_option( 'admin_email', '' ) );
+        $supportEmail  = is_email( $supportEmail ) ? $supportEmail : '';
+
+        // Friendly explanation that names the specific check that failed.
+        $regionLabel = $regionTag === 'regional_a' ? 'regional discount' : ( $regionTag === 'regional_b' ? 'regional discount' : 'regional pricing' );
+        $explanation = '';
+        if ( $billingCountry !== '' && $issuerCountry !== '' ) {
+            $explanation = sprintf(
+                'You entered <strong>%s</strong> as your billing address, and the card you used is issued by a bank in <strong>%s</strong>. To qualify for our %s, both your billing address <em>and</em> your card issuer need to be in the same eligible region.',
+                esc_html( $billingCountry ),
+                esc_html( $issuerCountry ),
+                esc_html( $regionLabel )
+            );
+        } elseif ( $billingCountry !== '' ) {
+            $explanation = sprintf(
+                'You entered <strong>%s</strong> as your billing address, which isn\'t in the eligible list for our %s.',
+                esc_html( $billingCountry ),
+                esc_html( $regionLabel )
+            );
+        } else {
+            $explanation = sprintf(
+                'We couldn\'t verify your eligibility for our %s.',
+                esc_html( $regionLabel )
+            );
+        }
+
+        ob_start();
+        ?>
+        <div class="lg-regional-fail">
+            <h3 class="lg-regional-fail__heading"><?php echo esc_html( $atts['heading'] ); ?></h3>
+
+            <p class="lg-regional-fail__intro">
+                Your card wasn't charged, and the payment method has been removed from our system &mdash; nothing further is needed from you.
+            </p>
+
+            <p class="lg-regional-fail__detail"><?php echo $explanation; /* already escaped above */ ?></p>
+
+            <?php if ( $reason !== 'region_mismatch' ) : ?>
+                <p class="lg-regional-fail__notice" style="opacity:.7;font-size:0.9em;">
+                    Note: this page is meant to be reached from a checkout-verification redirect. If you arrived here directly, the links below will get you back on track.
+                </p>
+            <?php endif; ?>
+
+            <div class="lg-regional-fail__actions">
+                <a class="lg-regional-fail__cta is-primary" href="<?php echo esc_url( $joinUrl ); ?>">
+                    Subscribe at standard pricing
+                </a>
+                <?php if ( $supportEmail !== '' ) : ?>
+                    <a class="lg-regional-fail__cta" href="mailto:<?php echo esc_attr( $supportEmail ); ?>?subject=<?php echo rawurlencode( 'Question about regional pricing eligibility' ); ?>">
+                        Contact support
+                    </a>
+                <?php endif; ?>
+            </div>
+
+            <?php if ( $standardPriceId !== '' ) : ?>
+                <!-- standard_price_id from referrer: <?php echo esc_html( $standardPriceId ); ?> -->
+            <?php endif; ?>
+        </div>
+
+        <style>
+            .lg-regional-fail { max-width: 640px; margin: 0 auto; padding: 1.5em 0; }
+            .lg-regional-fail__heading { margin-top: 0; }
+            .lg-regional-fail__intro { font-size: 1.05em; }
+            .lg-regional-fail__detail { padding: 0.8em 1em; background: rgba(0,0,0,0.04); border-radius: 6px; }
+            .lg-regional-fail__actions { display: flex; flex-wrap: wrap; gap: 0.6em; margin-top: 1.4em; }
+            .lg-regional-fail__cta { display: inline-block; padding: 0.6em 1.1em; border-radius: 4px; text-decoration: none; border: 1px solid currentColor; }
+            .lg-regional-fail__cta.is-primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; border-color: transparent; font-weight: 600; }
+            .lg-regional-fail__cta.is-primary:hover { filter: brightness(0.95); }
+        </style>
+        <?php
+        return (string) ob_get_clean();
     }
 
     /**

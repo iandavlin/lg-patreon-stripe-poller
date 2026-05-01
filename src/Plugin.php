@@ -58,7 +58,7 @@ final class Plugin
         if ( ! $post || ! is_singular() ) {
             return;
         }
-        $tags = [ 'lg_redeem_gift', 'lg_refund_request', 'lg_manage_subscription', 'lg_gift', 'lg_join' ];
+        $tags = [ 'lg_redeem_gift', 'lg_refund_request', 'lg_manage_subscription', 'lg_gift', 'lg_join', 'lg_regional_fail' ];
         foreach ( $tags as $tag ) {
             if ( has_shortcode( (string) $post->post_content, $tag ) ) {
                 wp_enqueue_style(
