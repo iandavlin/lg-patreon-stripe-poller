@@ -732,21 +732,38 @@ final class Shortcodes
             // Resolved at runtime: URL override > Cloudflare trace > none.
             let DETECTED_COUNTRY = COUNTRY_OVERRIDE || '';
 
-            // Cloudflare's /cdn-cgi/trace is served by the edge for any
-            // CF-proxied zone — gives us the visitor's country even when
-            // the CF-IPCountry header isn't reaching origin (which is the
-            // current dev situation). Falls through silently otherwise.
-            async function detectCountryViaCloudflare(){
+            // Detect visitor country in this priority:
+            //   1. URL override (?country=XX) — already set above
+            //   2. Cloudflare's /cdn-cgi/trace (only works on CF-proxied zones;
+            //      currently dev is not proxied, but prod likely is or will be)
+            //   3. ipapi.co/json/ — free third-party geolocation, no API key,
+            //      30k/month free tier, CORS-enabled. Used as fallback so the
+            //      same code works regardless of whether the zone is CF-proxied.
+            async function detectCountry(){
                 if (DETECTED_COUNTRY) return DETECTED_COUNTRY;
+                // Path 1: Cloudflare edge
                 try {
                     const res = await fetch('/cdn-cgi/trace', { cache: 'no-store' });
-                    if (!res.ok) return '';
-                    const text = await res.text();
-                    const m = text.match(/^loc=([A-Z]{2})$/m);
-                    if (m && m[1] !== 'XX' && m[1] !== 'T1') {
-                        DETECTED_COUNTRY = m[1];
+                    if (res.ok) {
+                        const text = await res.text();
+                        const m = text.match(/^loc=([A-Z]{2})$/m);
+                        if (m && m[1] !== 'XX' && m[1] !== 'T1') {
+                            DETECTED_COUNTRY = m[1];
+                            return DETECTED_COUNTRY;
+                        }
                     }
-                } catch (_) { /* offline / not behind CF */ }
+                } catch (_) { /* fall through to ipapi */ }
+                // Path 2: third-party geolocation
+                try {
+                    const res = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const cc = (data && data.country_code) ? String(data.country_code).toUpperCase() : '';
+                        if (cc.length === 2 && cc !== 'XX') {
+                            DETECTED_COUNTRY = cc;
+                        }
+                    }
+                } catch (_) { /* offline; give up silently */ }
                 return DETECTED_COUNTRY;
             }
 
@@ -798,7 +815,7 @@ final class Shortcodes
             async function loadProducts(){
                 showError('');
                 try {
-                    await detectCountryViaCloudflare();
+                    await detectCountry();
                     const url  = ENDPOINTS.products + (DETECTED_COUNTRY ? '?country=' + encodeURIComponent(DETECTED_COUNTRY) : '');
                     const res  = await fetch(url);
                     const json = await res.json();
