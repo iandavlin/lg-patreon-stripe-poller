@@ -767,6 +767,44 @@ final class Shortcodes
                 return DETECTED_COUNTRY;
             }
 
+            // Approximate USD → local FX for cosmetic display only. Stripe
+            // always charges USD; the customer's bank does the actual FX.
+            // Refresh quarterly (or whenever you remember). Display drift is
+            // disclaimed to the customer.
+            const FX = {
+                IN:{c:'INR',s:'₹',  r:83},   BR:{c:'BRL',s:'R$', r:5},
+                MX:{c:'MXN',s:'MX$',r:17},   NG:{c:'NGN',s:'₦',  r:1500},
+                PH:{c:'PHP',s:'₱',  r:56},   ID:{c:'IDR',s:'Rp', r:16000},
+                PK:{c:'PKR',s:'₨',  r:280},  BD:{c:'BDT',s:'৳',  r:110},
+                VN:{c:'VND',s:'₫',  r:24000},EG:{c:'EGP',s:'E£', r:50},
+                KE:{c:'KES',s:'KSh',r:130},  GH:{c:'GHS',s:'GH₵',r:12},
+                ET:{c:'ETB',s:'Br', r:115},  TZ:{c:'TZS',s:'TSh',r:2700},
+                UG:{c:'UGX',s:'USh',r:3700}, MM:{c:'MMK',s:'K',  r:2100},
+                KH:{c:'KHR',s:'៛',  r:4100}, TR:{c:'TRY',s:'₺',  r:32},
+                AR:{c:'ARS',s:'AR$',r:1000}, CO:{c:'COP',s:'COL$',r:4000},
+                PE:{c:'PEN',s:'S/', r:3.7},  ZA:{c:'ZAR',s:'R',  r:18},
+                UA:{c:'UAH',s:'₴',  r:38},   PL:{c:'PLN',s:'zł', r:4},
+                RO:{c:'RON',s:'lei',r:4.6},  TH:{c:'THB',s:'฿',  r:36},
+                MY:{c:'MYR',s:'RM', r:4.7},  CL:{c:'CLP',s:'CLP$',r:950},
+                MA:{c:'MAD',s:'MAD',r:10},   JO:{c:'JOD',s:'JD', r:0.71},
+            };
+
+            function roundLocal(n){
+                if (n < 10)     return Math.round(n*10)/10;
+                if (n < 100)    return Math.round(n);
+                if (n < 1000)   return Math.round(n/5)*5;
+                if (n < 10000)  return Math.round(n/50)*50;
+                if (n < 100000) return Math.round(n/500)*500;
+                return Math.round(n/1000)*1000;
+            }
+
+            function localHint(usdCents){
+                if (!DETECTED_COUNTRY || !FX[DETECTED_COUNTRY]) return '';
+                const fx = FX[DETECTED_COUNTRY];
+                const local = roundLocal((usdCents / 100) * fx.r);
+                return ' (≈ ' + fx.s + local.toLocaleString() + ')';
+            }
+
             const tiersEl    = document.querySelector('[data-lg-join-tiers]');
             const formEl     = document.querySelector('[data-lg-join-form]');
             const formHeadEl = document.querySelector('[data-lg-form-heading]');
@@ -789,16 +827,17 @@ final class Shortcodes
             }
 
             function priceLabel(price){
+                const hint = localHint(price.unit_amount_cents);
                 if (price.type === 'recurring' && price.interval === 'month') {
-                    return 'Subscribe — ' + dollars(price.unit_amount_cents) + '/month';
+                    return 'Subscribe — ' + dollars(price.unit_amount_cents) + '/month' + hint;
                 }
                 if (price.type === 'recurring' && price.interval === 'year') {
-                    return 'Subscribe — ' + dollars(price.unit_amount_cents) + '/year';
+                    return 'Subscribe — ' + dollars(price.unit_amount_cents) + '/year' + hint;
                 }
                 if (price.type === 'one_time') {
-                    return 'Pay once — ' + dollars(price.unit_amount_cents) + ' / year';
+                    return 'Pay once — ' + dollars(price.unit_amount_cents) + ' / year' + hint;
                 }
-                return dollars(price.unit_amount_cents);
+                return dollars(price.unit_amount_cents) + hint;
             }
 
             // Order: monthly sub, yearly sub, one-time
@@ -830,7 +869,10 @@ final class Shortcodes
                     if (hasRegional && json.detected_country) {
                         const noteEl = document.querySelector('[data-lg-region-note]');
                         if (noteEl) {
-                            noteEl.innerHTML = '<strong>Regional pricing</strong> applied for ' + json.detected_country + '.';
+                            const fxNote = (DETECTED_COUNTRY && FX[DETECTED_COUNTRY])
+                                ? ' Local-currency figures are approximate; Stripe bills in USD and your bank applies the exchange rate at the time of payment.'
+                                : '';
+                            noteEl.innerHTML = '<strong>Regional pricing</strong> applied for ' + json.detected_country + '.' + fxNote;
                             noteEl.hidden = false;
                         }
                     }
