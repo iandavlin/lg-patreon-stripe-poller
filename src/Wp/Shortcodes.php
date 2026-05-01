@@ -640,6 +640,15 @@ final class Shortcodes
         $promoFromUrl = isset( $_GET['promo'] ) ? (string) $_GET['promo'] : '';
         $promoFromUrl = preg_replace( '/[^A-Za-z0-9_\-]/', '', $promoFromUrl );
 
+        // Country override via ?country=XX URL param. Forwarded to /v1/products
+        // (drives which tier products appear) and /v1/checkout body (forwarded
+        // for completeness — the actual regional verification reads the billing
+        // country from the Stripe Checkout form, not this param).
+        $countryFromUrl = isset( $_GET['country'] ) ? strtoupper( preg_replace( '/[^A-Za-z]/', '', (string) $_GET['country'] ) ) : '';
+        if ( strlen( $countryFromUrl ) !== 2 ) {
+            $countryFromUrl = '';
+        }
+
         $heading      = esc_html( (string) $atts['heading'] );
         $subheading   = esc_html( (string) $atts['subheading'] );
         $bulletsRaw   = trim( (string) $atts['bullets'] );
@@ -718,6 +727,7 @@ final class Shortcodes
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
+            const COUNTRY   = <?php echo wp_json_encode( $countryFromUrl ); ?>;
             const CONFIG    = <?php echo $configJs; ?>;
 
             const tiersEl    = document.querySelector('[data-lg-join-tiers]');
@@ -768,7 +778,8 @@ final class Shortcodes
             async function loadProducts(){
                 showError('');
                 try {
-                    const res  = await fetch(ENDPOINTS.products);
+                    const url  = ENDPOINTS.products + (COUNTRY ? '?country=' + encodeURIComponent(COUNTRY) : '');
+                    const res  = await fetch(url);
                     const json = await res.json();
                     if (!json.products || json.products.length === 0) {
                         tiersEl.innerHTML = '<p>No memberships available right now.</p>';
@@ -881,6 +892,7 @@ final class Shortcodes
                     const typedPromo = promoInput ? (promoInput.value || '').trim() : '';
                     const finalPromo = typedPromo !== '' ? typedPromo : (PROMO || '');
                     if (finalPromo) body.promo_code = finalPromo;
+                    if (COUNTRY) body.country = COUNTRY;
 
                     const sessRes  = await fetch(ENDPOINTS.checkout, {
                         method:  'POST',
