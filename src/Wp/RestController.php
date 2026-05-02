@@ -90,6 +90,38 @@ final class RestController
             'callback'            => [ self::class, 'meSwitchPlan' ],
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
+
+        register_rest_route( self::NAMESPACE, '/send-gift-recipient', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'sendGiftRecipient' ],
+            'permission_callback' => [ self::class, 'auth' ],
+        ] );
+
+        // Buyer self-service gift management — browser calls these with WP nonce;
+        // they proxy to Slim /v1/gift-* with shared-secret auth.
+        register_rest_route( self::NAMESPACE, '/me/gift-send', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meGiftSend' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/me/gift-resend', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meGiftResend' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/me/gift-reassign', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meGiftReassign' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/me/gift-void', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meGiftVoid' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
     }
 
     public static function authLoggedInUser(WP_REST_Request $req): bool
@@ -883,5 +915,162 @@ final class RestController
         } catch ( \Throwable $_ ) {
             // Swallow — logging is best-effort.
         }
+    }
+
+    /**
+     * POST /send-gift-recipient
+     * Body: { code: {...}, giver_email, giver_name }
+     * Auth: X-LGMS-Token shared secret (called by Slim GiftActionController).
+     *
+     * Sends a single per-recipient email for one code. No buyer summary.
+     * Also stamps email_sent_at in the DB so the dashboard bucket is correct.
+     */
+    public static function sendGiftRecipient( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body       = (array) $req->get_json_params();
+        $code       = (array) ( $body['code']        ?? [] );
+        $giverEmail = trim( (string) ( $body['giver_email'] ?? '' ) );
+        $giverName  = trim( (string) ( $body['giver_name']  ?? '' ) );
+
+        $recipientEmail = trim( (string) ( $code['recipient_email'] ?? '' ) );
+        if ( $recipientEmail === '' || ! is_email( $recipientEmail ) ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'recipient_email missing or invalid' ], 400 );
+        }
+        if ( empty( $code['code'] ) ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'code field required' ], 400 );
+        }
+
+        ( new GiftMailer() )->sendOneRecipient( $code, $giverEmail, $giverName ?: 'Looth Member' );
+
+        // Stamp email_sent_at so the dashboard bucket shows the code as Sent.
+        if ( ! empty( $code['id'] ) ) {
+            try {
+                $pdo = Db::pdo();
+                $pdo->prepare( 'UPDATE gift_codes SET email_sent_at = NOW() WHERE id = ?' )
+                    ->execute( [ (int) $code['id'] ] );
+            } catch ( \Throwable $e ) {
+                error_log( 'LGMS sendGiftRecipient: failed to stamp email_sent_at: ' . $e->getMessage() );
+            }
+        }
+
+        return new WP_REST_Response( [ 'ok' => true ] );
+    }
+
+    /**
+     * POST /me/gift-send
+     * Body: { code_id, recipient_email, recipient_name?, message? }
+     * Auth: WP nonce (authLoggedInUser).
+     *
+     * Verifies the logged-in user owns the code, then calls Slim /v1/gift-send.
+     */
+    public static function meGiftSend( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body  = (array) $req->get_json_params();
+        $extra = [ 'recipient_email' => (string) ( $body['recipient_email'] ?? '' ),
+                   'recipient_name'  => (string) ( $body['recipient_name']  ?? '' ),
+                   'message'         => (string) ( $body['message']         ?? '' ) ];
+        return self::proxyToSlim( 'gift-send', (int) ( $body['code_id'] ?? 0 ), $extra );
+    }
+
+    /**
+     * POST /me/gift-resend
+     * Body: { code_id }
+     */
+    public static function meGiftResend( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body = (array) $req->get_json_params();
+        return self::proxyToSlim( 'gift-resend', (int) ( $body['code_id'] ?? 0 ), [] );
+    }
+
+    /**
+     * POST /me/gift-reassign
+     * Body: { code_id, recipient_email, recipient_name?, message? }
+     */
+    public static function meGiftReassign( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body  = (array) $req->get_json_params();
+        $extra = [ 'recipient_email' => (string) ( $body['recipient_email'] ?? '' ),
+                   'recipient_name'  => (string) ( $body['recipient_name']  ?? '' ),
+                   'message'         => (string) ( $body['message']         ?? '' ) ];
+        return self::proxyToSlim( 'gift-reassign', (int) ( $body['code_id'] ?? 0 ), $extra );
+    }
+
+    /**
+     * POST /me/gift-void
+     * Body: { code_id }
+     */
+    public static function meGiftVoid( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body = (array) $req->get_json_params();
+        return self::proxyToSlim( 'gift-void', (int) ( $body['code_id'] ?? 0 ), [] );
+    }
+
+    /**
+     * Common proxy for all /me/gift-* endpoints.
+     *
+     * 1. Validates code_id and logged-in user
+     * 2. Verifies the code belongs to this buyer via direct DB check
+     * 3. Forwards the request to Slim /v1/gift-{action} with shared-secret auth
+     */
+    private static function proxyToSlim( string $action, int $codeId, array $extra ): WP_REST_Response
+    {
+        if ( $codeId <= 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'code_id is required.' ], 400 );
+        }
+
+        $user  = wp_get_current_user();
+        $email = $user ? (string) $user->user_email : '';
+        if ( $email === '' ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not determine your email.' ], 403 );
+        }
+
+        // Ownership check: gift_code must belong to a customer with this email.
+        try {
+            $pdo  = Db::pdo();
+            $stmt = $pdo->prepare(
+                'SELECT g.id FROM gift_codes g
+                 JOIN customers c ON c.id = g.purchased_by
+                 WHERE g.id = ? AND c.email = ? LIMIT 1'
+            );
+            $stmt->execute( [ $codeId, $email ] );
+            if ( $stmt->fetch() === false ) {
+                return new WP_REST_Response( [ 'ok' => false, 'error' => 'Code not found or not yours.' ], 403 );
+            }
+        } catch ( \Throwable $e ) {
+            error_log( "LGMS proxyToSlim({$action}): DB error: " . $e->getMessage() );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Internal error verifying code ownership.' ], 500 );
+        }
+
+        // Forward to Slim.
+        $secret  = (string) get_option( 'lgms_shared_secret', '' );
+        $baseUrl = (string) get_option( 'lgms_billing_base_url', home_url( '/billing' ) );
+        $url     = rtrim( $baseUrl, '/' ) . '/v1/' . $action;
+
+        $payload = array_merge( $extra, [ 'code_id' => $codeId, 'buyer_email' => $email ] );
+
+        $response = wp_remote_post( $url, [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'X-LGMS-Token' => $secret,
+            ],
+            'body'    => wp_json_encode( $payload ),
+            'timeout' => 10,
+            // Bypass Cloudflare: Slim lives on the same host, hit origin directly.
+            'sslverify' => false,
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            error_log( "LGMS proxyToSlim({$action}): wp_remote_post error: " . $response->get_error_message() );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not reach billing service. Please try again.' ], 502 );
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+
+        if ( ! is_array( $body ) ) {
+            $body = [ 'ok' => false, 'error' => 'Unexpected response from billing service.' ];
+        }
+
+        return new WP_REST_Response( $body, $code >= 200 && $code < 300 ? $code : $code );
     }
 }

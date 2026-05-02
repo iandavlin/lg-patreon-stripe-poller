@@ -344,4 +344,17 @@ final class GiftMailer
         }
         return $name === '' ? $email : sprintf( '%s <%s>', $name, $email );
     }
+
+    /**
+     * Send a single per-recipient email for one gift code, with no buyer summary.
+     * Called by the WP REST send-gift-recipient endpoint (which Slim invokes for
+     * Send / Resend / Reassign actions). Public wrapper around sendRecipientMail().
+     *
+     * @param array{id?:int,code:string,tier:string,duration_days:int,recipient_email?:?string,recipient_name?:?string,gift_message?:?string} $code
+     */
+    public function sendOneRecipient( array $code, string $giverEmail, string $giverName ): void
+    {
+        $this->sendRecipientMail( $code, $giverEmail, $giverName );
+    }
+
 }
