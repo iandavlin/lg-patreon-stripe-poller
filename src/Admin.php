@@ -20,6 +20,39 @@ final class Admin
     {
         add_action( 'admin_menu', [ self::class, 'menu' ] );
         add_action( 'admin_init', [ self::class, 'registerSettings' ] );
+        add_action( 'admin_post_lgms_rerun_pages', [ self::class, 'handleRerunPages' ] );
+    }
+
+    /**
+     * Handler for the "Re-create membership pages" admin button.
+     * Re-runs Pages::ensureAll() outside of activation so admins can sync
+     * pages after editing the PAGES registry without having to
+     * deactivate-and-reactivate the whole plugin.
+     */
+    public static function handleRerunPages(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Insufficient permissions.', 403 );
+        }
+        check_admin_referer( 'lgms_rerun_pages' );
+
+        $result = Wp\Pages::ensureAll();
+
+        $msg = sprintf(
+            'created=%d skipped=%d allowlisted=%d',
+            count( $result['created'] ),
+            count( $result['skipped'] ),
+            count( $result['allowlisted'] )
+        );
+
+        wp_safe_redirect( add_query_arg(
+            [
+                'page'        => self::OPT_PAGE,
+                'lgms_pages'  => rawurlencode( $msg ),
+            ],
+            admin_url( 'options-general.php' )
+        ) );
+        exit;
     }
 
     public static function menu(): void
@@ -73,6 +106,8 @@ final class Admin
         $nextRun = wp_next_scheduled( Plugin::CRON_HOOK );
         $nextRunDisplay = $nextRun ? gmdate( 'c', $nextRun ) . ' UTC' : '<em>not scheduled</em>';
 
+        $pagesNotice = isset( $_GET['lgms_pages'] ) ? rawurldecode( (string) $_GET['lgms_pages'] ) : '';
+
         ?>
         <div class="wrap">
             <h1>LG Member Sync</h1>
@@ -80,6 +115,19 @@ final class Admin
             <h2>DB connection</h2>
             <p><strong>Probe:</strong> <?php echo $probe; ?></p>
             <p><strong>Cron next run:</strong> <?php echo $nextRunDisplay; ?></p>
+
+            <h2>Membership pages</h2>
+            <p class="description">
+                Auto-creates the WP pages hosting <code>[lg_join]</code>, <code>[lg_gift]</code>, <code>[lg_redeem_gift]</code>, <code>[lg_manage_subscription]</code>, <code>[lg_refund_request]</code>, <code>[lg_regional_fail]</code>, and <code>[lg_subscription_success]</code>, and adds public-facing slugs to the BuddyBoss allowlist. Runs automatically on plugin activation; click below if you've edited the page registry and want to re-sync without deactivate/reactivate.
+            </p>
+            <?php if ( $pagesNotice !== '' ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Pages re-synced: <code><?php echo esc_html( $pagesNotice ); ?></code></p></div>
+            <?php endif; ?>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php wp_nonce_field( 'lgms_rerun_pages' ); ?>
+                <input type="hidden" name="action" value="lgms_rerun_pages">
+                <p><button type="submit" class="button">Re-create / sync membership pages</button></p>
+            </form>
 
             <form method="post" action="options.php">
                 <?php settings_fields( self::OPT_GROUP ); ?>

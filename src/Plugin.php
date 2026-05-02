@@ -15,6 +15,7 @@ final class Plugin
     public static function activate(): void
     {
         Schema::apply();
+        Wp\Pages::ensureAll();
 
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
             wp_schedule_event( time() + 60, self::CRON_SCHEDULE, self::CRON_HOOK );
@@ -58,9 +59,11 @@ final class Plugin
         if ( ! $post || ! is_singular() ) {
             return;
         }
-        $tags = [ 'lg_redeem_gift', 'lg_refund_request', 'lg_manage_subscription', 'lg_gift', 'lg_join', 'lg_regional_fail' ];
-        foreach ( $tags as $tag ) {
-            if ( has_shortcode( (string) $post->post_content, $tag ) ) {
+        // Single source of truth: any tag listed in Pages::PAGES gets the
+        // shortcode stylesheet auto-enqueued on its hosting page.
+        foreach ( Wp\Pages::PAGES as $info ) {
+            $tag = $info['shortcode'] ?? '';
+            if ( $tag !== '' && has_shortcode( (string) $post->post_content, $tag ) ) {
                 wp_enqueue_style(
                     'lg-shortcodes',
                     LGPO_PLUGIN_URL . 'assets/lg-shortcodes.css',

@@ -24,6 +24,7 @@ final class Shortcodes
         add_shortcode( 'lg_gift',                [ self::class, 'gift'               ] );
         add_shortcode( 'lg_refund_request',      [ self::class, 'refundRequest'      ] );
         add_shortcode( 'lg_regional_fail',       [ self::class, 'regionalFail'       ] );
+        add_shortcode( 'lg_subscription_success',[ self::class, 'subscriptionSuccess'] );
         add_shortcode( 'lg_member_nav',          [ self::class, 'memberNav'          ] );
     }
 
@@ -1646,6 +1647,114 @@ final class Shortcodes
             .lg-regional-fail__cta { display: inline-block; padding: 0.6em 1.1em; border-radius: 4px; text-decoration: none; border: 1px solid currentColor; }
             .lg-regional-fail__cta.is-primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; border-color: transparent; font-weight: 600; }
             .lg-regional-fail__cta.is-primary:hover { filter: brightness(0.95); }
+        </style>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * [lg_subscription_success] — landing page after a successful checkout completion.
+     *
+     * Slim's ReturnHandler 302's the browser here on every successful path
+     * (subscription, regional verify pass, one-time annual, gift). Query params
+     * tell us which kind so we can tailor the message:
+     *   ?kind=subscription           &tier=looth2|looth3
+     *   ?kind=regional_subscription  &tier=looth2|looth3            (regional pass)
+     *   ?kind=membership_annual      &tier=looth2|looth3 &expires_at=YYYY-MM-DD
+     *   ?kind=gift                   &qty=N                          (codes already emailed)
+     *
+     * Body content is purely informational — the actual provisioning already
+     * happened server-side before this page loads.
+     */
+    public static function subscriptionSuccess( $atts = [] ): string
+    {
+        $atts = shortcode_atts( [
+            'heading' => "You're in!",
+        ], (array) $atts, 'lg_subscription_success' );
+
+        $kind        = isset( $_GET['kind'] )       ? preg_replace( '/[^a-z_]/', '', (string) $_GET['kind'] ) : 'subscription';
+        $tier        = isset( $_GET['tier'] )       ? preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $_GET['tier'] ) : '';
+        $qty         = isset( $_GET['qty'] )        ? max( 1, (int) $_GET['qty'] ) : 1;
+        $expiresAt   = isset( $_GET['expires_at'] ) ? preg_replace( '/[^0-9\-]/', '', (string) $_GET['expires_at'] ) : '';
+
+        $tierLabel = match ( $tier ) {
+            'looth2' => 'Looth LITE',
+            'looth3' => 'Looth PRO',
+            default  => 'Looth membership',
+        };
+
+        // Per-kind copy. All branches end with the same next-steps section.
+        $headlineHtml = '';
+        $bodyHtml     = '';
+        switch ( $kind ) {
+            case 'gift':
+                $headlineHtml = sprintf(
+                    'Thanks for your gift purchase &mdash; <strong>%d %s</strong> code%s on the way.',
+                    $qty,
+                    esc_html( $tierLabel ),
+                    $qty === 1 ? '' : 's'
+                );
+                $bodyHtml = '<p>We just emailed your gift code' . ( $qty === 1 ? '' : 's' ) . ' to the address you used at checkout. Each code can be redeemed at <a href="' . esc_url( home_url( '/lggift/' ) ) . '">our redemption page</a>; share them however you like. Codes don\'t expire until they\'re redeemed.</p>';
+                break;
+
+            case 'membership_annual':
+                $expiresLine = $expiresAt !== ''
+                    ? sprintf( ' Your access runs through <strong>%s</strong>.', esc_html( $expiresAt ) )
+                    : '';
+                $headlineHtml = sprintf(
+                    'Your <strong>%s</strong> annual membership is active.',
+                    esc_html( $tierLabel )
+                );
+                $bodyHtml = '<p>Thanks for joining.' . $expiresLine . ' This was a one-time purchase &mdash; you won\'t be charged again automatically. We\'ll send a reminder before your access ends.</p>';
+                break;
+
+            case 'regional_subscription':
+                $headlineHtml = sprintf(
+                    'Welcome &mdash; your <strong>%s</strong> regional subscription is active.',
+                    esc_html( $tierLabel )
+                );
+                $bodyHtml = '<p>Your billing region was verified and your first invoice has been charged at the regional rate. The same rate applies on every renewal.</p>';
+                break;
+
+            case 'subscription':
+            default:
+                $headlineHtml = sprintf(
+                    'Welcome &mdash; your <strong>%s</strong> subscription is active.',
+                    esc_html( $tierLabel )
+                );
+                $bodyHtml = '<p>Thanks for joining. Your first invoice has been paid; you\'ll be billed again automatically when the next period starts.</p>';
+                break;
+        }
+
+        // Account-management hint applies to every recurring kind, not gifts.
+        $manageHint = '';
+        if ( $kind !== 'gift' ) {
+            $manageUrl  = home_url( '/manage-subscription/' );
+            $manageHint = '<p class="lg-success__manage">You can change plan, update your card, or cancel any time at <a href="' . esc_url( $manageUrl ) . '">Manage Subscription</a>.</p>';
+        }
+
+        ob_start();
+        ?>
+        <div class="lg-success">
+            <h3 class="lg-success__heading"><?php echo esc_html( $atts['heading'] ); ?></h3>
+            <p class="lg-success__headline"><?php echo $headlineHtml; /* already escaped */ ?></p>
+            <div class="lg-success__body"><?php echo $bodyHtml; /* contains intentional HTML */ ?></div>
+            <?php echo $manageHint; ?>
+            <div class="lg-success__actions">
+                <a class="lg-success__cta is-primary" href="<?php echo esc_url( home_url( '/' ) ); ?>">Head to the community</a>
+            </div>
+        </div>
+
+        <style>
+            .lg-success { max-width: 640px; margin: 0 auto; padding: 1.5em 0; }
+            .lg-success__heading { margin-top: 0; }
+            .lg-success__headline { font-size: 1.15em; }
+            .lg-success__body { padding: 0.8em 1em; background: rgba(0,0,0,0.04); border-radius: 6px; }
+            .lg-success__manage { font-size: 0.95em; opacity: 0.85; }
+            .lg-success__actions { display: flex; flex-wrap: wrap; gap: 0.6em; margin-top: 1.4em; }
+            .lg-success__cta { display: inline-block; padding: 0.6em 1.1em; border-radius: 4px; text-decoration: none; border: 1px solid currentColor; }
+            .lg-success__cta.is-primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; border-color: transparent; font-weight: 600; }
+            .lg-success__cta.is-primary:hover { filter: brightness(0.95); }
         </style>
         <?php
         return (string) ob_get_clean();
