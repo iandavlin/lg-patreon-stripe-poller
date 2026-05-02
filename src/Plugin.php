@@ -46,10 +46,40 @@ final class Plugin
         // that actually contain one of our shortcodes.
         add_action( 'wp_enqueue_scripts', [ self::class, 'maybeEnqueueShortcodeStyles' ] );
 
+        // No-cache headers on shortcode-hosting pages so CF / browsers don't
+        // serve stale 404s for newly-created pages and don't cache the
+        // query-string-driven welcome / regional-fail content.
+        add_action( 'template_redirect', [ self::class, 'maybeSendNoCacheHeaders' ], 0 );
+
         // Admin screens.
         if ( is_admin() ) {
             Admin::boot();
             Wp\UserProfile::boot();
+        }
+    }
+
+    /**
+     * Send Cache-Control: no-cache headers on any front-end page hosting one
+     * of our shortcodes. Stops CF from caching 404 responses (the source of
+     * many of our "page suddenly works after CF TTL expires" issues) and
+     * stops it from caching the query-string-driven welcome / regional-fail
+     * variants as if they were one canonical URL.
+     */
+    public static function maybeSendNoCacheHeaders(): void
+    {
+        if ( is_admin() || ! is_singular( 'page' ) ) {
+            return;
+        }
+        $post = get_queried_object();
+        if ( ! $post instanceof \WP_Post ) {
+            return;
+        }
+        foreach ( Wp\Pages::PAGES as $info ) {
+            $tag = $info['shortcode'] ?? '';
+            if ( $tag !== '' && has_shortcode( (string) $post->post_content, $tag ) ) {
+                nocache_headers();
+                return;
+            }
         }
     }
 
