@@ -1769,13 +1769,16 @@ final class Shortcodes
     {
         global $wpdb, $post;
 
-        $items = [
-            [ 'label' => 'Join',                 'tag' => 'lg_join'                ],
-            [ 'label' => 'Gift Memberships',     'tag' => 'lg_gift'                ],
-            [ 'label' => 'Redeem a Gift',        'tag' => 'lg_redeem_gift'         ],
-            [ 'label' => 'Manage Subscription',  'tag' => 'lg_manage_subscription' ],
-            [ 'label' => 'Request a Refund',     'tag' => 'lg_refund_request'      ],
-        ];
+        // Pages::navItems() returns the registry-filtered set for the current
+        // user's login state — Join hidden from members, Manage hidden from
+        // guests, transient pages (welcome / regional fail) excluded entirely.
+        $items = [];
+        foreach ( Pages::navItems() as $tag => $info ) {
+            $items[] = [
+                'label' => (string) ( $info['nav_label'] ?? $info['title'] ?? $tag ),
+                'tag'   => $tag,
+            ];
+        }
 
         $currentId = isset( $post ) && $post ? (int) $post->ID : 0;
         $links     = [];

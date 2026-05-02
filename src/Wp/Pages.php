@@ -43,58 +43,111 @@ final class Pages
      *   include_nav   bool. Default true. Prepends [lg_member_nav] to content.
      *   template      string|null. _wp_page_template meta value. Defaults to
      *                 page-fullwidth.php — matches the existing public pages.
+     *   in_nav        bool. Default true. false = exclude from [lg_member_nav]
+     *                 (used for transient destinations like welcome / regional fail).
+     *   nav_label     string|null. Override for nav display. Falls back to title.
+     *   visibility    'always' | 'guests' | 'members'. Default 'always'.
+     *                 Filters [lg_member_nav] entries by current user login state.
+     *                 'guests' = hide from logged-in users (e.g. Join — assume
+     *                            they're already in or have a different surface).
+     *                 'members' = hide from logged-out users (e.g. Manage
+     *                            Subscription — anon visitors just see "please
+     *                            sign in" so the link is dead weight in the nav).
      */
     public const PAGES = [
         'lg_join' => [
-            'slug'      => 'lgjoin',
-            'title'     => 'Join',
-            'shortcode' => 'lg_join',
-            'public'    => true,
-            'template'  => 'page-fullwidth-content.php',
+            'slug'       => 'lgjoin',
+            'title'      => 'Join',
+            'shortcode'  => 'lg_join',
+            'public'     => true,
+            'template'   => 'page-fullwidth-content.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Join',
+            'visibility' => 'guests',
         ],
         'lg_gift' => [
-            'slug'      => 'lggift-buy',
-            'title'     => 'Gift Memberships',
-            'shortcode' => 'lg_gift',
-            'public'    => true,
-            'template'  => 'page-fullwidth-content.php',
+            'slug'       => 'lggift-buy',
+            'title'      => 'Gift Memberships',
+            'shortcode'  => 'lg_gift',
+            'public'     => true,
+            'template'   => 'page-fullwidth-content.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Gift Memberships',
+            'visibility' => 'always',
         ],
         'lg_redeem_gift' => [
-            'slug'      => 'lggift',
-            'title'     => 'Redeem a Gift',
-            'shortcode' => 'lg_redeem_gift',
-            'public'    => true,
-            'template'  => 'page-fullwidth.php',
+            'slug'       => 'lggift',
+            'title'      => 'Redeem a Gift',
+            'shortcode'  => 'lg_redeem_gift',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Redeem a Gift',
+            'visibility' => 'always',
         ],
         'lg_manage_subscription' => [
-            'slug'      => 'manage-subscription',
-            'title'     => 'Manage Subscription',
-            'shortcode' => 'lg_manage_subscription',
-            'public'    => false,
-            'template'  => 'page-fullwidth.php',
+            'slug'       => 'manage-subscription',
+            'title'      => 'Manage Subscription',
+            'shortcode'  => 'lg_manage_subscription',
+            'public'     => false,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Manage Subscription',
+            'visibility' => 'members',
         ],
         'lg_refund_request' => [
-            'slug'      => 'request-refund',
-            'title'     => 'Request a Refund',
-            'shortcode' => 'lg_refund_request',
-            'public'    => true,
-            'template'  => 'page-fullwidth.php',
+            'slug'       => 'request-refund',
+            'title'      => 'Request a Refund',
+            'shortcode'  => 'lg_refund_request',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Request a Refund',
+            'visibility' => 'always',
         ],
         'lg_regional_fail' => [
-            'slug'      => 'regional-pricing-not-available',
-            'title'     => 'Regional pricing not available',
-            'shortcode' => 'lg_regional_fail',
-            'public'    => true,
-            'template'  => 'page-fullwidth.php',
+            'slug'       => 'regional-pricing-not-available',
+            'title'      => 'Regional pricing not available',
+            'shortcode'  => 'lg_regional_fail',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => false,
         ],
         'lg_subscription_success' => [
-            'slug'      => 'welcome',
-            'title'     => 'Welcome',
-            'shortcode' => 'lg_subscription_success',
-            'public'    => true,
-            'template'  => 'page-fullwidth.php',
+            'slug'       => 'welcome',
+            'title'      => 'Welcome',
+            'shortcode'  => 'lg_subscription_success',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => false,
         ],
     ];
+
+    /**
+     * Returns the subset of PAGES that should appear in [lg_member_nav] for
+     * the current request's user, in registry-defined order.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function navItems(): array
+    {
+        $isLoggedIn = function_exists( 'is_user_logged_in' ) && is_user_logged_in();
+        $out        = [];
+        foreach ( self::PAGES as $tag => $info ) {
+            if ( empty( $info['in_nav'] ) ) {
+                continue;
+            }
+            $vis = $info['visibility'] ?? 'always';
+            if ( $vis === 'members' && ! $isLoggedIn ) {
+                continue;
+            }
+            if ( $vis === 'guests' && $isLoggedIn ) {
+                continue;
+            }
+            $out[ $tag ] = $info;
+        }
+        return $out;
+    }
 
     /**
      * Run the full auto-seed pass.
