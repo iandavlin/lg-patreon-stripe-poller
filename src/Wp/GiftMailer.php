@@ -30,8 +30,13 @@ final class GiftMailer
 
     /**
      * @param list<array{id?:int,code:string,tier:string,duration_days:int,recipient_email?:?string,recipient_name?:?string,gift_message?:?string}> $codes
+     * @param bool $dashboardMode True when the buyer chose to manage codes
+     *                            from /my-gifts/ instead of receiving them as
+     *                            a code list. Skips per-recipient sends and
+     *                            the bulk-summary table; sends the short
+     *                            "you have N codes ready" template instead.
      */
-    public function send(string $toEmail, string $toName, array $codes): void
+    public function send(string $toEmail, string $toName, array $codes, bool $dashboardMode = false): void
     {
         if ( $codes === [] ) {
             return;
@@ -42,6 +47,14 @@ final class GiftMailer
         }
 
         $this->upsertContact( $toEmail, $toName );
+
+        if ( $dashboardMode ) {
+            // Dashboard path: codes have no recipients yet (buyer assigns them
+            // in /my-gifts/), so nothing per-recipient to send. One short
+            // confirmation email pointing at the dashboard.
+            $this->sendDashboardSummary( $toEmail, $toName, $codes );
+            return;
+        }
 
         // Split codes into "addressed" (have recipient_email) vs "buyer-keeps".
         $addressed   = [];
@@ -62,6 +75,39 @@ final class GiftMailer
 
         // Buyer summary — always sent, but tone changes based on the split.
         $this->sendBuyerSummary( $toEmail, $toName, $buyerKept, $addressed );
+    }
+
+    /**
+     * Short "you have N gift codes" email pointing at the dashboard. Used
+     * when the buyer opted into dashboard-managed sends rather than receiving
+     * the codes as a list.
+     *
+     * @param list<array{tier:string}> $codes
+     */
+    private function sendDashboardSummary( string $toEmail, string $toName, array $codes ): void
+    {
+        $count        = count( $codes );
+        $tier         = (string) ( $codes[0]['tier'] ?? '' );
+        $tierLabel    = $this->tierLabel( $tier );
+        $dashboardUrl = (string) home_url( '/my-gifts/' );
+        $supportEmail = $this->supportEmail();
+
+        $body = $this->renderTemplate( 'gift-buyer-dashboard', [
+            'buyerName'    => $toName,
+            'count'        => $count,
+            'tierLabel'    => $tierLabel,
+            'dashboardUrl' => $dashboardUrl,
+            'supportEmail' => $supportEmail,
+        ] );
+
+        $subject = sprintf(
+            '%d Looth %s gift code%s ready to send',
+            $count,
+            $tier === 'looth3' ? 'PRO' : 'LITE',
+            $count === 1 ? '' : 's'
+        );
+
+        wp_mail( $toEmail, $subject, $body, [ 'Content-Type: text/html; charset=UTF-8' ] );
     }
 
     private function upsertContact( string $email, string $name ): void

@@ -25,6 +25,7 @@ final class Shortcodes
         add_shortcode( 'lg_refund_request',      [ self::class, 'refundRequest'      ] );
         add_shortcode( 'lg_regional_fail',       [ self::class, 'regionalFail'       ] );
         add_shortcode( 'lg_subscription_success',[ self::class, 'subscriptionSuccess'] );
+        add_shortcode( 'lg_my_gifts',            [ self::class, 'myGifts'            ] );
         add_shortcode( 'lg_member_nav',          [ self::class, 'memberNav'          ] );
     }
 
@@ -60,11 +61,28 @@ final class Shortcodes
         $email       = esc_attr( $emailValue );
         $name        = esc_attr( $nameValue );
         $endpointsJs = wp_json_encode( $endpoints );
-        $configJs    = wp_json_encode( [ 'popular' => $popularRef ] );
+        $configJs    = wp_json_encode( [
+            'popular'    => $popularRef,
+            'loggedIn'   => $isLoggedIn,
+            'buyerEmail' => $emailValue,
+            'buyerName'  => $nameValue,
+        ] );
+
+        // For logged-in buyers we collapse the form to tier + qty + buy.
+        // No mode picker, no recipient repeater, no email field — their
+        // codes attach to their account and they manage them at /my-gifts/
+        // after purchase. The CSS class drives the visibility conditionals.
+        $rootClass = 'lg-gift' . ( $isLoggedIn ? ' lg-gift--logged-in' : '' );
 
         ob_start();
         ?>
-        <div class="lg-gift">
+        <div class="<?php echo esc_attr( $rootClass ); ?>">
+            <?php if ( $isLoggedIn ) : ?>
+                <p class="lg-gift__loggedin-banner">
+                    Hi <strong><?php echo esc_html( $nameValue ?: $emailValue ); ?></strong> &mdash; codes you buy will land in your <a href="<?php echo esc_url( home_url( '/my-gifts/' ) ); ?>">gift dashboard</a> after checkout.
+                </p>
+            <?php endif; ?>
+
             <header class="lg-gift__hero">
                 <h2 class="lg-gift__heading"><?php echo $heading; ?></h2>
                 <p class="lg-gift__intro">
@@ -96,30 +114,34 @@ final class Shortcodes
                     <p class="lg-gift__progress-label" data-lg-gift-progress-label></p>
                 </div>
 
-                <h3 class="lg-gift__panel-heading">3. How should the codes get to recipients?</h3>
-                <div class="lg-mode">
-                    <label class="lg-mode__opt is-selected" data-mode="self">
-                        <input type="radio" name="mode" value="self" checked>
-                        <div class="lg-mode__icon">📩</div>
-                        <div>
-                            <div class="lg-mode__title">Send to me</div>
-                            <div class="lg-mode__sub">All codes go to your email. You forward them yourself.</div>
-                        </div>
-                    </label>
-                    <label class="lg-mode__opt" data-mode="direct">
-                        <input type="radio" name="mode" value="direct">
-                        <div class="lg-mode__icon">🎁</div>
-                        <div>
-                            <div class="lg-mode__title">Send each recipient directly</div>
-                            <div class="lg-mode__sub">We email each recipient with your name + an optional note.</div>
-                        </div>
-                    </label>
+                <div data-lg-mode-section>
+                    <h3 class="lg-gift__panel-heading">3. How should the codes get to recipients?</h3>
+                    <div class="lg-mode">
+                        <label class="lg-mode__opt is-selected" data-mode="self">
+                            <input type="radio" name="mode" value="self" checked>
+                            <div class="lg-mode__icon">📩</div>
+                            <div>
+                                <div class="lg-mode__title">Send to me</div>
+                                <div class="lg-mode__sub">All codes go to your email. You forward them yourself.</div>
+                            </div>
+                        </label>
+                        <label class="lg-mode__opt" data-mode="direct">
+                            <input type="radio" name="mode" value="direct">
+                            <div class="lg-mode__icon">🎁</div>
+                            <div>
+                                <div class="lg-mode__title">Send each recipient directly</div>
+                                <div class="lg-mode__sub">We email each recipient with your name + an optional note.</div>
+                            </div>
+                        </label>
+                    </div>
                 </div>
 
-                <h3 class="lg-gift__panel-heading">4. Your email <span style="font-weight:400;font-size:.85em;color:rgba(0,0,0,0.5);" data-lg-mode-label>(codes will be sent here)</span></h3>
-                <div class="lg-gift__field">
-                    <input type="email" name="email" value="<?php echo $email; ?>" required placeholder="you@example.com">
-                    <small data-lg-mode-help>We send all codes to this address. You forward / share them yourself.</small>
+                <div data-lg-buyer-email-section>
+                    <h3 class="lg-gift__panel-heading">4. Your email <span style="font-weight:400;font-size:.85em;color:rgba(0,0,0,0.5);" data-lg-mode-label>(codes will be sent here)</span></h3>
+                    <div class="lg-gift__field">
+                        <input type="email" name="email" value="<?php echo $email; ?>" placeholder="you@example.com">
+                        <small data-lg-mode-help>We send all codes to this address. You forward / share them yourself.</small>
+                    </div>
                 </div>
 
                 <div class="lg-recip" data-lg-recip-block>
@@ -266,6 +288,15 @@ final class Shortcodes
             .lg-recip__status { margin-top: .8em; padding: .6em .9em; border-radius: 6px; font-size: .9em; }
             .lg-recip__status.is-ok { background: rgba(135,152,106,0.12); color: #2d4f2a; }
             .lg-recip__status.is-warn { background: rgba(255,200,80,0.18); color: #92400e; }
+
+            /* Logged-in: stripped UI — kill the mode toggle, recipient repeater,
+               and buyer-email field. Codes attach to their account and they
+               manage them at /my-gifts/ after purchase. */
+            .lg-gift__loggedin-banner { max-width: 720px; margin: 0 auto 1em; padding: .65em 1em; background: rgba(135,152,106,0.12); border: 1px solid rgba(135,152,106,0.3); border-radius: 8px; font-size: .92em; }
+            .lg-gift__loggedin-banner a { color: var(--lg-sage, #87986A); font-weight: 600; }
+            .lg-gift--logged-in [data-lg-mode-section],
+            .lg-gift--logged-in [data-lg-buyer-email-section],
+            .lg-gift--logged-in [data-lg-recip-block] { display: none !important; }
         </style>
 
         <script src="https://js.stripe.com/v3/"></script>
@@ -652,6 +683,14 @@ final class Shortcodes
 
             function buildCheckoutBody(priceId, qty, email){
                 const body = { price_id: priceId, quantity: qty, email: email, gift: true };
+                // Logged-in buyers always go to the dashboard — no recipients
+                // collected upfront. Slim sees dashboard_mode=1 and routes the
+                // post-purchase redirect to /my-gifts/ + sends the
+                // "you have N codes" buyer email instead of the bulk-table one.
+                if (CONFIG.loggedIn) {
+                    body.dashboard_mode = 1;
+                    return body;
+                }
                 if (sendMode === 'direct') {
                     body.recipients = recipRows.map(r => ({
                         email:   r.email,
@@ -2154,6 +2193,205 @@ final class Shortcodes
             .lg-success__cta { display: inline-block; padding: 0.6em 1.1em; border-radius: 4px; text-decoration: none; border: 1px solid currentColor; }
             .lg-success__cta.is-primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; border-color: transparent; font-weight: 600; }
             .lg-success__cta.is-primary:hover { filter: brightness(0.95); }
+        </style>
+        <?php
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * [lg_my_gifts] — buyer-facing gift dashboard.
+     *
+     * Lists gift codes purchased by the currently-logged-in user, split into
+     * three buckets: Unsent (no recipient assigned yet), Sent (awaiting
+     * redemption), Redeemed. Read-only in this initial cut; action buttons
+     * (send / resend / reassign / void) wire up in a later phase against
+     * Slim's /v1/gift-* endpoints.
+     *
+     * Render strategy: query lg_membership directly via the plugin's Db::pdo()
+     * (we already do this elsewhere in the plugin). The buyer is matched by
+     * their WP user email against customers.email, then gift_codes is filtered
+     * by purchased_by = customer.id.
+     */
+    public static function myGifts( $atts = [] ): string
+    {
+        shortcode_atts( [], (array) $atts, 'lg_my_gifts' );
+
+        $user = wp_get_current_user();
+        if ( ! $user || $user->ID === 0 ) {
+            return '<div class="lg-mygifts lg-mygifts--anon"><p><em>Please <a href="' . esc_url( wp_login_url( get_permalink() ) ) . '">sign in</a> to view your gift codes.</em></p></div>';
+        }
+        if ( ! user_can( $user, \LGMS\Plugin::GIFT_CAP ) ) {
+            return '<div class="lg-mygifts lg-mygifts--noperm"><p><em>Your account doesn\'t have access to gift management. <a href="' . esc_url( home_url( '/lggift-buy/' ) ) . '">Buy a gift code</a> to get started.</em></p></div>';
+        }
+        $email = (string) $user->user_email;
+        if ( $email === '' ) {
+            return '<div class="lg-mygifts lg-mygifts--noemail"><p><em>Your account is missing an email address — please contact support.</em></p></div>';
+        }
+
+        // Pull all gift codes purchased by this user from lg_membership.
+        try {
+            $pdo  = \LGMS\Db::pdo();
+            $stmt = $pdo->prepare(
+                'SELECT g.id, g.code, g.tier, g.duration_days,
+                        g.recipient_email, g.recipient_name, g.gift_message,
+                        g.email_sent_at, g.redeemed_at, g.voided_at, g.created_at,
+                        rc.email AS redeemer_email
+                 FROM gift_codes g
+                 JOIN customers c ON c.id = g.purchased_by
+                 LEFT JOIN customers rc ON rc.id = g.redeemed_by
+                 WHERE c.email = ?
+                 ORDER BY g.id DESC'
+            );
+            $stmt->execute( [ $email ] );
+            $rows = $stmt->fetchAll( \PDO::FETCH_ASSOC );
+        } catch ( \Throwable $e ) {
+            error_log( 'LGMS [lg_my_gifts]: DB error: ' . $e->getMessage() );
+            return '<div class="lg-mygifts lg-mygifts--err"><p><em>Couldn\'t load your gift codes right now. Please try again in a moment.</em></p></div>';
+        }
+
+        // Bucket the rows.
+        $unsent    = [];
+        $sent      = [];
+        $redeemed  = [];
+        $voided    = [];
+        foreach ( $rows as $r ) {
+            if ( ! empty( $r['voided_at'] ) ) {
+                $voided[] = $r;
+            } elseif ( ! empty( $r['redeemed_at'] ) ) {
+                $redeemed[] = $r;
+            } elseif ( ! empty( $r['recipient_email'] ) ) {
+                $sent[] = $r;
+            } else {
+                $unsent[] = $r;
+            }
+        }
+
+        $totalActive = count( $unsent ) + count( $sent ) + count( $redeemed );
+        $tierLabel = static fn ( string $t ): string => match ( $t ) {
+            'looth2' => 'Looth LITE',
+            'looth3' => 'Looth PRO',
+            default  => 'Looth',
+        };
+
+        ob_start();
+        ?>
+        <div class="lg-mygifts">
+            <header class="lg-mygifts__hero">
+                <h2 class="lg-mygifts__heading">My Gifts</h2>
+                <?php if ( $totalActive === 0 && count( $voided ) === 0 ) : ?>
+                    <p class="lg-mygifts__intro">You haven't purchased any gift codes yet. <a href="<?php echo esc_url( home_url( '/lggift-buy/' ) ); ?>">Buy gift codes →</a></p>
+                <?php else : ?>
+                    <p class="lg-mygifts__intro">
+                        <?php printf( esc_html( '%d total · %d to send · %d sent · %d redeemed' ), $totalActive, count( $unsent ), count( $sent ), count( $redeemed ) ); ?>
+                        <a class="lg-mygifts__buy-more" href="<?php echo esc_url( home_url( '/lggift-buy/' ) ); ?>">Buy more →</a>
+                    </p>
+                <?php endif; ?>
+            </header>
+
+            <?php if ( $unsent !== [] ) : ?>
+            <section class="lg-mygifts__section lg-mygifts__section--unsent">
+                <h3>Ready to send <span class="lg-mygifts__count">(<?php echo count( $unsent ); ?>)</span></h3>
+                <p class="lg-mygifts__hint">Send each code to a recipient — or grab the code value and forward it yourself.</p>
+                <table class="lg-mygifts__table">
+                    <thead><tr><th>Tier</th><th>Code</th><th>Created</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ( $unsent as $r ) : ?>
+                        <tr>
+                            <td><?php echo esc_html( $tierLabel( (string) $r['tier'] ) ); ?></td>
+                            <td><code class="lg-mygifts__code"><?php echo esc_html( (string) $r['code'] ); ?></code></td>
+                            <td class="lg-mygifts__when"><?php echo esc_html( self::shortDate( $r['created_at'] ) ); ?></td>
+                            <td class="lg-mygifts__actions"><span class="lg-mygifts__action-soon" title="Coming soon">Send →</span></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+            <?php endif; ?>
+
+            <?php if ( $sent !== [] ) : ?>
+            <section class="lg-mygifts__section lg-mygifts__section--sent">
+                <h3>Sent — awaiting redemption <span class="lg-mygifts__count">(<?php echo count( $sent ); ?>)</span></h3>
+                <table class="lg-mygifts__table">
+                    <thead><tr><th>Tier</th><th>Recipient</th><th>Code</th><th>Sent</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ( $sent as $r ) :
+                        $rEmail = (string) ( $r['recipient_email'] ?? '' );
+                        $rName  = (string) ( $r['recipient_name']  ?? '' );
+                    ?>
+                        <tr>
+                            <td><?php echo esc_html( $tierLabel( (string) $r['tier'] ) ); ?></td>
+                            <td>
+                                <?php if ( $rName !== '' ) : ?>
+                                    <strong><?php echo esc_html( $rName ); ?></strong><br>
+                                    <span class="lg-mygifts__sub"><?php echo esc_html( $rEmail ); ?></span>
+                                <?php else : ?>
+                                    <?php echo esc_html( $rEmail ); ?>
+                                <?php endif; ?>
+                            </td>
+                            <td><code class="lg-mygifts__code lg-mygifts__code--small"><?php echo esc_html( (string) $r['code'] ); ?></code></td>
+                            <td class="lg-mygifts__when"><?php echo esc_html( self::shortDate( $r['email_sent_at'] ?? $r['created_at'] ) ); ?></td>
+                            <td class="lg-mygifts__actions">
+                                <span class="lg-mygifts__action-soon">Resend</span>
+                                <span class="lg-mygifts__action-soon">Reassign</span>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+            <?php endif; ?>
+
+            <?php if ( $redeemed !== [] ) : ?>
+            <section class="lg-mygifts__section lg-mygifts__section--redeemed">
+                <h3>Redeemed <span class="lg-mygifts__count">(<?php echo count( $redeemed ); ?>)</span></h3>
+                <table class="lg-mygifts__table">
+                    <thead><tr><th>Tier</th><th>Recipient</th><th>Redeemed by</th><th>When</th></tr></thead>
+                    <tbody>
+                    <?php foreach ( $redeemed as $r ) :
+                        $rName  = (string) ( $r['recipient_name']  ?? '' );
+                        $rEmail = (string) ( $r['recipient_email'] ?? '' );
+                        $by     = (string) ( $r['redeemer_email']  ?? '' );
+                    ?>
+                        <tr>
+                            <td><?php echo esc_html( $tierLabel( (string) $r['tier'] ) ); ?></td>
+                            <td><?php echo esc_html( $rName !== '' ? $rName : ( $rEmail !== '' ? $rEmail : '—' ) ); ?></td>
+                            <td><?php echo esc_html( $by !== '' ? $by : '—' ); ?></td>
+                            <td class="lg-mygifts__when"><?php echo esc_html( self::shortDate( $r['redeemed_at'] ) ); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+            <?php endif; ?>
+        </div>
+
+        <style>
+            .lg-mygifts { max-width: 880px; margin: 0 auto; padding: 1em 1.2em; }
+            .lg-mygifts__hero { margin-bottom: 1.4em; }
+            .lg-mygifts__heading { margin: 0 0 .25em; font-size: 1.6em; }
+            .lg-mygifts__intro { margin: 0; color: rgba(0,0,0,0.6); display: flex; gap: 1em; align-items: baseline; flex-wrap: wrap; }
+            .lg-mygifts__buy-more { color: var(--lg-sage, #87986A); text-decoration: none; }
+            .lg-mygifts__buy-more:hover { text-decoration: underline; }
+            .lg-mygifts__section { margin-top: 1.4em; padding: 1.1em 1.2em; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; background: #fff; }
+            .lg-mygifts__section--unsent { background: rgba(236,179,81,0.05); border-color: rgba(236,179,81,0.3); }
+            .lg-mygifts__section--redeemed { opacity: .85; }
+            .lg-mygifts__section h3 { margin: 0 0 .3em; font-size: 1.05em; font-weight: 600; }
+            .lg-mygifts__count { color: rgba(0,0,0,0.5); font-weight: 400; font-size: .9em; }
+            .lg-mygifts__hint { margin: 0 0 .9em; color: rgba(0,0,0,0.55); font-size: .9em; }
+            .lg-mygifts__table { width: 100%; border-collapse: collapse; }
+            .lg-mygifts__table th { text-align: left; padding: .5em .65em; font-size: .8em; text-transform: uppercase; letter-spacing: .04em; color: rgba(0,0,0,0.5); border-bottom: 1px solid rgba(0,0,0,0.08); font-weight: 600; }
+            .lg-mygifts__table td { padding: .65em; border-bottom: 1px solid rgba(0,0,0,0.06); vertical-align: top; }
+            .lg-mygifts__code { display: inline-block; padding: .25em .55em; background: rgba(0,0,0,0.04); border: 1px dashed rgba(0,0,0,0.15); border-radius: 4px; font: 14px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .05em; }
+            .lg-mygifts__code--small { font-size: 12px; padding: .15em .4em; }
+            .lg-mygifts__when { color: rgba(0,0,0,0.55); font-size: .9em; white-space: nowrap; }
+            .lg-mygifts__sub { color: rgba(0,0,0,0.55); font-size: .85em; }
+            .lg-mygifts__actions { white-space: nowrap; }
+            .lg-mygifts__action-soon { display: inline-block; padding: .25em .65em; margin-right: .35em; background: rgba(0,0,0,0.04); border-radius: 4px; font-size: .82em; color: rgba(0,0,0,0.5); cursor: not-allowed; }
+            @media (max-width: 640px) {
+                .lg-mygifts__table thead { display: none; }
+                .lg-mygifts__table tr { display: block; padding: .65em 0; border-bottom: 1px solid rgba(0,0,0,0.08); }
+                .lg-mygifts__table td { display: block; padding: .15em 0; border: none; }
+            }
         </style>
         <?php
         return (string) ob_get_clean();

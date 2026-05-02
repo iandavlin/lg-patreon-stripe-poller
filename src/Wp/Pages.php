@@ -46,13 +46,15 @@ final class Pages
      *   in_nav        bool. Default true. false = exclude from [lg_member_nav]
      *                 (used for transient destinations like welcome / regional fail).
      *   nav_label     string|null. Override for nav display. Falls back to title.
-     *   visibility    'always' | 'guests' | 'members'. Default 'always'.
-     *                 Filters [lg_member_nav] entries by current user login state.
-     *                 'guests' = hide from logged-in users (e.g. Join — assume
-     *                            they're already in or have a different surface).
+     *   visibility    'always' | 'guests' | 'members' | 'gift_buyers'.
+     *                 Default 'always'. Filters [lg_member_nav] entries.
+     *                 'guests' = hide from logged-in users (e.g. Join).
      *                 'members' = hide from logged-out users (e.g. Manage
      *                            Subscription — anon visitors just see "please
-     *                            sign in" so the link is dead weight in the nav).
+     *                            sign in" so the link is dead weight).
+     *                 'gift_buyers' = hide unless the logged-in user has at
+     *                            least one gift code purchased (My Gifts —
+     *                            members who never gifted shouldn't see it).
      */
     public const PAGES = [
         'lg_join' => [
@@ -121,6 +123,16 @@ final class Pages
             'template'   => 'page-fullwidth.php',
             'in_nav'     => false,
         ],
+        'lg_my_gifts' => [
+            'slug'       => 'my-gifts',
+            'title'      => 'My Gifts',
+            'shortcode'  => 'lg_my_gifts',
+            'public'     => false, // logged-in only — shortcode renders "please sign in" for anon
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'My Gifts',
+            'visibility' => 'gift_buyers',
+        ],
     ];
 
     /**
@@ -144,9 +156,68 @@ final class Pages
             if ( $vis === 'guests' && $isLoggedIn ) {
                 continue;
             }
+            if ( $vis === 'gift_buyers' ) {
+                if ( ! $isLoggedIn || ! self::currentUserHasGiftCodes() ) {
+                    continue;
+                }
+            }
             $out[ $tag ] = $info;
         }
         return $out;
+    }
+
+    /**
+     * True if the currently logged-in WP user has at least one gift code on
+     * record. Cached in user meta `_lgms_has_gifts` to avoid a DB hit on
+     * every nav render. The cache is primed lazily on first read and stamped
+     * by the gift-purchase flow so the "My Gifts" nav item appears
+     * immediately after the first purchase without waiting for cache miss.
+     */
+    public static function currentUserHasGiftCodes(): bool
+    {
+        $userId = get_current_user_id();
+        if ( $userId === 0 ) {
+            return false;
+        }
+        $cached = get_user_meta( $userId, '_lgms_has_gifts', true );
+        if ( $cached === '1' ) {
+            return true;
+        }
+        if ( $cached === '0' ) {
+            return false;
+        }
+        try {
+            $email = (string) wp_get_current_user()->user_email;
+            if ( $email === '' ) {
+                update_user_meta( $userId, '_lgms_has_gifts', '0' );
+                return false;
+            }
+            $pdo  = \LGMS\Db::pdo();
+            $stmt = $pdo->prepare(
+                'SELECT 1 FROM gift_codes g
+                 JOIN customers c ON c.id = g.purchased_by
+                 WHERE c.email = ? LIMIT 1'
+            );
+            $stmt->execute( [ $email ] );
+            $has = $stmt->fetchColumn() !== false;
+            update_user_meta( $userId, '_lgms_has_gifts', $has ? '1' : '0' );
+            return $has;
+        } catch ( \Throwable $e ) {
+            error_log( 'LGMS Pages::currentUserHasGiftCodes: ' . $e->getMessage() );
+            return false;
+        }
+    }
+
+    /**
+     * Mark a user as "has gifts" so the nav item shows up immediately on
+     * their next page load without a cache-miss DB hit. Called from the
+     * post-purchase flow when a buyer's gift codes have been recorded.
+     */
+    public static function markHasGifts( int $userId ): void
+    {
+        if ( $userId > 0 ) {
+            update_user_meta( $userId, '_lgms_has_gifts', '1' );
+        }
     }
 
     /**

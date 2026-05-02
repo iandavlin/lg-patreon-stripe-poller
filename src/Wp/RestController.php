@@ -142,16 +142,25 @@ final class RestController
 
     public static function sendGiftCodes(WP_REST_Request $req): WP_REST_Response
     {
-        $body     = (array) $req->get_json_params();
-        $toEmail  = trim( (string) ( $body['to_email'] ?? '' ) );
-        $toName   = trim( (string) ( $body['to_name'] ?? '' ) );
-        $codes    = (array) ( $body['codes'] ?? [] );
+        $body          = (array) $req->get_json_params();
+        $toEmail       = trim( (string) ( $body['to_email'] ?? '' ) );
+        $toName        = trim( (string) ( $body['to_name'] ?? '' ) );
+        $codes         = (array) ( $body['codes'] ?? [] );
+        $dashboardMode = ! empty( $body['dashboard_mode'] );
 
         if ( $toEmail === '' || $codes === [] ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'to_email and codes required' ], 400 );
         }
 
-        ( new GiftMailer() )->send( $toEmail, $toName ?: 'Looth Member', $codes );
+        ( new GiftMailer() )->send( $toEmail, $toName ?: 'Looth Member', $codes, $dashboardMode );
+
+        // Stamp the buyer's WP user (if any) so the "My Gifts" nav item shows
+        // up immediately on their next page load instead of waiting for the
+        // lazy-prime DB miss in Pages::currentUserHasGiftCodes().
+        $buyer = get_user_by( 'email', $toEmail );
+        if ( $buyer instanceof \WP_User ) {
+            \LGMS\Wp\Pages::markHasGifts( $buyer->ID );
+        }
 
         return new WP_REST_Response( [ 'ok' => true ] );
     }
