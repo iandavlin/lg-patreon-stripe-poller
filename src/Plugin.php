@@ -13,22 +13,27 @@ final class Plugin
     public const CRON_SCHEDULE = 'hourly'; // WP built-in
 
     /**
-     * Role for non-member buyers who came in via a gift purchase. Granted on
-     * first purchase if no existing WP user matches their email; persists across
-     * future purchases (so they keep one account, not one per purchase).
+     * Role assigned on first purchase to gift-only buyers (no existing WP
+     * user, not subscribing to a membership). Reuses the legacy WooCommerce
+     * `customer` role rather than minting a new one — semantically right
+     * (they ARE a customer who bought something), low-privilege (just
+     * `read`), and avoids polluting the role registry.
      *
-     * Capability `manage_gift_codes` is what gates [lg_my_gifts] and the
-     * dashboard REST endpoints. Members (looth2/looth3) inherit this cap as
-     * well so a member who buys gifts has the same dashboard access without
-     * needing the looth1 role attached.
+     * NOT looth1 — that's reserved for lapsed members on this site.
+     *
+     * Capability `manage_gift_codes` gates [lg_my_gifts] and the dashboard
+     * REST endpoints. Granted to `customer` (new gift-only buyers), every
+     * looth tier (active members and lapsed members who may have gifts on
+     * record from when they were active), and `administrator`.
      */
-    public const GIFT_ROLE = 'looth1';
-    public const GIFT_CAP  = 'manage_gift_codes';
+    public const GIFT_ROLE          = 'customer';
+    public const GIFT_CAP           = 'manage_gift_codes';
+    public const GIFT_CAPABLE_ROLES = [ 'customer', 'looth1', 'looth2', 'looth3', 'looth4', 'administrator' ];
 
     public static function activate(): void
     {
         Schema::apply();
-        self::registerGiftRole();
+        self::registerGiftCapability();
         Wp\Pages::ensureAll();
 
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
@@ -37,31 +42,18 @@ final class Plugin
     }
 
     /**
-     * Register the looth1 role + the manage_gift_codes capability on member
-     * roles. Idempotent — uses add_role/add_cap which silently no-op when the
-     * role/cap already exists. Called from activate(); also re-runnable by
-     * admins via the "Re-create membership pages" button (which is misnamed
-     * but hits the same activation path).
+     * Grant manage_gift_codes to every role that might own gift codes:
+     *   - customer:     new gift-only buyers (assigned in Phase C)
+     *   - looth1:       lapsed members (may have legacy gift codes)
+     *   - looth2/3/4:   active members (may also gift)
+     *   - administrator
+     *
+     * Idempotent — add_cap silently no-ops if the cap is already set.
+     * Re-runnable from the "Re-create membership pages" admin button.
      */
-    public static function registerGiftRole(): void
+    public static function registerGiftCapability(): void
     {
-        // 1. The looth1 role itself for non-member gift buyers.
-        if ( ! get_role( self::GIFT_ROLE ) ) {
-            add_role( self::GIFT_ROLE, 'Looth Gift Buyer', [
-                'read'                => true,           // required for any logged-in front-end access
-                self::GIFT_CAP        => true,
-            ] );
-        } else {
-            // Role exists — make sure cap is set.
-            $role = get_role( self::GIFT_ROLE );
-            if ( $role && ! $role->has_cap( self::GIFT_CAP ) ) {
-                $role->add_cap( self::GIFT_CAP );
-            }
-        }
-
-        // 2. Members get the same cap so a member who also gifts has dashboard
-        // access without needing the looth1 role attached.
-        foreach ( [ 'looth2', 'looth3', 'administrator' ] as $roleName ) {
+        foreach ( self::GIFT_CAPABLE_ROLES as $roleName ) {
             $role = get_role( $roleName );
             if ( $role && ! $role->has_cap( self::GIFT_CAP ) ) {
                 $role->add_cap( self::GIFT_CAP );
