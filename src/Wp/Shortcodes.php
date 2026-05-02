@@ -40,6 +40,7 @@ final class Shortcodes
     {
         $atts = shortcode_atts( [
             'heading' => 'Give the gift of Looth',
+            'popular' => 'looth3',
         ], (array) $atts, 'lg_gift' );
 
         $user       = wp_get_current_user();
@@ -55,70 +56,162 @@ final class Shortcodes
         ];
 
         $heading     = esc_html( (string) $atts['heading'] );
+        $popularRef  = (string) $atts['popular'];
         $email       = esc_attr( $emailValue );
         $name        = esc_attr( $nameValue );
         $endpointsJs = wp_json_encode( $endpoints );
+        $configJs    = wp_json_encode( [ 'popular' => $popularRef ] );
 
         ob_start();
         ?>
         <div class="lg-gift">
-            <h2 class="lg-gift__heading"><?php echo $heading; ?></h2>
-            <p class="lg-gift__intro">
-                Buy gift codes to share with anyone. Each code grants a 1-year membership
-                when redeemed. Bulk discounts kick in at 10, 20, and 50 seats.
-            </p>
+            <header class="lg-gift__hero">
+                <h2 class="lg-gift__heading"><?php echo $heading; ?></h2>
+                <p class="lg-gift__intro">
+                    Buy gift codes to share with anyone. Each code grants a <strong>1-year membership</strong> when redeemed. Codes never expire.
+                </p>
+                <ul class="lg-gift__perks">
+                    <li>✓ Full members-only forums + archive</li>
+                    <li>✓ Sponsor benefits and member events</li>
+                    <li>✓ Shareable to anyone — they redeem at their convenience</li>
+                </ul>
+            </header>
 
-            <div class="lg-gift__form">
-                <fieldset class="lg-gift__tiers" data-lg-gift-tiers>
-                    <legend>Tier</legend>
+            <div class="lg-gift__panel">
+                <h3 class="lg-gift__panel-heading">1. Pick a tier</h3>
+                <div class="lg-gift__tiers" data-lg-gift-tiers>
                     <p class="lg-gift__loading">Loading tiers…</p>
-                </fieldset>
-
-                <div class="lg-gift__field">
-                    <label>Quantity (seats)
-                        <input type="number" name="quantity" value="1" min="1" step="1" required style="width:120px;">
-                    </label>
                 </div>
 
+                <h3 class="lg-gift__panel-heading">2. How many codes?</h3>
+                <div class="lg-gift__quantity-row">
+                    <button type="button" class="lg-gift__qbtn" data-lg-qty-step="-1" aria-label="Decrease">−</button>
+                    <input type="number" class="lg-gift__qinput" name="quantity" value="1" min="1" step="1" required>
+                    <button type="button" class="lg-gift__qbtn" data-lg-qty-step="1" aria-label="Increase">+</button>
+                </div>
+                <div class="lg-gift__presets" data-lg-gift-presets></div>
+
+                <div class="lg-gift__progress" data-lg-gift-progress hidden>
+                    <div class="lg-gift__progress-track"><div class="lg-gift__progress-fill" data-lg-gift-progress-fill></div></div>
+                    <p class="lg-gift__progress-label" data-lg-gift-progress-label></p>
+                </div>
+
+                <h3 class="lg-gift__panel-heading">3. Where should we email the codes?</h3>
                 <div class="lg-gift__field">
-                    <label>Your email
-                        <input type="email" name="email" value="<?php echo $email; ?>" required>
-                    </label>
-                    <small style="opacity:.7;">Codes will be sent here.</small>
+                    <input type="email" name="email" value="<?php echo $email; ?>" required placeholder="you@example.com">
+                    <small>We send all codes to this address. You forward / share them yourself.</small>
                 </div>
             </div>
 
-            <div class="lg-gift__summary" data-lg-gift-summary
-                style="margin:16px 0;padding:12px 16px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;max-width:480px;font-family:monospace;">
-                <div class="lg-gift__summary-line" data-lg-gift-line-sub>—</div>
-                <div class="lg-gift__summary-line" data-lg-gift-line-disc>—</div>
-                <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0;">
-                <div class="lg-gift__summary-line" data-lg-gift-line-total style="font-weight:bold;">—</div>
+            <div class="lg-gift__summary" data-lg-gift-summary>
+                <div class="lg-gift__summary-row">
+                    <span class="lg-gift__summary-label">Subtotal</span>
+                    <span data-lg-gift-line-sub>—</span>
+                </div>
+                <div class="lg-gift__summary-row lg-gift__summary-row--disc" data-lg-gift-line-disc-row hidden>
+                    <span class="lg-gift__summary-label">Bulk discount</span>
+                    <span data-lg-gift-line-disc>—</span>
+                </div>
+                <div class="lg-gift__summary-row lg-gift__summary-row--total">
+                    <span class="lg-gift__summary-label">Total</span>
+                    <span data-lg-gift-line-total>—</span>
+                </div>
+                <p class="lg-gift__savings" data-lg-gift-savings hidden></p>
             </div>
 
-            <p class="lg-gift__no-expiry" style="opacity:.7;font-size:0.9em;">
-                ⓘ Codes never expire — your recipient(s) can redeem whenever they're ready.
-            </p>
-
-            <button type="button" class="lg-gift__submit" data-lg-gift-submit
-                style="padding:10px 20px;cursor:pointer;">
-                Continue to checkout
+            <button type="button" class="lg-gift__submit" data-lg-gift-submit>
+                <span data-lg-gift-cta>Continue to checkout</span>
             </button>
 
-            <div class="lg-gift__error" data-lg-gift-error style="color:#b00;margin-top:12px;" aria-live="polite"></div>
+            <p class="lg-gift__guarantee">
+                <span aria-hidden="true">🎁</span> Codes never expire · billed in USD by Stripe · 30-day refund window
+            </p>
 
-            <div class="lg-gift__checkout" data-lg-gift-checkout style="margin-top:24px;"></div>
+            <div class="lg-gift__error" data-lg-gift-error aria-live="polite"></div>
+            <div class="lg-gift__checkout" data-lg-gift-checkout></div>
         </div>
+
+        <style>
+            .lg-gift { max-width: 720px; margin: 0 auto; padding: 1.5em 1.2em; box-sizing: border-box; }
+            .lg-gift * { box-sizing: border-box; }
+            .lg-gift__hero { text-align: center; margin-bottom: 1.6em; }
+            .lg-gift__heading { margin: 0 0 .3em; font-size: 1.8em; }
+            .lg-gift__intro { margin: 0 0 .9em; opacity: .85; }
+            .lg-gift__perks { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .4em 1.2em; justify-content: center; font-size: 0.95em; opacity: .8; }
+            .lg-gift__perks li { white-space: nowrap; }
+
+            .lg-gift__panel { border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 1.2em 1.4em; background: rgba(255,255,255,0.4); }
+            .lg-gift__panel-heading { margin: 1em 0 .55em; font-size: 1.05em; font-weight: 600; }
+            .lg-gift__panel-heading:first-child { margin-top: 0; }
+
+            .lg-gift__tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+            @media (max-width: 480px) { .lg-gift__tiers { grid-template-columns: 1fr; } }
+            .lg-gift__tier { position: relative; cursor: pointer; padding: 1em 1.1em; border: 2px solid rgba(0,0,0,0.1); border-radius: 8px; background: #fff; transition: border-color .15s, box-shadow .15s; }
+            .lg-gift__tier:hover { border-color: rgba(0,0,0,0.3); }
+            .lg-gift__tier.is-selected { border-color: var(--lg-amber, #ECB351); box-shadow: 0 0 0 3px rgba(236,179,81,0.18); }
+            .lg-gift__tier input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+            .lg-gift__tier-name { font-weight: 600; font-size: 1.05em; margin: 0 0 .15em; }
+            .lg-gift__tier-price { color: var(--lg-sage, #87986A); font-weight: 600; }
+            .lg-gift__tier-tag { font-size: .85em; opacity: .7; margin-top: .35em; }
+            .lg-gift__tier-popular { position: absolute; top: -10px; right: 12px; background: var(--lg-amber, #ECB351); color: #1f1d1a; padding: 2px 9px; border-radius: 10px; font-size: .75em; font-weight: 600; letter-spacing: .03em; }
+
+            .lg-gift__quantity-row { display: inline-flex; align-items: stretch; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; overflow: hidden; }
+            .lg-gift__qbtn { width: 44px; background: rgba(0,0,0,0.04); border: none; cursor: pointer; font-size: 1.3em; line-height: 1; color: inherit; }
+            .lg-gift__qbtn:hover { background: rgba(0,0,0,0.08); }
+            .lg-gift__qinput { width: 88px; text-align: center; border: none; border-left: 1px solid rgba(0,0,0,0.1); border-right: 1px solid rgba(0,0,0,0.1); font-size: 1.05em; padding: .5em 0; background: #fff; color: inherit; -moz-appearance: textfield; }
+            .lg-gift__qinput::-webkit-outer-spin-button, .lg-gift__qinput::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+            .lg-gift__presets { display: flex; flex-wrap: wrap; gap: .45em; margin-top: .8em; }
+            .lg-gift__preset { padding: .35em .85em; border-radius: 999px; border: 1px solid rgba(0,0,0,0.15); background: #fff; cursor: pointer; font-size: .9em; color: inherit; transition: all .15s; }
+            .lg-gift__preset:hover { border-color: rgba(0,0,0,0.4); }
+            .lg-gift__preset.is-active { background: var(--lg-amber, #ECB351); border-color: transparent; color: #1f1d1a; font-weight: 600; }
+            .lg-gift__preset-disc { display: inline-block; margin-left: .35em; opacity: .85; font-size: .85em; }
+            .lg-gift__preset.is-active .lg-gift__preset-disc { opacity: 1; }
+
+            .lg-gift__progress { margin-top: 1em; }
+            .lg-gift__progress-track { height: 8px; background: rgba(0,0,0,0.08); border-radius: 999px; overflow: hidden; }
+            .lg-gift__progress-fill { height: 100%; background: linear-gradient(90deg, #87986A, #ECB351); transition: width .25s; }
+            .lg-gift__progress-label { font-size: .9em; margin: .5em 0 0; opacity: .85; }
+
+            .lg-gift__field { margin-top: .4em; }
+            .lg-gift__field input[type="email"] { width: 100%; padding: .65em .85em; font-size: 1em; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; box-sizing: border-box; }
+            .lg-gift__field small { display: block; opacity: .7; font-size: .85em; margin-top: .35em; }
+
+            .lg-gift__summary { margin: 1.4em 0; padding: 1em 1.2em; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; background: rgba(135,152,106,0.06); }
+            .lg-gift__summary-row { display: flex; justify-content: space-between; align-items: baseline; padding: .25em 0; }
+            .lg-gift__summary-row--disc { color: #15803d; font-weight: 500; }
+            .lg-gift__summary-row--total { border-top: 1px solid rgba(0,0,0,0.1); margin-top: .35em; padding-top: .65em; font-size: 1.15em; font-weight: 700; }
+            .lg-gift__summary-label { opacity: .8; }
+            .lg-gift__savings { margin: .5em 0 0; font-size: .9em; color: #15803d; font-weight: 500; }
+
+            .lg-gift__submit { display: block; width: 100%; padding: .9em 1.2em; font-size: 1.05em; font-weight: 600; cursor: pointer; background: var(--lg-amber, #ECB351); color: #1f1d1a; border: none; border-radius: 8px; transition: filter .15s; }
+            .lg-gift__submit:hover { filter: brightness(0.95); }
+            .lg-gift__submit:disabled { opacity: 0.6; cursor: progress; }
+
+            .lg-gift__guarantee { text-align: center; opacity: .65; font-size: .85em; margin-top: .8em; }
+            .lg-gift__error { color: #b00; margin-top: .8em; min-height: 1em; }
+            .lg-gift__error:empty { display: none; }
+            .lg-gift__checkout { margin-top: 1.6em; }
+            .lg-gift__loading { padding: 1em; opacity: .6; text-align: center; grid-column: 1 / -1; }
+        </style>
 
         <script src="https://js.stripe.com/v3/"></script>
         <script>
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
-            const tiersEl    = document.querySelector('[data-lg-gift-tiers]');
+            const CONFIG    = <?php echo $configJs; ?>;
+            const tiersEl     = document.querySelector('[data-lg-gift-tiers]');
+            const presetsEl   = document.querySelector('[data-lg-gift-presets]');
+            const progressEl  = document.querySelector('[data-lg-gift-progress]');
+            const progressFill= document.querySelector('[data-lg-gift-progress-fill]');
+            const progressLab = document.querySelector('[data-lg-gift-progress-label]');
             const summarySub  = document.querySelector('[data-lg-gift-line-sub]');
+            const summaryDiscRow = document.querySelector('[data-lg-gift-line-disc-row]');
             const summaryDisc = document.querySelector('[data-lg-gift-line-disc]');
             const summaryTot  = document.querySelector('[data-lg-gift-line-total]');
+            const savingsEl   = document.querySelector('[data-lg-gift-savings]');
             const submitBtn   = document.querySelector('[data-lg-gift-submit]');
+            const ctaSpan     = document.querySelector('[data-lg-gift-cta]');
             const errorEl     = document.querySelector('[data-lg-gift-error]');
             const checkoutEl  = document.querySelector('[data-lg-gift-checkout]');
             const qtyInput    = document.querySelector('input[name="quantity"]');
@@ -126,48 +219,133 @@ final class Shortcodes
 
             let products       = [];
             let bulkTiers      = [];
+            let selectedRef    = null;
             let stripe         = null;
             let mountedSession = null;
 
-            function dollars(cents){
-                return '$' + (cents / 100).toFixed(2);
-            }
-
+            const dollars = (cents) => '$' + (cents / 100).toFixed(2);
+            const dollarsRound = (cents) => '$' + Math.round(cents / 100);
             function showError(msg){ errorEl.textContent = msg || ''; }
 
             function selectedTier(){
-                const radio = tiersEl.querySelector('input[name="tier"]:checked');
-                if (!radio) return null;
-                const productId = radio.value;
-                return products.find(p => p.stripe_product_id === productId) || null;
+                return products.find(p => p.ref === selectedRef) || null;
             }
-
-            function pickAnnualPrice(prod){
-                if (!prod) return null;
-                return prod.prices.find(p => p.type === 'recurring' && p.interval === 'year') || null;
-            }
+            const pickAnnualPrice = (prod) => prod ? (prod.prices.find(p => p.type === 'recurring' && p.interval === 'year') || null) : null;
 
             function discountPctFor(qty){
                 let pct = 0;
                 bulkTiers.forEach(t => { if (qty >= t.min_qty && t.discount_pct > pct) pct = t.discount_pct; });
                 return pct;
             }
+            function nextTier(qty){
+                return bulkTiers.filter(t => qty < t.min_qty).sort((a,b) => a.min_qty - b.min_qty)[0] || null;
+            }
 
-            function nextTierHint(qty){
-                const upcoming = bulkTiers.filter(t => qty < t.min_qty).sort((a,b) => a.min_qty - b.min_qty)[0];
-                if (!upcoming) return '';
-                const need = upcoming.min_qty - qty;
-                return ' (need ' + need + ' more for ' + upcoming.discount_pct + '% off)';
+            function renderTiers(){
+                tiersEl.innerHTML = '';
+                products.forEach(function(prod, idx){
+                    const price = pickAnnualPrice(prod);
+                    if (!price) return;
+                    const isPopular = (CONFIG.popular && prod.ref === CONFIG.popular);
+                    const card = document.createElement('label');
+                    card.className = 'lg-gift__tier' + (isPopular ? ' is-popular' : '');
+                    card.dataset.ref = prod.ref;
+                    if (isPopular) {
+                        const tag = document.createElement('span');
+                        tag.className = 'lg-gift__tier-popular';
+                        tag.textContent = 'Most popular';
+                        card.appendChild(tag);
+                    }
+                    const radio = document.createElement('input');
+                    radio.type  = 'radio';
+                    radio.name  = 'tier';
+                    radio.value = prod.ref;
+                    radio.checked = (idx === 0);
+                    radio.addEventListener('change', () => selectTier(prod.ref));
+                    card.appendChild(radio);
+                    const name = document.createElement('div');
+                    name.className = 'lg-gift__tier-name';
+                    name.textContent = prod.name;
+                    card.appendChild(name);
+                    const priceEl = document.createElement('div');
+                    priceEl.className = 'lg-gift__tier-price';
+                    priceEl.textContent = dollars(price.unit_amount_cents) + ' / code';
+                    card.appendChild(priceEl);
+                    const tag = document.createElement('div');
+                    tag.className = 'lg-gift__tier-tag';
+                    tag.textContent = '1-year membership when redeemed';
+                    card.appendChild(tag);
+                    card.addEventListener('click', () => selectTier(prod.ref));
+                    tiersEl.appendChild(card);
+                });
+                // default selection: first tier (or popular if it exists in list)
+                const defaultProd = products.find(p => p.ref === CONFIG.popular) || products[0];
+                if (defaultProd) selectTier(defaultProd.ref);
+            }
+
+            function selectTier(ref){
+                selectedRef = ref;
+                tiersEl.querySelectorAll('.lg-gift__tier').forEach(el => {
+                    const isMe = el.dataset.ref === ref;
+                    el.classList.toggle('is-selected', isMe);
+                    const r = el.querySelector('input[type="radio"]');
+                    if (r) r.checked = isMe;
+                });
+                recompute();
+            }
+
+            function renderPresets(){
+                presetsEl.innerHTML = '';
+                // Always include 1; then one preset per bulk tier minimum.
+                const stops = [1, ...bulkTiers.map(t => t.min_qty)];
+                const seen = new Set();
+                stops.forEach(function(qty){
+                    if (seen.has(qty)) return;
+                    seen.add(qty);
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'lg-gift__preset';
+                    btn.dataset.qty = String(qty);
+                    const tier = bulkTiers.find(t => t.min_qty === qty);
+                    btn.innerHTML = qty + (tier ? ' <span class="lg-gift__preset-disc">' + tier.discount_pct + '% off</span>' : '');
+                    btn.addEventListener('click', () => { qtyInput.value = String(qty); recompute(); });
+                    presetsEl.appendChild(btn);
+                });
+            }
+
+            function highlightPreset(qty){
+                presetsEl.querySelectorAll('.lg-gift__preset').forEach(b => {
+                    b.classList.toggle('is-active', parseInt(b.dataset.qty, 10) === qty);
+                });
+            }
+
+            function renderProgress(qty){
+                const next = nextTier(qty);
+                if (!next || qty < 1) { progressEl.hidden = true; return; }
+                progressEl.hidden = false;
+                // Find the previous milestone (last tier we've passed, or 1).
+                const passed = bulkTiers.filter(t => qty >= t.min_qty).sort((a,b) => b.min_qty - a.min_qty)[0];
+                const start  = passed ? passed.min_qty : 1;
+                const span   = next.min_qty - start;
+                const pos    = qty - start;
+                const pct    = Math.max(0, Math.min(100, (pos / span) * 100));
+                progressFill.style.width = pct.toFixed(1) + '%';
+                const need = next.min_qty - qty;
+                progressLab.textContent = 'Add ' + need + ' more code' + (need === 1 ? '' : 's') + ' to unlock ' + next.discount_pct + '% off.';
             }
 
             function recompute(){
                 const tier  = selectedTier();
                 const price = pickAnnualPrice(tier);
                 const qty   = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+                qtyInput.value = String(qty);
+                highlightPreset(qty);
                 if (!price) {
                     summarySub.textContent  = '—';
-                    summaryDisc.textContent = '—';
                     summaryTot.textContent  = '—';
+                    summaryDiscRow.hidden   = true;
+                    savingsEl.hidden        = true;
+                    ctaSpan.textContent     = 'Continue to checkout';
                     return;
                 }
                 const subCents   = price.unit_amount_cents * qty;
@@ -175,9 +353,19 @@ final class Shortcodes
                 const discCents  = Math.round(subCents * pct / 100);
                 const totalCents = subCents - discCents;
 
-                summarySub.textContent  = qty + ' × ' + dollars(price.unit_amount_cents) + ' = ' + dollars(subCents);
-                summaryDisc.textContent = 'Bulk discount: ' + (pct > 0 ? '-' + dollars(discCents) + ' (' + pct + '% off)' : '$0.00' + nextTierHint(qty));
-                summaryTot.textContent  = 'Total: ' + dollars(totalCents);
+                summarySub.textContent = qty + ' × ' + dollars(price.unit_amount_cents) + ' = ' + dollars(subCents);
+                if (pct > 0) {
+                    summaryDiscRow.hidden = false;
+                    summaryDisc.textContent = '−' + dollars(discCents) + '  (' + pct + '% off)';
+                    savingsEl.hidden = false;
+                    savingsEl.textContent = "🎉 You're saving " + dollarsRound(discCents) + ' with bulk pricing.';
+                } else {
+                    summaryDiscRow.hidden = true;
+                    savingsEl.hidden = true;
+                }
+                summaryTot.textContent = dollars(totalCents);
+                ctaSpan.textContent = 'Continue to checkout · ' + qty + ' code' + (qty === 1 ? '' : 's') + ' · ' + dollars(totalCents);
+                renderProgress(qty);
             }
 
             async function loadProducts(){
@@ -186,44 +374,23 @@ final class Shortcodes
                     const res  = await fetch(ENDPOINTS.products);
                     const json = await res.json();
                     products  = json.products || [];
-                    bulkTiers = json.bulk_discount_tiers || [];
+                    bulkTiers = (json.bulk_discount_tiers || []).slice().sort((a,b) => a.min_qty - b.min_qty);
                     renderTiers();
+                    renderPresets();
                     recompute();
                 } catch (err) {
                     showError('Failed to load tiers: ' + err.message);
                 }
             }
 
-            function renderTiers(){
-                tiersEl.innerHTML = '';
-                const legend = document.createElement('legend');
-                legend.textContent = 'Tier';
-                tiersEl.appendChild(legend);
-
-                products.forEach(function(prod, idx){
-                    const price = pickAnnualPrice(prod);
-                    if (!price) return;
-
-                    const id = 'lg-gift-tier-' + prod.stripe_product_id;
-                    const wrap = document.createElement('label');
-                    wrap.className = 'lg-gift__tier';
-                    wrap.style.display = 'block';
-                    wrap.style.margin  = '6px 0';
-
-                    const radio = document.createElement('input');
-                    radio.type    = 'radio';
-                    radio.name    = 'tier';
-                    radio.value   = prod.stripe_product_id;
-                    radio.id      = id;
-                    radio.checked = idx === 0;
-                    radio.addEventListener('change', recompute);
-
-                    wrap.appendChild(radio);
-                    wrap.appendChild(document.createTextNode(' ' + prod.name + ' — ' + dollars(price.unit_amount_cents) + '/year'));
-                    tiersEl.appendChild(wrap);
+            // Quantity stepper buttons
+            document.querySelectorAll('[data-lg-qty-step]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const step = parseInt(btn.dataset.lgQtyStep, 10) || 1;
+                    qtyInput.value = String(Math.max(1, (parseInt(qtyInput.value, 10) || 1) + step));
+                    recompute();
                 });
-            }
-
+            });
             qtyInput.addEventListener('input', recompute);
 
             submitBtn.addEventListener('click', async function(){
@@ -236,14 +403,11 @@ final class Shortcodes
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
 
-                if (mountedSession) {
-                    try { mountedSession.destroy(); } catch (e) {}
-                    mountedSession = null;
-                }
+                if (mountedSession) { try { mountedSession.destroy(); } catch (e) {} mountedSession = null; }
                 checkoutEl.innerHTML = '';
                 submitBtn.disabled    = true;
-                const orig = submitBtn.textContent;
-                submitBtn.textContent = 'Loading…';
+                const origCta = ctaSpan.textContent;
+                ctaSpan.textContent = 'Loading…';
 
                 try {
                     const sessRes = await fetch(ENDPOINTS.checkout, {
@@ -274,8 +438,9 @@ final class Shortcodes
                 } catch (err) {
                     showError('Network error: ' + err.message);
                 } finally {
-                    submitBtn.disabled    = false;
-                    submitBtn.textContent = orig;
+                    submitBtn.disabled  = false;
+                    ctaSpan.textContent = origCta;
+                    recompute();
                 }
             });
 
