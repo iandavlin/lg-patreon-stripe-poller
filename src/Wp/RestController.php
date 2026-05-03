@@ -1141,6 +1141,7 @@ final class RestController
                 && ! in_array( 'looth3', $roles, true ) ) {
                 $user->set_role( 'customer' );
                 $user->remove_role( 'bbp_participant' );
+                self::eraseBuddypressFootprint( (int) $user->ID );
             }
         } else {
             // No account on file — require consent before creating one. The
@@ -1167,6 +1168,7 @@ final class RestController
             $user = get_user_by( 'id', $userId );
             $user->set_role( 'customer' );
             $user->remove_role( 'bbp_participant' );
+            self::eraseBuddypressFootprint( (int) $userId );
         }
 
         // Weekly email opt-in — FluentCRM list 7 "Non Member Weekly Email Subscriber".
@@ -1195,5 +1197,42 @@ final class RestController
             'name'  => $user->display_name ?: $user->user_login,
             'email' => $user->user_email,
         ] );
+    }
+
+    /**
+     * Wipe any BuddyPress / BuddyBoss tables that hold rows for this user
+     * so customer-only accounts leave no member-directory footprint. Safe
+     * to call repeatedly — uses TRUNCATE-style targeted DELETEs.
+     */
+    private static function eraseBuddypressFootprint( int $userId ): void
+    {
+        if ( $userId <= 0 ) {
+            return;
+        }
+        global $wpdb;
+        $tables = [
+            'bp_activity'                  => 'user_id',
+            'bp_friends'                   => 'initiator_user_id',
+            'bp_friends_initiated_by'      => 'friend_user_id',
+            'bp_groups_members'            => 'user_id',
+            'bp_messages_recipients'       => 'user_id',
+            'bp_notifications'             => 'user_id',
+            'bp_xprofile_data'             => 'user_id',
+            'bp_user_blogs'                => 'user_id',
+            'bp_invitations'               => 'inviter_id',
+        ];
+        foreach ( $tables as $table => $col ) {
+            $full = $wpdb->prefix . $table;
+            // Skip silently if the table doesn't exist on this install.
+            if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $full ) ) !== $full ) {
+                continue;
+            }
+            $wpdb->delete( $full, [ $col => $userId ] );
+        }
+        // Last-activity is a single-row meta row in usermeta on newer BP.
+        delete_user_meta( $userId, 'last_activity' );
+        delete_user_meta( $userId, 'bp_latest_update' );
+        delete_user_meta( $userId, 'total_friend_count' );
+        delete_user_meta( $userId, 'total_group_count' );
     }
 }

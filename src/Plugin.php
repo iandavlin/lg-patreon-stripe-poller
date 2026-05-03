@@ -84,6 +84,16 @@ final class Plugin
         // can't reply / post / edit even if some hook grants them the role.
         add_filter( 'user_has_cap', [ self::class, 'stripForumCapsForCustomers' ], 10, 4 );
 
+        // Mask customer-only users as logged-out to BuddyPress / BuddyBoss
+        // so no avatar, profile menu, or member-directory entry appears for
+        // them. They still have a real WP session for the gift dashboard.
+        add_filter( 'bp_loggedin_user_id',   [ self::class, 'maskCustomerBpUserId' ], 10, 1 );
+        add_filter( 'bp_displayed_user_id',  [ self::class, 'maskCustomerBpUserId' ], 10, 1 );
+        add_action( 'bp_pre_user_query',     [ self::class, 'excludeCustomersFromBpQueries' ], 10, 1 );
+
+        // Body class so theme/CSS rules can branch on customer-only state.
+        add_filter( 'body_class',            [ self::class, 'addCustomerBodyClass' ], 10, 1 );
+
         // REST endpoints for Slim to trigger immediate syncs.
         add_action( 'rest_api_init', [ Wp\RestController::class, 'register' ] );
 
@@ -220,5 +230,92 @@ final class Plugin
             $allcaps[ $cap ] = false;
         }
         return $allcaps;
+    }
+
+    /**
+     * True if the given user has only the customer role (no admin/editor/
+     * looth tier and no bbPress staff role). Cached per-request.
+     */
+    public static function isCustomerOnly( int $userId ): bool
+    {
+        static $cache = [];
+        if ( isset( $cache[ $userId ] ) ) {
+            return $cache[ $userId ];
+        }
+        if ( $userId <= 0 ) {
+            return $cache[ $userId ] = false;
+        }
+        $user = get_userdata( $userId );
+        if ( ! $user ) {
+            return $cache[ $userId ] = false;
+        }
+        $roles = (array) $user->roles;
+        $only  = in_array( 'customer', $roles, true )
+            && ! array_intersect( [ 'administrator', 'editor', 'looth1', 'looth2', 'looth3', 'looth4',
+                                    'bbp_keymaster', 'bbp_moderator' ], $roles );
+        return $cache[ $userId ] = (bool) $only;
+    }
+
+    /**
+     * Filter for bp_loggedin_user_id / bp_displayed_user_id — for
+     * customer-only users return 0 so BP renders the guest UI everywhere.
+     * The real WP user object is untouched, so wp-admin and our gift
+     * dashboard still see them as logged in.
+     */
+    public static function maskCustomerBpUserId( $userId )
+    {
+        $userId = (int) $userId;
+        return self::isCustomerOnly( $userId ) ? 0 : $userId;
+    }
+
+    /**
+     * Action for bp_pre_user_query — append every customer-only user id
+     * to the query exclude list so they never surface in member
+     * directories, "active members" widgets, or member counts.
+     */
+    public static function excludeCustomersFromBpQueries( $query ): void
+    {
+        global $wpdb;
+        $cap_key = $wpdb->get_blog_prefix() . 'capabilities';
+        $ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT user_id FROM {$wpdb->usermeta}
+              WHERE meta_key = %s
+                AND meta_value LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s
+                AND meta_value NOT LIKE %s",
+            $cap_key,
+            '%"customer"%',
+            '%"administrator"%',
+            '%"editor"%',
+            '%"looth1"%',
+            '%"looth2"%',
+            '%"looth3"%',
+            '%"looth4"%',
+            '%"bbp_keymaster"%',
+            '%"bbp_moderator"%'
+        ) );
+        if ( ! $ids ) {
+            return;
+        }
+        $existing = isset( $query->query_vars['exclude'] ) ? (array) $query->query_vars['exclude'] : [];
+        $query->query_vars['exclude'] = array_values( array_unique( array_map( 'intval', array_merge( $existing, $ids ) ) ) );
+    }
+
+    /**
+     * Add a body class for customer-only users so the theme / CSS can hide
+     * BB-specific chrome (avatar menu, member nav, etc.).
+     */
+    public static function addCustomerBodyClass( array $classes ): array
+    {
+        if ( self::isCustomerOnly( get_current_user_id() ) ) {
+            $classes[] = 'lg-customer-only';
+        }
+        return $classes;
     }
 }
