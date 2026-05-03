@@ -1046,31 +1046,52 @@ final class RestController
         $baseUrl = (string) get_option( 'lgms_billing_base_url', home_url( '/billing' ) );
         $url     = rtrim( $baseUrl, '/' ) . '/v1/' . $action;
 
-        $payload = array_merge( $extra, [ 'code_id' => $codeId, 'buyer_email' => $email ] );
+        $payload = wp_json_encode( array_merge( $extra, [ 'code_id' => $codeId, 'buyer_email' => $email ] ) );
 
-        $response = wp_remote_post( $url, [
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'X-LGMS-Token' => $secret,
+        // Use raw curl with loopback resolution to bypass Cloudflare — same technique
+        // as WpGiftMailer. Slim lives on the same host; CURLOPT_RESOLVE pins the
+        // hostname to 127.0.0.1 so the request never leaves the machine.
+        $parts  = parse_url( $url );
+        $host   = (string) ( $parts['host']   ?? '' );
+        $scheme = (string) ( $parts['scheme'] ?? 'https' );
+        $port   = (int)    ( $parts['port']   ?? ( $scheme === 'https' ? 443 : 80 ) );
+
+        $ch = curl_init( $url );
+        if ( $ch === false ) {
+            error_log( "LGMS proxyToSlim({$action}): curl_init failed" );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not reach billing service.' ], 502 );
+        }
+
+        curl_setopt_array( $ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'X-LGMS-Token: ' . $secret,
             ],
-            'body'    => wp_json_encode( $payload ),
-            'timeout' => 10,
-            // Bypass Cloudflare: Slim lives on the same host, hit origin directly.
-            'sslverify' => false,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_RESOLVE    => $host !== '' ? [ "{$host}:{$port}:127.0.0.1" ] : [],
         ] );
 
-        if ( is_wp_error( $response ) ) {
-            error_log( "LGMS proxyToSlim({$action}): wp_remote_post error: " . $response->get_error_message() );
+        $rawBody  = curl_exec( $ch );
+        $httpCode = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+        $curlErr  = curl_error( $ch );
+        curl_close( $ch );
+
+        if ( $rawBody === false || $curlErr !== '' ) {
+            error_log( "LGMS proxyToSlim({$action}): curl error: {$curlErr}" );
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not reach billing service. Please try again.' ], 502 );
         }
 
-        $code = (int) wp_remote_retrieve_response_code( $response );
-        $body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
-
+        $body = json_decode( (string) $rawBody, true );
         if ( ! is_array( $body ) ) {
+            error_log( "LGMS proxyToSlim({$action}): non-JSON response (HTTP {$httpCode}): " . substr( (string) $rawBody, 0, 300 ) );
             $body = [ 'ok' => false, 'error' => 'Unexpected response from billing service.' ];
         }
 
-        return new WP_REST_Response( $body, $code >= 200 && $code < 300 ? $code : $code );
+        return new WP_REST_Response( $body, $httpCode >= 100 ? $httpCode : 500 );
     }
 }
