@@ -1744,10 +1744,15 @@ final class Shortcodes
             'heading' => 'Request a refund',
         ], (array) $atts, 'lg_refund_request' );
 
-        $user        = wp_get_current_user();
-        $loggedIn    = $user->ID > 0;
-        $emailValue  = $loggedIn ? (string) $user->user_email : '';
-        $nameValue   = $loggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
+        $user     = wp_get_current_user();
+        $loggedIn = $user->ID > 0;
+
+        if ( ! $loggedIn ) {
+            return '<p><em>Please <a href="' . esc_url( wp_login_url( get_permalink() ) ) . '">sign in</a> to request a refund.</em></p>';
+        }
+
+        $emailValue  = (string) $user->user_email;
+        $nameValue   = trim( (string) ( $user->display_name ?: $user->user_login ) );
         $endpoint    = esc_url_raw( rest_url( 'lg-member-sync/v1/refund-request' ) );
         $heading     = esc_html( (string) $atts['heading'] );
         $emailAttr   = esc_attr( $emailValue );
