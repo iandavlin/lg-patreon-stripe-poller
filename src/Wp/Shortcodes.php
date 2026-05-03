@@ -181,6 +181,22 @@ final class Shortcodes
                     </div>
                 </div>
 
+                <div class="lg-redirect" data-lg-redirect-overlay hidden role="dialog" aria-modal="true" aria-labelledby="lg-redirect-title">
+                    <div class="lg-redirect__card">
+                        <div class="lg-redirect__spinner" aria-hidden="true"></div>
+                        <div id="lg-redirect-title" class="lg-redirect__title">Setting up secure checkout&hellip;</div>
+                        <div class="lg-redirect__sub">Please wait &mdash; the payment form is loading.</div>
+                    </div>
+                </div>
+
+                <div class="lg-co-modal" data-lg-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
+                    <div class="lg-co-modal__backdrop" data-lg-checkout-close></div>
+                    <div class="lg-co-modal__card">
+                        <button type="button" class="lg-co-modal__close" data-lg-checkout-close aria-label="Close checkout">&times;</button>
+                        <div class="lg-co-modal__body" data-lg-gift-checkout></div>
+                    </div>
+                </div>
+
                 <div data-lg-buyer-email-section>
                     <h3 class="lg-gift__panel-heading">4. Your email <span style="font-weight:400;font-size:.85em;color:rgba(0,0,0,0.5);" data-lg-mode-label>(codes will be sent here)</span></h3>
                     <div class="lg-gift__field">
@@ -216,7 +232,6 @@ final class Shortcodes
             </p>
 
             <div class="lg-gift__error" data-lg-gift-error aria-live="polite"></div>
-            <div class="lg-gift__checkout" data-lg-gift-checkout></div>
         </div>
 
         <style>
@@ -361,6 +376,32 @@ final class Shortcodes
             .lg-consent__btn--primary:hover { opacity: .88; }
             .lg-consent__btn:disabled { opacity: .55; cursor: default; }
             .lg-consent__error { margin: .9em 0 0; font-size: .88em; color: #b91c1c; }
+
+            /* Redirect overlay shown immediately on first checkout click —
+               blocks the page so a frantic second click can't fire a second
+               Stripe session before the embedded form is ready. */
+            .lg-redirect { position: fixed; inset: 0; z-index: 100002; display: flex; align-items: center; justify-content: center; padding: 1em; background: rgba(0,0,0,0.55); }
+            .lg-redirect__card { background: #fff; padding: 1.8em 2em; border-radius: 12px; max-width: 380px; text-align: center; box-shadow: 0 16px 50px rgba(0,0,0,0.35); color: #1f1d1a; }
+            .lg-redirect__spinner { width: 38px; height: 38px; margin: 0 auto 1em; border: 3px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-redirect-spin .85s linear infinite; }
+            @keyframes lg-redirect-spin { to { transform: rotate(360deg); } }
+            .lg-redirect__title { font-weight: 600; font-size: 1.05em; margin-bottom: .25em; }
+            .lg-redirect__sub { font-size: .88em; color: #555; line-height: 1.4; }
+            .lg-gift--checkout-locked .lg-gift__panel { pointer-events: none; opacity: .6; }
+            .lg-gift--checkout-locked .lg-gift__submit { pointer-events: none; opacity: .55; cursor: not-allowed; }
+
+            /* Stripe embedded-checkout modal — full-height centered card so
+               the iframe doesn't get squeezed inline below the form. */
+            .lg-co-modal { position: fixed; inset: 0; z-index: 100003; display: flex; align-items: center; justify-content: center; padding: 1em; }
+            .lg-co-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+            .lg-co-modal__card { position: relative; background: #fff; border-radius: 12px; width: 100%; max-width: 560px; max-height: 92vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; flex-direction: column; }
+            .lg-co-modal__close { position: absolute; top: .35em; right: .55em; width: 2em; height: 2em; padding: 0; background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.1); border-radius: 50%; font-size: 1.4em; line-height: 1; cursor: pointer; color: #444; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+            .lg-co-modal__close:hover { color: #000; background: #fff; }
+            .lg-co-modal__body { flex: 1; min-height: 0; overflow: auto; padding: 1.2em 1em; }
+            .lg-co-modal__body iframe { width: 100% !important; min-height: 70vh; border: 0; display: block; }
+            @media (max-width: 600px) {
+                .lg-co-modal { padding: 0; }
+                .lg-co-modal__card { max-height: 100vh; height: 100vh; border-radius: 0; }
+            }
         </style>
 
         <script src="https://js.stripe.com/v3/"></script>
@@ -561,7 +602,42 @@ final class Shortcodes
             });
             qtyInput.addEventListener('input', recompute);
 
+            // One-shot guard: once a Stripe checkout is in flight or mounted,
+            // refuse to start another. The overlay also blocks pointer events
+            // so a panicked double-tap can't slip through before the JS guard
+            // updates.
+            let checkoutInProgress = false;
+            const redirectOverlay = document.querySelector('[data-lg-redirect-overlay]');
+            const checkoutModal   = document.querySelector('[data-lg-checkout-modal]');
+
+            function lockCheckout() {
+                checkoutInProgress = true;
+                if (redirectOverlay) redirectOverlay.hidden = false;
+                const root = document.querySelector('.lg-gift');
+                if (root) root.classList.add('lg-gift--checkout-locked');
+                submitBtn.disabled = true;
+            }
+            function unlockCheckout() {
+                checkoutInProgress = false;
+                if (redirectOverlay) redirectOverlay.hidden = true;
+                const root = document.querySelector('.lg-gift');
+                if (root) root.classList.remove('lg-gift--checkout-locked');
+                submitBtn.disabled = false;
+            }
+            function closeCheckoutModal() {
+                if (checkoutModal) checkoutModal.hidden = true;
+                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
+                if (checkoutEl) checkoutEl.innerHTML = '';
+                unlockCheckout();
+                recompute();
+            }
+            document.querySelectorAll('[data-lg-checkout-close]').forEach(el => {
+                el.addEventListener('click', closeCheckoutModal);
+            });
+
             submitBtn.addEventListener('click', async function(){
+                if (checkoutInProgress) return;
+
                 showError('');
                 const tier  = selectedTier();
                 const price = pickAnnualPrice(tier);
@@ -571,9 +647,9 @@ final class Shortcodes
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
 
+                lockCheckout();
                 if (mountedSession) { try { mountedSession.destroy(); } catch (e) {} mountedSession = null; }
-                checkoutEl.innerHTML = '';
-                submitBtn.disabled    = true;
+                if (checkoutEl) checkoutEl.innerHTML = '';
                 const origCta = ctaSpan.textContent;
                 ctaSpan.textContent = 'Loading…';
 
@@ -586,23 +662,34 @@ final class Shortcodes
                     const sessData = await sessRes.json();
                     if (!sessData.clientSecret) {
                         showError(sessData.error || 'Could not start checkout.');
+                        ctaSpan.textContent = origCta;
+                        unlockCheckout();
                         return;
                     }
 
                     if (!stripe) {
                         const cfg = await (await fetch(ENDPOINTS.config)).json();
-                        if (!cfg.publishableKey) { showError('Stripe not configured.'); return; }
+                        if (!cfg.publishableKey) {
+                            showError('Stripe not configured.');
+                            ctaSpan.textContent = origCta;
+                            unlockCheckout();
+                            return;
+                        }
                         stripe = Stripe(cfg.publishableKey);
                     }
 
                     mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
                     mountedSession.mount(checkoutEl);
-                    checkoutEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                    // Mount succeeded — open the modal and hide the spinner
+                    // overlay so the user can interact with Stripe. Submit
+                    // button stays locked until they pay or close the modal.
+                    if (checkoutModal)   checkoutModal.hidden   = false;
+                    if (redirectOverlay) redirectOverlay.hidden = true;
                 } catch (err) {
                     showError('Network error: ' + err.message);
-                } finally {
-                    submitBtn.disabled  = false;
                     ctaSpan.textContent = origCta;
+                    unlockCheckout();
                     recompute();
                 }
             });
