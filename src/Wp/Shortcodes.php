@@ -715,7 +715,7 @@ final class Shortcodes
                             isAuthed = true;
                             if (authBlock)   authBlock.hidden   = true;
                             if (authSuccess) authSuccess.hidden = false;
-                            if (authWelcome) authWelcome.textContent = 'You're logged in as ' + data.name + '.';
+                            if (authWelcome) authWelcome.textContent = 'You' + String.fromCharCode(39) + 're logged in as ' + data.name + '.';
                             const buyerInput = document.querySelector('[name="email"]');
                             if (buyerInput && data.email) buyerInput.value = data.email;
                         } else {
