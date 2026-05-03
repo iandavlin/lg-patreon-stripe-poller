@@ -2064,11 +2064,17 @@ final class Shortcodes
                 <?php if ( ! $treatAsLoggedIn ) : ?>
                 <label class="lg-redeem-gift__label">
                     <span>Password</span>
-                    <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick one if you're new (8+ characters)">
+                    <?php if ( $renderSigninVariant ) : ?>
+                    <input type="password" name="password" minlength="8" required autocomplete="current-password" placeholder="Your account password">
                     <small style="display:block;margin-top:.3em;color:rgba(0,0,0,0.55);font-size:.85em;line-height:1.4;">
-                        Existing member? Enter your password. New here? Choose one &mdash;
-                        this becomes your account password so you can log in any time to manage your membership.
+                        <a href="<?php echo esc_url( wp_lostpassword_url() ); ?>">Forgot your password?</a>
                     </small>
+                    <?php else : ?>
+                    <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick a password (8+ characters)">
+                    <small style="display:block;margin-top:.3em;color:rgba(0,0,0,0.55);font-size:.85em;line-height:1.4;">
+                        This becomes your account password so you can log in any time to manage your membership.
+                    </small>
+                    <?php endif; ?>
                 </label>
                 <?php endif; ?>
                 <button type="submit" class="lg-redeem-gift__submit"><?php echo $renderSigninVariant ? 'Sign in &amp; redeem' : 'Redeem &amp; activate my account'; ?></button>
