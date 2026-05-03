@@ -2356,7 +2356,18 @@ final class Shortcodes
                             submitBt.disabled = false;
                             return;
                         }
-                        // logged in — proceed to redeem
+                        // For existing-user sign-in variant: reload to the
+                        // redeem page (code preserved) so the visitor lands
+                        // in a fully logged-in state with the standard redeem
+                        // form, then submits to actually redeem.
+                        if (EMAIL_HAS_USER) {
+                            const url = window.location.pathname + '?code=' + encodeURIComponent(payload.code);
+                            window.location.href = url;
+                            return;
+                        }
+                        // For brand-new users: proceed to redeem on the
+                        // same submission — they explicitly chose to
+                        // create an account + redeem in one step.
                     } catch (e) {
                         resultEl.className = 'lg-redeem-gift__result is-error';
                         resultEl.textContent = 'Network error during sign-in. Please try again.';
