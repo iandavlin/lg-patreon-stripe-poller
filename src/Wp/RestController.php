@@ -1142,7 +1142,19 @@ final class RestController
                 $user->set_role( 'customer' );
             }
         } else {
-            // Register flow — create a new customer-role account.
+            // No account on file — require consent before creating one. The
+            // first call returns needs_consent so the client can show a modal;
+            // the client re-submits with confirmed_consent=true to actually
+            // create the account.
+            $confirmed = (bool) ( $body['confirmed_consent'] ?? false );
+            if ( ! $confirmed ) {
+                return new WP_REST_Response( [
+                    'ok'            => false,
+                    'needs_consent' => true,
+                    'email'         => $email,
+                ], 200 );
+            }
+
             $base = sanitize_user( strstr( $email, '@', true ), true );
             $base = $base !== '' ? $base : 'user';
             $username = username_exists( $base ) ? ( $base . '_' . substr( md5( $email ), 0, 6 ) ) : $base;

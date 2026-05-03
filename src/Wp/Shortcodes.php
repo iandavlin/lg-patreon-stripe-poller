@@ -142,13 +142,9 @@ final class Shortcodes
 
                     <div class="lg-auth" data-lg-auth-block hidden>
                         <div class="lg-auth__fields">
-                            <input type="email"    class="lg-auth__input" data-lg-auth-email    placeholder="your@email.com"           autocomplete="email">
-                            <input type="password" class="lg-auth__input" data-lg-auth-password placeholder="Password (min 8 chars)"   autocomplete="current-password">
+                            <input type="email"    class="lg-auth__input" data-lg-auth-email    placeholder="your@email.com"         autocomplete="email">
+                            <input type="password" class="lg-auth__input" data-lg-auth-password placeholder="Password (min 8 chars)" autocomplete="current-password">
                         </div>
-                        <label class="lg-auth__check-row">
-                            <input type="checkbox" data-lg-auth-subscribe>
-                            Add me to the weekly Looth email
-                        </label>
                         <button type="button" class="lg-auth__btn" data-lg-auth-btn>Log in or create account</button>
                         <p class="lg-auth__error" data-lg-auth-error hidden></p>
                         <p class="lg-auth__forgot" data-lg-auth-forgot hidden>
@@ -161,6 +157,27 @@ final class Shortcodes
                         <span data-lg-auth-welcome>You&rsquo;re logged in.</span>
                     </div>
 
+                </div>
+
+                <div class="lg-consent" data-lg-consent-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-consent-title">
+                    <div class="lg-consent__backdrop" data-lg-consent-cancel></div>
+                    <div class="lg-consent__card">
+                        <h3 id="lg-consent-title" class="lg-consent__title">One more thing</h3>
+                        <p class="lg-consent__body">
+                            We&rsquo;re creating an account for <strong data-lg-consent-email>your email</strong>.
+                            Your email will only be used for your gift codes and your account &mdash;
+                            <strong>we will never sell or share it</strong>.
+                        </p>
+                        <label class="lg-consent__check">
+                            <input type="checkbox" data-lg-consent-subscribe>
+                            <span>Yes, also send me the weekly Looth email &mdash; news, events, and member highlights.</span>
+                        </label>
+                        <div class="lg-consent__actions">
+                            <button type="button" class="lg-consent__btn lg-consent__btn--ghost" data-lg-consent-cancel>Cancel</button>
+                            <button type="button" class="lg-consent__btn lg-consent__btn--primary" data-lg-consent-confirm>Create my account</button>
+                        </div>
+                        <p class="lg-consent__error" data-lg-consent-error hidden></p>
+                    </div>
                 </div>
 
                 <div data-lg-buyer-email-section>
@@ -321,6 +338,27 @@ final class Shortcodes
             .lg-gift__loggedin-banner a { color: var(--lg-sage, #87986A); font-weight: 600; }
             .lg-gift--logged-in [data-lg-mode-section],
             .lg-gift--logged-in [data-lg-buyer-email-section] { display: none !important; }
+
+            /* Hide step 4 buyer-email when "Log in to manage" mode is active —
+               we already have the user's email from their account. */
+            .lg-gift--mode-managed [data-lg-buyer-email-section] { display: none !important; }
+
+            /* Consent modal */
+            .lg-consent { position: fixed; inset: 0; z-index: 100000; display: flex; align-items: center; justify-content: center; padding: 1em; }
+            .lg-consent__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+            .lg-consent__card { position: relative; max-width: 420px; width: 100%; padding: 1.6em 1.5em; background: #fff; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); color: #1f1d1a; }
+            .lg-consent__title { margin: 0 0 .55em; font-size: 1.25em; font-weight: 700; }
+            .lg-consent__body { margin: 0 0 1em; font-size: .95em; line-height: 1.5; color: #333; }
+            .lg-consent__check { display: flex; align-items: flex-start; gap: .55em; padding: .75em .9em; margin-bottom: 1.1em; background: rgba(236,179,81,0.08); border: 1px solid rgba(236,179,81,0.3); border-radius: 6px; cursor: pointer; font-size: .9em; line-height: 1.4; }
+            .lg-consent__check input { margin-top: .15em; flex-shrink: 0; }
+            .lg-consent__actions { display: flex; gap: .65em; justify-content: flex-end; }
+            .lg-consent__btn { padding: .6em 1.15em; border-radius: 6px; font-weight: 600; font-size: .92em; cursor: pointer; border: none; transition: opacity .15s, background .15s; }
+            .lg-consent__btn--ghost { background: transparent; border: 1.5px solid rgba(0,0,0,0.2); color: #1f1d1a; }
+            .lg-consent__btn--ghost:hover { background: rgba(0,0,0,0.04); }
+            .lg-consent__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; }
+            .lg-consent__btn--primary:hover { opacity: .88; }
+            .lg-consent__btn:disabled { opacity: .55; cursor: default; }
+            .lg-consent__error { margin: .9em 0 0; font-size: .88em; color: #b91c1c; }
         </style>
 
         <script src="https://js.stripe.com/v3/"></script>
@@ -668,14 +706,15 @@ final class Shortcodes
             const authWelcome = document.querySelector('[data-lg-auth-welcome]');
             let   isAuthed    = CONFIG.loggedIn;
 
+            const giftRoot = document.querySelector('.lg-gift');
+
             modeOpts.forEach(o => o.addEventListener('click', () => {
                 modeOpts.forEach(x => x.classList.remove('is-selected'));
                 o.classList.add('is-selected');
                 const r = o.querySelector('input[type="radio"]'); if (r) r.checked = true;
                 sendMode = o.dataset.mode;
+                if (giftRoot) giftRoot.classList.toggle('lg-gift--mode-managed', sendMode === 'managed');
                 if (sendMode === 'managed') {
-                    if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
-                    if (modeHelp)  modeHelp.textContent  = 'We send a receipt with all codes to this address as a backup.';
                     if (!isAuthed && authBlock) authBlock.hidden = false;
                 } else {
                     if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
@@ -684,11 +723,34 @@ final class Shortcodes
                 }
             }));
 
+            const consentModal   = document.querySelector('[data-lg-consent-modal]');
+            const consentEmail   = document.querySelector('[data-lg-consent-email]');
+            const consentSub     = document.querySelector('[data-lg-consent-subscribe]');
+            const consentConfirm = document.querySelector('[data-lg-consent-confirm]');
+            const consentErr     = document.querySelector('[data-lg-consent-error]');
+
+            function applyAuthSuccess(data) {
+                isAuthed = true;
+                if (authBlock)    authBlock.hidden    = true;
+                if (authSuccess)  authSuccess.hidden  = false;
+                if (authWelcome)  authWelcome.textContent = 'You' + String.fromCharCode(39) + 're logged in as ' + data.name + '.';
+                const buyerInput = document.querySelector('[name="email"]');
+                if (buyerInput && data.email) buyerInput.value = data.email;
+            }
+
+            async function doAuth(payload) {
+                const res = await fetch(ENDPOINTS.authUrl, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(payload),
+                });
+                return await res.json();
+            }
+
             if (authBtn) {
                 authBtn.addEventListener('click', async () => {
-                    const email     = (authEmailEl ? authEmailEl.value.trim() : '');
-                    const password  = (authPassEl  ? authPassEl.value         : '');
-                    const subscribe = (authSubEl   ? authSubEl.checked        : false);
+                    const email    = (authEmailEl ? authEmailEl.value.trim() : '');
+                    const password = (authPassEl  ? authPassEl.value         : '');
 
                     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
                         if (authErrEl) { authErrEl.textContent = 'Please enter a valid email address.'; authErrEl.hidden = false; }
@@ -705,19 +767,15 @@ final class Shortcodes
                     authBtn.textContent = 'Please wait…';
 
                     try {
-                        const res  = await fetch(ENDPOINTS.authUrl, {
-                            method:  'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body:    JSON.stringify({ email, password, subscribe_weekly: subscribe }),
-                        });
-                        const data = await res.json();
+                        const data = await doAuth({ email, password });
                         if (data.ok) {
-                            isAuthed = true;
-                            if (authBlock)   authBlock.hidden   = true;
-                            if (authSuccess) authSuccess.hidden = false;
-                            if (authWelcome) authWelcome.textContent = 'You' + String.fromCharCode(39) + 're logged in as ' + data.name + '.';
-                            const buyerInput = document.querySelector('[name="email"]');
-                            if (buyerInput && data.email) buyerInput.value = data.email;
+                            applyAuthSuccess(data);
+                        } else if (data.needs_consent) {
+                            // New email — show consent modal before creating account.
+                            if (consentEmail) consentEmail.textContent = email;
+                            if (consentSub)   consentSub.checked = false;
+                            if (consentErr)   consentErr.hidden = true;
+                            if (consentModal) consentModal.hidden = false;
                         } else {
                             if (authErrEl)  { authErrEl.textContent = data.error || 'Something went wrong. Please try again.'; authErrEl.hidden = false; }
                             if (authForgot && data.forgot) authForgot.hidden = false;
@@ -728,6 +786,39 @@ final class Shortcodes
 
                     authBtn.disabled    = false;
                     authBtn.textContent = 'Log in or create account';
+                });
+            }
+
+            // Consent modal — confirm or cancel new-account creation.
+            document.querySelectorAll('[data-lg-consent-cancel]').forEach(el => {
+                el.addEventListener('click', () => { if (consentModal) consentModal.hidden = true; });
+            });
+
+            if (consentConfirm) {
+                consentConfirm.addEventListener('click', async () => {
+                    const email     = (authEmailEl ? authEmailEl.value.trim() : '');
+                    const password  = (authPassEl  ? authPassEl.value         : '');
+                    const subscribe = (consentSub  ? consentSub.checked       : false);
+
+                    if (consentErr) consentErr.hidden = true;
+                    consentConfirm.disabled    = true;
+                    consentConfirm.textContent = 'Creating…';
+
+                    try {
+                        const data = await doAuth({ email, password, subscribe_weekly: subscribe, confirmed_consent: true });
+                        if (data.ok) {
+                            if (consentModal) consentModal.hidden = true;
+                            applyAuthSuccess(data);
+                        } else if (consentErr) {
+                            consentErr.textContent = data.error || 'Something went wrong. Please try again.';
+                            consentErr.hidden = false;
+                        }
+                    } catch (e) {
+                        if (consentErr) { consentErr.textContent = 'Network error. Please try again.'; consentErr.hidden = false; }
+                    }
+
+                    consentConfirm.disabled    = false;
+                    consentConfirm.textContent = 'Create my account';
                 });
             }
 
