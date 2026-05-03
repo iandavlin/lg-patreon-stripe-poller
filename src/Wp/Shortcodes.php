@@ -435,13 +435,12 @@ final class Shortcodes
             .lg-co-modal__close:hover { color: #000 !important; background: #f3f3f3 !important; }
             .lg-co-modal__body { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 0 !important; }
             .lg-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
-            .lg-co-modal__processing { padding: 3em 1.6em 3.4em; text-align: center; color: #1f1d1a; }
+            .lg-co-modal__processing { position: absolute !important; inset: 0 !important; z-index: 50 !important; background: #fff !important; padding: 3em 1.6em 3.4em !important; text-align: center !important; color: #1f1d1a !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; border-radius: 14px !important; }
             .lg-co-modal__processing[hidden] { display: none !important; }
-            .lg-co-modal__processing-spinner { width: 44px; height: 44px; margin: 0 auto 1.1em; border: 3px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-redirect-spin .85s linear infinite; }
-            .lg-co-modal__processing-title { margin: 0 0 .55em; font-size: 1.2em; font-weight: 700; }
-            .lg-co-modal__processing-body { margin: 0; font-size: .95em; line-height: 1.5; color: #444; max-width: 360px; margin-left: auto; margin-right: auto; }
+            .lg-co-modal__processing-spinner { width: 52px; height: 52px; margin: 0 auto 1.3em; border: 4px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-redirect-spin .85s linear infinite; }
+            .lg-co-modal__processing-title { margin: 0 0 .65em; font-size: 1.3em; font-weight: 700; }
+            .lg-co-modal__processing-body { margin: 0; font-size: .98em; line-height: 1.55; color: #444; max-width: 380px; margin-left: auto; margin-right: auto; }
             .lg-co-modal--processing .lg-co-modal__close { display: none !important; }
-            .lg-co-modal--processing .lg-co-modal__body { display: none !important; }
             .lg-co-modal--processing .lg-co-modal__backdrop { pointer-events: none !important; }
             @media (max-width: 700px) {
                 .lg-co-modal { padding: 0 !important; }
@@ -851,7 +850,7 @@ final class Shortcodes
                             // Briefly let webhooks settle, then redirect.
                             const target = '<?php echo esc_js( esc_url_raw( home_url( '/my-gifts/' ) ) ); ?>'
                                          + '?for=' + encodeURIComponent(email);
-                            setTimeout(() => { window.location.href = target; }, 1800);
+                            setTimeout(() => { window.location.href = target; }, 3500);
                         },
                     });
 
