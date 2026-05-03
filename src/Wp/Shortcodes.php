@@ -54,6 +54,7 @@ final class Shortcodes
             'products' => esc_url_raw( $base . '/v1/products' ),
             'config'   => esc_url_raw( $base . '/v1/config' ),
             'checkout' => esc_url_raw( $base . '/v1/checkout' ),
+            'authUrl'  => esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ),
         ];
 
         $heading     = esc_html( (string) $atts['heading'] );
@@ -116,55 +117,50 @@ final class Shortcodes
                 </div>
 
                 <div data-lg-mode-section>
-                    <h3 class="lg-gift__panel-heading">3. How should codes reach recipients?</h3>
+                    <h3 class="lg-gift__panel-heading">3. How do you want your codes?</h3>
                     <div class="lg-mode">
 
-                        <div class="lg-mode__item is-selected" data-mode="self">
-                            <button type="button" class="lg-mode__hdr">
-                                <svg class="lg-mode__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
-                                <span class="lg-mode__title">Get Your Codes Via Email</span>
-                            </button>
-                            <div class="lg-mode__body">
-                                <p class="lg-mode__sub">All codes go to your email. Forward or share them whenever you're ready.</p>
+                        <label class="lg-mode__opt is-selected" data-mode="self">
+                            <input type="radio" name="mode" value="self" checked>
+                            <span class="lg-mode__radio"></span>
+                            <div>
+                                <div class="lg-mode__title">Get codes via email</div>
+                                <div class="lg-mode__sub">We send all codes to your email. Forward or share them yourself.</div>
                             </div>
-                        </div>
+                        </label>
 
-                        <div class="lg-mode__item" data-mode="direct">
-                            <button type="button" class="lg-mode__hdr">
-                                <svg class="lg-mode__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
-                                <span class="lg-mode__title">Send To Your Recipients Now</span>
-                            </button>
-                            <div class="lg-mode__body">
-                                <p class="lg-mode__sub">We email each recipient with your name and an optional personal note.</p>
-                                <div class="lg-recip" data-lg-recip-block>
-                                    <div class="lg-recip__bulk">
-                                        <button type="button" class="lg-recip__bulk-btn" data-lg-toggle-paste>📋 Paste a list of emails</button>
-                                        <button type="button" class="lg-recip__bulk-btn" data-lg-toggle-applyall>✏️ Apply same note to all</button>
-                                    </div>
-                                    <textarea class="lg-recip__paste" data-lg-recip-paste placeholder="alice@example.com&#10;Bob Smith <bob@example.com>&#10;carol@example.com"></textarea>
-                                    <p class="lg-recip__paste-help">One per line. Format: <code>name &lt;email&gt;</code> or just <code>email</code>. Click outside to apply.</p>
-                                    <div class="lg-recip__apply-all" data-lg-recip-applyall>
-                                        <textarea placeholder="Optional message included with every gift email…"></textarea>
-                                        <button type="button" class="lg-recip__apply-all-btn" data-lg-recip-applyall-btn>Apply to all</button>
-                                    </div>
-                                    <div class="lg-recip__list" data-lg-recip-list></div>
-                                    <div class="lg-recip__status" data-lg-recip-status></div>
-                                </div>
+                        <label class="lg-mode__opt" data-mode="managed">
+                            <input type="radio" name="mode" value="managed">
+                            <span class="lg-mode__radio"></span>
+                            <div>
+                                <div class="lg-mode__title">Log in to manage &amp; send personalized gift emails</div>
+                                <div class="lg-mode__sub">Access your gift dashboard after purchase — send each recipient a beautiful personalized email whenever you&rsquo;re ready.</div>
                             </div>
-                        </div>
-
-                        <div class="lg-mode__item" data-mode="managed">
-                            <button type="button" class="lg-mode__hdr">
-                                <svg class="lg-mode__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
-                                <span class="lg-mode__title">Login to Manage Your Gifts at any Time</span>
-                            </button>
-                            <div class="lg-mode__body">
-                                <p class="lg-mode__sub">Log in or create a free account to access your gift dashboard after purchase — send codes to recipients whenever you're ready, track redemptions, and resend at any time.</p>
-                                <a href="<?php echo esc_url( wp_login_url( get_permalink() ) ); ?>" class="lg-mode__login-btn">Log in or sign up →</a>
-                            </div>
-                        </div>
+                        </label>
 
                     </div>
+
+                    <div class="lg-auth" data-lg-auth-block hidden>
+                        <div class="lg-auth__fields">
+                            <input type="email"    class="lg-auth__input" data-lg-auth-email    placeholder="your@email.com"           autocomplete="email">
+                            <input type="password" class="lg-auth__input" data-lg-auth-password placeholder="Password (min 8 chars)"   autocomplete="current-password">
+                        </div>
+                        <label class="lg-auth__check-row">
+                            <input type="checkbox" data-lg-auth-subscribe>
+                            Add me to the weekly Looth email
+                        </label>
+                        <button type="button" class="lg-auth__btn" data-lg-auth-btn>Log in or create account</button>
+                        <p class="lg-auth__error" data-lg-auth-error hidden></p>
+                        <p class="lg-auth__forgot" data-lg-auth-forgot hidden>
+                            <a href="<?php echo esc_url( wp_lostpassword_url( get_permalink() ) ); ?>">Forgot your password?</a>
+                        </p>
+                    </div>
+
+                    <div class="lg-auth__success" data-lg-auth-success hidden>
+                        <span class="lg-auth__check-icon">&#10003;</span>
+                        <span data-lg-auth-welcome>You&rsquo;re logged in.</span>
+                    </div>
+
                 </div>
 
                 <div data-lg-buyer-email-section>
@@ -268,21 +264,29 @@ final class Shortcodes
             .lg-gift__checkout { margin-top: 1.6em; }
             .lg-gift__loading { padding: 1em; opacity: .6; text-align: center; grid-column: 1 / -1; }
 
-            /* Send-mode toggle (accordion) */
-            .lg-mode { display: flex; flex-direction: column; border: 1px solid rgba(0,0,0,0.12); border-radius: 8px; overflow: hidden; margin-bottom: .4em; }
-            .lg-mode__item { border-bottom: 1px solid rgba(0,0,0,0.08); }
-            .lg-mode__item:last-child { border-bottom: none; }
-            .lg-mode__hdr { display: flex; align-items: center; gap: .7em; width: 100%; padding: .9em 1.1em; background: #fff; border: none; cursor: pointer; text-align: left; color: inherit; font-size: 1em; transition: background .12s; }
-            .lg-mode__hdr:hover { background: rgba(0,0,0,0.025); }
-            .lg-mode__item.is-selected > .lg-mode__hdr { background: rgba(236,179,81,0.07); }
-            .lg-mode__chevron { width: 18px; height: 18px; flex-shrink: 0; color: rgba(0,0,0,0.3); transition: transform .2s, color .15s; }
-            .lg-mode__item.is-selected > .lg-mode__hdr .lg-mode__chevron { transform: rotate(180deg); color: var(--lg-amber, #ECB351); }
-            .lg-mode__title { font-weight: 600; font-size: 1em; line-height: 1.3; }
-            .lg-mode__body { display: none; padding: .25em 1.1em 1.1em; background: rgba(250,246,238,0.5); border-top: 1px solid rgba(236,179,81,0.18); }
-            .lg-mode__item.is-selected > .lg-mode__body { display: block; }
-            .lg-mode__sub { font-size: .9em; opacity: .72; margin: .7em 0 .4em; }
-            .lg-mode__login-btn { display: inline-block; margin-top: .65em; padding: .48em 1.1em; border: 1.5px solid var(--lg-sage, #87986A); border-radius: 6px; color: var(--lg-sage, #87986A); font-weight: 600; font-size: .9em; text-decoration: none; transition: background .12s; }
-            .lg-mode__login-btn:hover { background: rgba(135,152,106,0.08); }
+            /* Send-mode toggle (radio cards) */
+            .lg-mode { display: flex; flex-direction: column; gap: 10px; margin-bottom: .4em; }
+            .lg-mode__opt { position: relative; display: flex; align-items: flex-start; gap: .85em; padding: 1em 1.1em; border: 2px solid rgba(0,0,0,0.1); border-radius: 8px; cursor: pointer; background: #fff; transition: border-color .15s, box-shadow .15s; }
+            .lg-mode__opt:hover { border-color: rgba(0,0,0,0.3); }
+            .lg-mode__opt.is-selected { border-color: var(--lg-amber, #ECB351); box-shadow: 0 0 0 3px rgba(236,179,81,0.18); }
+            .lg-mode__opt input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+            .lg-mode__radio { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.25); margin-top: .18em; transition: border-color .15s, background .15s; }
+            .lg-mode__opt.is-selected .lg-mode__radio { border-color: var(--lg-amber, #ECB351); background: radial-gradient(circle at center, var(--lg-amber,#ECB351) 5px, #fff 5px); }
+            .lg-mode__title { font-weight: 600; }
+            .lg-mode__sub { font-size: .88em; opacity: .7; margin-top: .2em; }
+
+            /* Inline auth block (login / register) */
+            .lg-auth { margin-top: .85em; padding: 1.1em; background: rgba(250,246,238,0.7); border: 1px solid rgba(236,179,81,0.28); border-radius: 8px; }
+            .lg-auth__fields { display: flex; flex-direction: column; gap: .5em; margin-bottom: .7em; }
+            .lg-auth__input { width: 100%; padding: .6em .85em; font-size: .95em; border: 1px solid rgba(0,0,0,0.15); border-radius: 6px; background: #fff; color: inherit; box-sizing: border-box; }
+            .lg-auth__check-row { display: flex; align-items: center; gap: .5em; font-size: .88em; margin-bottom: .75em; cursor: pointer; }
+            .lg-auth__btn { width: 100%; padding: .65em 1em; background: var(--lg-amber, #ECB351); border: none; border-radius: 6px; font-weight: 600; font-size: .95em; cursor: pointer; color: #1f1d1a; transition: opacity .15s; }
+            .lg-auth__btn:hover { opacity: .88; }
+            .lg-auth__btn:disabled { opacity: .55; cursor: default; }
+            .lg-auth__error { font-size: .88em; color: #b91c1c; margin-top: .6em; }
+            .lg-auth__forgot { font-size: .85em; margin-top: .35em; }
+            .lg-auth__success { display: flex; align-items: center; gap: .55em; margin-top: .85em; padding: .7em 1em; background: rgba(135,152,106,0.12); border: 1px solid rgba(135,152,106,0.3); border-radius: 8px; font-size: .92em; color: #2d4f2a; }
+            .lg-auth__check-icon { font-weight: 700; font-size: 1.15em; }
 
             /* Recipient repeater */
             .lg-recip { margin-top: .8em; }
@@ -563,7 +567,7 @@ final class Shortcodes
             });
 
             // ── Send-mode toggle + recipient repeater ─────────────────────────
-            const modeItems   = document.querySelectorAll('.lg-mode__item');
+            const modeOpts    = document.querySelectorAll('.lg-mode__opt');
             const recipBlock  = document.querySelector('[data-lg-recip-block]');
             const recipList   = document.querySelector('[data-lg-recip-list]');
             const recipCount  = document.querySelector('[data-lg-recip-count]');
@@ -652,24 +656,81 @@ final class Shortcodes
                 });
             }
 
-            modeItems.forEach(item => item.querySelector('.lg-mode__hdr').addEventListener('click', () => {
-                modeItems.forEach(x => x.classList.remove('is-selected'));
-                item.classList.add('is-selected');
-                sendMode = item.dataset.mode;
-                if (sendMode === 'direct') {
-                    if (modeLabel) modeLabel.textContent = '(receipt + your copy of all codes)';
-                    if (modeHelp)  modeHelp.textContent  = "We'll send you a receipt with all codes as a backup, plus a personalized email to each recipient below.";
-                    renderRecipients();
-                } else if (sendMode === 'managed') {
+            const authBlock   = document.querySelector('[data-lg-auth-block]');
+            const authSuccess = document.querySelector('[data-lg-auth-success]');
+            const authEmailEl = document.querySelector('[data-lg-auth-email]');
+            const authPassEl  = document.querySelector('[data-lg-auth-password]');
+            const authSubEl   = document.querySelector('[data-lg-auth-subscribe]');
+            const authBtn     = document.querySelector('[data-lg-auth-btn]');
+            const authErrEl   = document.querySelector('[data-lg-auth-error]');
+            const authForgot  = document.querySelector('[data-lg-auth-forgot]');
+            const authWelcome = document.querySelector('[data-lg-auth-welcome]');
+            let   isAuthed    = CONFIG.loggedIn;
+
+            modeOpts.forEach(o => o.addEventListener('click', () => {
+                modeOpts.forEach(x => x.classList.remove('is-selected'));
+                o.classList.add('is-selected');
+                const r = o.querySelector('input[type="radio"]'); if (r) r.checked = true;
+                sendMode = o.dataset.mode;
+                if (sendMode === 'managed') {
                     if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
-                    if (modeHelp)  modeHelp.textContent  = 'We send all codes to this address as a backup after purchase.';
-                    ctaSpan.textContent = 'Log in to continue';
+                    if (modeHelp)  modeHelp.textContent  = 'We send a receipt with all codes to this address as a backup.';
+                    if (!isAuthed && authBlock) authBlock.hidden = false;
                 } else {
                     if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
                     if (modeHelp)  modeHelp.textContent  = 'We send all codes to this address. You forward / share them yourself.';
+                    if (authBlock && !isAuthed) authBlock.hidden = true;
                     ctaSpan.textContent = origCta;
                 }
             }));
+
+            if (authBtn) {
+                authBtn.addEventListener('click', async () => {
+                    const email     = (authEmailEl ? authEmailEl.value.trim() : '');
+                    const password  = (authPassEl  ? authPassEl.value         : '');
+                    const subscribe = (authSubEl   ? authSubEl.checked        : false);
+
+                    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                        if (authErrEl) { authErrEl.textContent = 'Please enter a valid email address.'; authErrEl.hidden = false; }
+                        return;
+                    }
+                    if (password.length < 8) {
+                        if (authErrEl) { authErrEl.textContent = 'Password must be at least 8 characters.'; authErrEl.hidden = false; }
+                        return;
+                    }
+
+                    if (authErrEl)  authErrEl.hidden  = true;
+                    if (authForgot) authForgot.hidden = true;
+                    authBtn.disabled    = true;
+                    authBtn.textContent = 'Please wait…';
+
+                    try {
+                        const res  = await fetch(ENDPOINTS.authUrl, {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({ email, password, subscribe_weekly: subscribe }),
+                        });
+                        const data = await res.json();
+                        if (data.ok) {
+                            isAuthed = true;
+                            if (authBlock)   authBlock.hidden   = true;
+                            if (authSuccess) authSuccess.hidden = false;
+                            if (authWelcome) authWelcome.textContent = 'You're logged in as ' + data.name + '.';
+                            const buyerInput = document.querySelector('[name="email"]');
+                            if (buyerInput && data.email) buyerInput.value = data.email;
+                            ctaSpan.textContent = origCta;
+                        } else {
+                            if (authErrEl)  { authErrEl.textContent = data.error || 'Something went wrong. Please try again.'; authErrEl.hidden = false; }
+                            if (authForgot && data.forgot) authForgot.hidden = false;
+                        }
+                    } catch (e) {
+                        if (authErrEl) { authErrEl.textContent = 'Network error. Please try again.'; authErrEl.hidden = false; }
+                    }
+
+                    authBtn.disabled    = false;
+                    authBtn.textContent = 'Log in or create account';
+                });
+            }
 
             if (togglePaste && pasteEl && pasteHelp) {
                 togglePaste.addEventListener('click', () => {
@@ -709,7 +770,7 @@ final class Shortcodes
                 // collected upfront. Slim sees dashboard_mode=1 and routes the
                 // post-purchase redirect to /my-gifts/ + sends the
                 // "you have N codes" buyer email instead of the bulk-table one.
-                if (CONFIG.loggedIn) {
+                if (CONFIG.loggedIn || (sendMode === 'managed' && isAuthed)) {
                     body.dashboard_mode = 1;
                     return body;
                 }
@@ -726,9 +787,11 @@ final class Shortcodes
             // Pre-flight validation before opening Stripe.
             const origSubmit = submitBtn.onclick;
             submitBtn.addEventListener('click', function(e){
-                if (sendMode === 'managed') {
+                if (sendMode === 'managed' && !isAuthed) {
                     e.stopImmediatePropagation();
-                    window.location.href = CONFIG.loginUrl;
+                    if (authBlock) { authBlock.hidden = false; authBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+                    if (authEmailEl) authEmailEl.focus();
+                    showError('Please log in or create an account first.');
                     return;
                 }
                 if (sendMode === 'direct') {

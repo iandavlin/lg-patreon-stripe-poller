@@ -122,6 +122,13 @@ final class RestController
             'callback'            => [ self::class, 'meGiftVoid' ],
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
+
+        // Public: login or register for gift purchase flow.
+        register_rest_route( self::NAMESPACE, '/gift-auth', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'giftAuth' ],
+            'permission_callback' => '__return_true',
+        ] );
     }
 
     public static function authLoggedInUser(WP_REST_Request $req): bool
@@ -1093,5 +1100,86 @@ final class RestController
         }
 
         return new WP_REST_Response( $body, $httpCode >= 100 ? $httpCode : 500 );
+    }
+
+    /**
+     * POST /gift-auth  (public — no nonce required)
+     * Body: { email, password, subscribe_weekly? }
+     *
+     * Logs in an existing user or creates a new customer-role account.
+     * - Wrong password  → 401 with forgot:true hint
+     * - looth1 role     → demoted to customer (gift-only buyer)
+     * - subscribe_weekly → added to FluentCRM list 7 (Non Member Weekly Email)
+     * Returns { ok, nonce, name, email } on success.
+     */
+    public static function giftAuth( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body      = (array) $req->get_json_params();
+        $email     = strtolower( trim( (string) ( $body['email']    ?? '' ) ) );
+        $password  = (string) ( $body['password']          ?? '' );
+        $subWeekly = (bool)   ( $body['subscribe_weekly']  ?? false );
+
+        if ( $email === '' || ! is_email( $email ) ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Please enter a valid email address.' ], 400 );
+        }
+        if ( strlen( $password ) < 8 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Password must be at least 8 characters.' ], 400 );
+        }
+
+        $existing = get_user_by( 'email', $email );
+
+        if ( $existing ) {
+            // Login flow.
+            if ( ! wp_check_password( $password, $existing->user_pass, $existing->ID ) ) {
+                return new WP_REST_Response( [ 'ok' => false, 'error' => 'Incorrect password.', 'forgot' => true ], 401 );
+            }
+            $user = $existing;
+            // Demote looth1 (subscriber-tier) to customer if they have no paid role.
+            $roles = (array) $user->roles;
+            if ( in_array( 'looth1', $roles, true )
+                && ! in_array( 'looth2', $roles, true )
+                && ! in_array( 'looth3', $roles, true ) ) {
+                $user->set_role( 'customer' );
+            }
+        } else {
+            // Register flow — create a new customer-role account.
+            $base = sanitize_user( strstr( $email, '@', true ), true );
+            $base = $base !== '' ? $base : 'user';
+            $username = username_exists( $base ) ? ( $base . '_' . substr( md5( $email ), 0, 6 ) ) : $base;
+
+            $userId = wp_create_user( $username, $password, $email );
+            if ( is_wp_error( $userId ) ) {
+                return new WP_REST_Response( [ 'ok' => false, 'error' => $userId->get_error_message() ], 500 );
+            }
+            $user = get_user_by( 'id', $userId );
+            $user->set_role( 'customer' );
+        }
+
+        // Weekly email opt-in — FluentCRM list 7 "Non Member Weekly Email Subscriber".
+        if ( $subWeekly && function_exists( 'FluentCrmApi' ) ) {
+            $name   = trim( (string) ( $user->display_name ?: $user->user_login ) );
+            $parts  = explode( ' ', $name, 2 );
+            $result = FluentCrmApi( 'contacts' )->createOrUpdate( [
+                'email'      => $email,
+                'first_name' => $parts[0],
+                'last_name'  => $parts[1] ?? '',
+                'status'     => 'subscribed',
+            ] );
+            $contact = isset( $result->model ) ? $result->model : $result;
+            if ( $contact && method_exists( $contact, 'attachLists' ) ) {
+                $contact->attachLists( [ 7 ] );
+            }
+        }
+
+        // Log the user in.
+        wp_set_current_user( $user->ID );
+        wp_set_auth_cookie( $user->ID, true );
+
+        return new WP_REST_Response( [
+            'ok'    => true,
+            'nonce' => wp_create_nonce( 'wp_rest' ),
+            'name'  => $user->display_name ?: $user->user_login,
+            'email' => $user->user_email,
+        ] );
     }
 }
