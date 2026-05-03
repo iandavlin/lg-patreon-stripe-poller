@@ -1980,6 +1980,33 @@ final class Shortcodes
             $nameValue = '';
         }
 
+        // Wrong-user hard fail: a logged-in session whose email doesn't match
+        // the gift's recipient. Render the refusal and return early — no
+        // form, no fallback. They have to sign out and authenticate as the
+        // recipient.
+        if ( $wrongUserSignedIn ) {
+            $logoutUrl  = esc_url( wp_logout_url( get_permalink() ) );
+            $sessEmail  = esc_html( (string) $user->user_email );
+            $recipient  = esc_html( $stapledEmail );
+            $headingHt  = esc_html( (string) $atts['heading'] );
+            return '<div class="lg-redeem-gift">'
+                 . '<h3 class="lg-redeem-gift__heading">' . $headingHt . '</h3>'
+                 . '<div class="lg-redeem-gift__wronguser" style="margin:0;padding:1.1em 1.2em;background:#fff3f0;border:1px solid #d97757;border-radius:8px;font-size:.95em;line-height:1.5;color:#1f1d1a;">'
+                 .   '<strong style="font-size:1.05em;">You&rsquo;re not ' . $recipient . '. This gift isn&rsquo;t for you.</strong><br>'
+                 .   'You&rsquo;re signed in as <strong>' . $sessEmail . '</strong>. This code was sent to <strong>' . $recipient . '</strong>, so only that account can redeem it.<br>'
+                 .   '<a href="' . $logoutUrl . '" style="display:inline-block;margin-top:.7em;padding:.5em 1em;background:#1f1d1a;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:.92em;">Sign out and try again</a>'
+                 . '</div>'
+                 . '</div>';
+        }
+
+        // Does the recipient_email already have a WP user? (Logged-out
+        // visitor for an existing account → render the sign-in variant.)
+        $emailHasExistingUser = false;
+        if ( $stapledEmail !== '' ) {
+            $emailHasExistingUser = ( get_user_by( 'email', $stapledEmail ) !== false );
+        }
+        $renderSigninVariant = $emailHasExistingUser && ! $treatAsLoggedIn;
+
         $heading  = esc_html( (string) $atts['heading'] );
         $email    = esc_attr( $emailValue );
         $name     = esc_attr( $nameValue );
@@ -1991,12 +2018,7 @@ final class Shortcodes
         ?>
         <div class="lg-redeem-gift">
             <h3 class="lg-redeem-gift__heading"><?php echo $heading; ?></h3>
-            <?php if ( $wrongUserSignedIn ) : ?>
-            <div class="lg-redeem-gift__wronguser" style="margin:0 0 1.1em;padding:.85em 1em;background:rgba(255,200,80,0.14);border:1px solid rgba(255,180,40,0.45);border-radius:8px;font-size:.93em;line-height:1.45;color:#1f1d1a;">
-                <strong>Heads up &mdash; you&rsquo;re signed in as <?php echo esc_html( $user->user_email ); ?>.</strong>
-                This gift was sent to <strong><?php echo esc_html( $stapledEmail ); ?></strong>, so you&rsquo;ll need to sign in to <em>that</em> account below to redeem &mdash; that&rsquo;s where the membership will land.
-            </div>
-            <?php elseif ( $renderSigninVariant ) : ?>
+            <?php if ( $renderSigninVariant ) : ?>
             <div class="lg-redeem-gift__intro" style="margin:0 0 1.1em;padding:.85em 1em;background:rgba(135,152,106,0.10);border:1px solid rgba(135,152,106,0.35);border-radius:8px;font-size:.93em;line-height:1.45;color:#1f1d1a;">
                 <strong>This email already has an account.</strong>
                 Sign in below and we&rsquo;ll add this gift to your existing membership.
@@ -2033,10 +2055,12 @@ final class Shortcodes
                     </small>
                     <?php endif; ?>
                 </label>
+                <?php if ( ! $renderSigninVariant ) : ?>
                 <label class="lg-redeem-gift__label">
                     <span>Name <em style="opacity:.6;">(shown to other members)</em></span>
                     <input type="text" name="name" value="<?php echo $name; ?>" required>
                 </label>
+                <?php endif; ?>
                 <?php if ( ! $treatAsLoggedIn ) : ?>
                 <label class="lg-redeem-gift__label">
                     <span>Password</span>
@@ -2047,7 +2071,7 @@ final class Shortcodes
                     </small>
                 </label>
                 <?php endif; ?>
-                <button type="submit" class="lg-redeem-gift__submit">Redeem &amp; activate my account</button>
+                <button type="submit" class="lg-redeem-gift__submit"><?php echo $renderSigninVariant ? 'Sign in &amp; redeem' : 'Redeem &amp; activate my account'; ?></button>
             </form>
             <div class="lg-redeem-gift__result" data-lg-redeem-result aria-live="polite"></div>
 
@@ -2097,6 +2121,7 @@ final class Shortcodes
 
             const AUTH_URL    = '<?php echo esc_js( esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ) ); ?>';
             const ALREADY_IN  = <?php echo $treatAsLoggedIn ? 'true' : 'false'; ?>;
+            const EMAIL_HAS_USER = <?php echo $emailHasExistingUser ? 'true' : 'false'; ?>;
             const welcomeEl   = document.querySelector('[data-lg-welcome-modal]');
             if (welcomeEl && welcomeEl.parentNode !== document.body) document.body.appendChild(welcomeEl);
 
@@ -2289,7 +2314,7 @@ final class Shortcodes
                 const payload = {
                     code:  (form.code.value  || '').trim().toUpperCase(),
                     email: (form.email.value || '').trim(),
-                    name:  (form.name.value  || '').trim(),
+                    name:  (form.name && form.name.value ? form.name.value.trim() : ''),
                 };
                 const password = (form.password ? form.password.value : '');
 
