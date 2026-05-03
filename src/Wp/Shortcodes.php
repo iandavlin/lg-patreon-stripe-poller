@@ -66,6 +66,7 @@ final class Shortcodes
             'loggedIn'   => $isLoggedIn,
             'buyerEmail' => $emailValue,
             'buyerName'  => $nameValue,
+            'loginUrl'   => wp_login_url( get_permalink() ),
         ] );
 
         // For logged-in buyers we collapse the form to tier + qty + buy.
@@ -115,24 +116,54 @@ final class Shortcodes
                 </div>
 
                 <div data-lg-mode-section>
-                    <h3 class="lg-gift__panel-heading">3. How should the codes get to recipients?</h3>
+                    <h3 class="lg-gift__panel-heading">3. How should codes reach recipients?</h3>
                     <div class="lg-mode">
-                        <label class="lg-mode__opt is-selected" data-mode="self">
-                            <input type="radio" name="mode" value="self" checked>
-                            <div class="lg-mode__icon">📩</div>
-                            <div>
-                                <div class="lg-mode__title">Send to me</div>
-                                <div class="lg-mode__sub">All codes go to your email. You forward them yourself.</div>
+
+                        <div class="lg-mode__item is-selected" data-mode="self">
+                            <button type="button" class="lg-mode__hdr">
+                                <svg class="lg-mode__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
+                                <span class="lg-mode__title">Get Your Codes Via Email</span>
+                            </button>
+                            <div class="lg-mode__body">
+                                <p class="lg-mode__sub">All codes go to your email. Forward or share them whenever you're ready.</p>
                             </div>
-                        </label>
-                        <label class="lg-mode__opt" data-mode="direct">
-                            <input type="radio" name="mode" value="direct">
-                            <div class="lg-mode__icon">🎁</div>
-                            <div>
-                                <div class="lg-mode__title">Send each recipient directly</div>
-                                <div class="lg-mode__sub">We email each recipient with your name + an optional note.</div>
+                        </div>
+
+                        <div class="lg-mode__item" data-mode="direct">
+                            <button type="button" class="lg-mode__hdr">
+                                <svg class="lg-mode__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
+                                <span class="lg-mode__title">Send To Your Recipients Now</span>
+                            </button>
+                            <div class="lg-mode__body">
+                                <p class="lg-mode__sub">We email each recipient with your name and an optional personal note.</p>
+                                <div class="lg-recip" data-lg-recip-block>
+                                    <div class="lg-recip__bulk">
+                                        <button type="button" class="lg-recip__bulk-btn" data-lg-toggle-paste>📋 Paste a list of emails</button>
+                                        <button type="button" class="lg-recip__bulk-btn" data-lg-toggle-applyall>✏️ Apply same note to all</button>
+                                    </div>
+                                    <textarea class="lg-recip__paste" data-lg-recip-paste placeholder="alice@example.com&#10;Bob Smith <bob@example.com>&#10;carol@example.com"></textarea>
+                                    <p class="lg-recip__paste-help">One per line. Format: <code>name &lt;email&gt;</code> or just <code>email</code>. Click outside to apply.</p>
+                                    <div class="lg-recip__apply-all" data-lg-recip-applyall>
+                                        <textarea placeholder="Optional message included with every gift email…"></textarea>
+                                        <button type="button" class="lg-recip__apply-all-btn" data-lg-recip-applyall-btn>Apply to all</button>
+                                    </div>
+                                    <div class="lg-recip__list" data-lg-recip-list></div>
+                                    <div class="lg-recip__status" data-lg-recip-status></div>
+                                </div>
                             </div>
-                        </label>
+                        </div>
+
+                        <div class="lg-mode__item" data-mode="managed">
+                            <button type="button" class="lg-mode__hdr">
+                                <svg class="lg-mode__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
+                                <span class="lg-mode__title">Login to Manage Your Gifts at any Time</span>
+                            </button>
+                            <div class="lg-mode__body">
+                                <p class="lg-mode__sub">Log in or create a free account to access your gift dashboard after purchase — send codes to recipients whenever you're ready, track redemptions, and resend at any time.</p>
+                                <a href="<?php echo esc_url( wp_login_url( get_permalink() ) ); ?>" class="lg-mode__login-btn">Log in or sign up →</a>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
@@ -144,21 +175,6 @@ final class Shortcodes
                     </div>
                 </div>
 
-                <div class="lg-recip" data-lg-recip-block>
-                    <h3 class="lg-gift__panel-heading">Recipients <span style="font-weight:400;font-size:.85em;color:rgba(0,0,0,0.5);" data-lg-recip-count>(0 / 0 ready)</span></h3>
-                    <div class="lg-recip__bulk">
-                        <button type="button" class="lg-recip__bulk-btn" data-lg-toggle-paste>📋 Paste a list of emails</button>
-                        <button type="button" class="lg-recip__bulk-btn" data-lg-toggle-applyall>✏️ Apply same note to all</button>
-                    </div>
-                    <textarea class="lg-recip__paste" data-lg-recip-paste placeholder="alice@example.com&#10;Bob Smith <bob@example.com>&#10;carol@example.com"></textarea>
-                    <p class="lg-recip__paste-help">One per line. Format: <code>name &lt;email&gt;</code> or just <code>email</code>. Click outside to apply.</p>
-                    <div class="lg-recip__apply-all" data-lg-recip-applyall>
-                        <textarea placeholder="Optional message included with every gift email…"></textarea>
-                        <button type="button" class="lg-recip__apply-all-btn" data-lg-recip-applyall-btn>Apply to all</button>
-                    </div>
-                    <div class="lg-recip__list" data-lg-recip-list></div>
-                    <div class="lg-recip__status" data-lg-recip-status></div>
-                </div>
             </div>
 
             <div class="lg-gift__summary" data-lg-gift-summary>
@@ -252,20 +268,24 @@ final class Shortcodes
             .lg-gift__checkout { margin-top: 1.6em; }
             .lg-gift__loading { padding: 1em; opacity: .6; text-align: center; grid-column: 1 / -1; }
 
-            /* Send-mode toggle (radio cards) */
-            .lg-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: .4em; }
-            @media (max-width: 540px) { .lg-mode { grid-template-columns: 1fr; } }
-            .lg-mode__opt { position: relative; display: flex; gap: .8em; padding: 1em 1.1em; border: 2px solid rgba(0,0,0,0.1); border-radius: 8px; cursor: pointer; transition: border-color .15s, box-shadow .15s; background: #fff; }
-            .lg-mode__opt:hover { border-color: rgba(0,0,0,0.3); }
-            .lg-mode__opt.is-selected { border-color: var(--lg-amber, #ECB351); box-shadow: 0 0 0 3px rgba(236,179,81,0.18); }
-            .lg-mode__opt input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
-            .lg-mode__icon { font-size: 1.4em; line-height: 1; }
-            .lg-mode__title { font-weight: 600; }
-            .lg-mode__sub { font-size: .9em; opacity: .65; margin-top: .15em; }
+            /* Send-mode toggle (accordion) */
+            .lg-mode { display: flex; flex-direction: column; border: 1px solid rgba(0,0,0,0.12); border-radius: 8px; overflow: hidden; margin-bottom: .4em; }
+            .lg-mode__item { border-bottom: 1px solid rgba(0,0,0,0.08); }
+            .lg-mode__item:last-child { border-bottom: none; }
+            .lg-mode__hdr { display: flex; align-items: center; gap: .7em; width: 100%; padding: .9em 1.1em; background: #fff; border: none; cursor: pointer; text-align: left; color: inherit; font-size: 1em; transition: background .12s; }
+            .lg-mode__hdr:hover { background: rgba(0,0,0,0.025); }
+            .lg-mode__item.is-selected > .lg-mode__hdr { background: rgba(236,179,81,0.07); }
+            .lg-mode__chevron { width: 18px; height: 18px; flex-shrink: 0; color: rgba(0,0,0,0.3); transition: transform .2s, color .15s; }
+            .lg-mode__item.is-selected > .lg-mode__hdr .lg-mode__chevron { transform: rotate(180deg); color: var(--lg-amber, #ECB351); }
+            .lg-mode__title { font-weight: 600; font-size: 1em; line-height: 1.3; }
+            .lg-mode__body { display: none; padding: .25em 1.1em 1.1em; background: rgba(250,246,238,0.5); border-top: 1px solid rgba(236,179,81,0.18); }
+            .lg-mode__item.is-selected > .lg-mode__body { display: block; }
+            .lg-mode__sub { font-size: .9em; opacity: .72; margin: .7em 0 .4em; }
+            .lg-mode__login-btn { display: inline-block; margin-top: .65em; padding: .48em 1.1em; border: 1.5px solid var(--lg-sage, #87986A); border-radius: 6px; color: var(--lg-sage, #87986A); font-weight: 600; font-size: .9em; text-decoration: none; transition: background .12s; }
+            .lg-mode__login-btn:hover { background: rgba(135,152,106,0.08); }
 
             /* Recipient repeater */
-            .lg-recip { display: none; margin-top: 1em; }
-            .lg-recip.is-open { display: block; }
+            .lg-recip { margin-top: .8em; }
             .lg-recip__bulk { display: flex; gap: .5em; margin-bottom: .6em; flex-wrap: wrap; }
             .lg-recip__bulk-btn { padding: .35em .8em; border-radius: 999px; border: 1px solid rgba(0,0,0,0.15); background: #fff; cursor: pointer; font-size: .85em; color: inherit; }
             .lg-recip__bulk-btn:hover { border-color: rgba(0,0,0,0.4); }
@@ -295,8 +315,7 @@ final class Shortcodes
             .lg-gift__loggedin-banner { max-width: 720px; margin: 0 auto 1em; padding: .65em 1em; background: rgba(135,152,106,0.12); border: 1px solid rgba(135,152,106,0.3); border-radius: 8px; font-size: .92em; }
             .lg-gift__loggedin-banner a { color: var(--lg-sage, #87986A); font-weight: 600; }
             .lg-gift--logged-in [data-lg-mode-section],
-            .lg-gift--logged-in [data-lg-buyer-email-section],
-            .lg-gift--logged-in [data-lg-recip-block] { display: none !important; }
+            .lg-gift--logged-in [data-lg-buyer-email-section] { display: none !important; }
         </style>
 
         <script src="https://js.stripe.com/v3/"></script>
@@ -544,7 +563,7 @@ final class Shortcodes
             });
 
             // ── Send-mode toggle + recipient repeater ─────────────────────────
-            const modeOpts    = document.querySelectorAll('.lg-mode__opt');
+            const modeItems   = document.querySelectorAll('.lg-mode__item');
             const recipBlock  = document.querySelector('[data-lg-recip-block]');
             const recipList   = document.querySelector('[data-lg-recip-list]');
             const recipCount  = document.querySelector('[data-lg-recip-count]');
@@ -633,19 +652,22 @@ final class Shortcodes
                 });
             }
 
-            modeOpts.forEach(o => o.addEventListener('click', () => {
-                modeOpts.forEach(x => x.classList.remove('is-selected'));
-                o.classList.add('is-selected');
-                const r = o.querySelector('input[type="radio"]'); if (r) r.checked = true;
-                sendMode = o.dataset.mode;
-                if (recipBlock) recipBlock.classList.toggle('is-open', sendMode === 'direct');
+            modeItems.forEach(item => item.querySelector('.lg-mode__hdr').addEventListener('click', () => {
+                modeItems.forEach(x => x.classList.remove('is-selected'));
+                item.classList.add('is-selected');
+                sendMode = item.dataset.mode;
                 if (sendMode === 'direct') {
                     if (modeLabel) modeLabel.textContent = '(receipt + your copy of all codes)';
                     if (modeHelp)  modeHelp.textContent  = "We'll send you a receipt with all codes as a backup, plus a personalized email to each recipient below.";
                     renderRecipients();
+                } else if (sendMode === 'managed') {
+                    if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
+                    if (modeHelp)  modeHelp.textContent  = 'We send all codes to this address as a backup after purchase.';
+                    ctaSpan.textContent = 'Log in to continue';
                 } else {
                     if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
                     if (modeHelp)  modeHelp.textContent  = 'We send all codes to this address. You forward / share them yourself.';
+                    ctaSpan.textContent = origCta;
                 }
             }));
 
@@ -704,6 +726,11 @@ final class Shortcodes
             // Pre-flight validation before opening Stripe.
             const origSubmit = submitBtn.onclick;
             submitBtn.addEventListener('click', function(e){
+                if (sendMode === 'managed') {
+                    e.stopImmediatePropagation();
+                    window.location.href = CONFIG.loginUrl;
+                    return;
+                }
                 if (sendMode === 'direct') {
                     syncRows();
                     const bad = recipRows.findIndex(r => !isValidEmail(r.email));
