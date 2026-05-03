@@ -89,7 +89,7 @@ final class GiftMailer
         $count        = count( $codes );
         $tier         = (string) ( $codes[0]['tier'] ?? '' );
         $tierLabel    = $this->tierLabel( $tier );
-        $dashboardUrl = (string) home_url( '/my-gifts/' );
+        $dashboardUrl = (string) add_query_arg( 'for', rawurlencode( $toEmail ), home_url( '/my-gifts/' ) );
         $supportEmail = $this->supportEmail();
 
         $body = $this->renderTemplate( 'gift-buyer-dashboard', [

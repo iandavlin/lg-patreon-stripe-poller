@@ -2997,6 +2997,20 @@ final class Shortcodes
             return '<div class="lg-mygifts lg-mygifts--noemail"><p><em>Your account is missing an email address — please contact support.</em></p></div>';
         }
 
+        // If the dashboard link came from an email and carries ?for=<expected>,
+        // sanity-check it against the current session — flag the mismatch
+        // so the visitor doesn't sit on a stranger's empty dashboard
+        // wondering where their codes went.
+        $expectedEmail = isset( $_GET['for'] ) ? sanitize_email( rawurldecode( (string) $_GET['for'] ) ) : '';
+        if ( $expectedEmail !== '' && strtolower( $expectedEmail ) !== strtolower( $email ) ) {
+            $logoutUrl = esc_url( wp_logout_url( get_permalink() ) );
+            return '<div class="lg-mygifts lg-mygifts--oops" style="max-width:640px;margin:1em auto;padding:1.2em 1.4em;background:#fff3f0;border:1px solid #d97757;border-radius:8px;color:#1f1d1a;line-height:1.5;">'
+                 . '<p style="margin:0 0 .6em;font-size:1.05em;"><strong>Oops &mdash; you&rsquo;re signed in as the wrong account.</strong></p>'
+                 . '<p style="margin:0 0 .9em;">This gift dashboard belongs to <strong>' . esc_html( $expectedEmail ) . '</strong>, but you&rsquo;re currently signed in as <strong>' . esc_html( $email ) . '</strong>.</p>'
+                 . '<a href="' . $logoutUrl . '" style="display:inline-block;padding:.5em 1em;background:#1f1d1a;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:.92em;">Sign out and try again</a>'
+                 . '</div>';
+        }
+
         try {
             $pdo  = \LGMS\Db::pdo();
             $stmt = $pdo->prepare(
