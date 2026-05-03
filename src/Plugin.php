@@ -80,6 +80,10 @@ final class Plugin
         // dashboard — they shouldn't appear in forums or get participant caps.
         add_filter( 'bbp_allow_global_access', [ self::class, 'denyGlobalAccessForCustomers' ] );
 
+        // Strip bbPress interaction caps from customer-only users so they
+        // can't reply / post / edit even if some hook grants them the role.
+        add_filter( 'user_has_cap', [ self::class, 'stripForumCapsForCustomers' ], 10, 4 );
+
         // REST endpoints for Slim to trigger immediate syncs.
         add_action( 'rest_api_init', [ Wp\RestController::class, 'register' ] );
 
@@ -166,5 +170,55 @@ final class Plugin
             return false;
         }
         return $allow;
+    }
+
+    /**
+     * Filter for user_has_cap — for customer-only users (gift buyers with
+     * no other tier/staff role), force every bbPress interaction cap to
+     * false. Read caps are left alone so the forum content stays browsable.
+     */
+    public static function stripForumCapsForCustomers( $allcaps, $caps, $args, $user )
+    {
+        if ( ! $user || empty( $user->ID ) ) {
+            return $allcaps;
+        }
+        $roles = (array) $user->roles;
+        if ( ! in_array( 'customer', $roles, true ) ) {
+            return $allcaps;
+        }
+        if ( array_intersect( [ 'administrator', 'editor', 'looth1', 'looth2', 'looth3', 'looth4',
+                                'bbp_keymaster', 'bbp_moderator' ], $roles ) ) {
+            return $allcaps;
+        }
+
+        // Forum-interaction caps to suppress. Read caps deliberately omitted
+        // (read_forum / read_topic / read_reply) so customers can still see
+        // public threads — they just can't act on them.
+        static $strip = [
+            'participate'             => 1,
+            'publish_topics'          => 1,
+            'edit_topics'             => 1,
+            'edit_others_topics'      => 1,
+            'publish_replies'         => 1,
+            'edit_replies'            => 1,
+            'edit_others_replies'     => 1,
+            'delete_topics'           => 1,
+            'delete_others_topics'    => 1,
+            'delete_replies'          => 1,
+            'delete_others_replies'   => 1,
+            'moderate'                => 1,
+            'throttle'                => 1,
+            'view_trash'              => 1,
+            'spectate'                => 1,
+            'assign_topic_tags'       => 1,
+            'edit_topic_tags'         => 1,
+            'delete_topic_tags'       => 1,
+            'manage_topic_tags'       => 1,
+            'mark_as_spam'            => 1,
+        ];
+        foreach ( $strip as $cap => $_ ) {
+            $allcaps[ $cap ] = false;
+        }
+        return $allcaps;
     }
 }
