@@ -126,6 +126,7 @@ final class Shortcodes
                             <div>
                                 <div class="lg-mode__title">Get codes via email</div>
                                 <div class="lg-mode__sub">We send all codes to your email. Forward or share them yourself.</div>
+                                <div class="lg-mode__note">Heads up: without an account we can&rsquo;t recover or refund these codes if you lose access to this email.</div>
                             </div>
                         </label>
 
@@ -329,6 +330,7 @@ final class Shortcodes
             .lg-mode__opt.is-selected .lg-mode__radio { border-color: var(--lg-amber, #ECB351); background: radial-gradient(circle at center, var(--lg-amber,#ECB351) 5px, #fff 5px); }
             .lg-mode__title { font-weight: 600; }
             .lg-mode__sub { font-size: .88em; opacity: .7; margin-top: .2em; }
+            .lg-mode__note { font-size: .8em; color: #92400e; margin-top: .35em; font-style: italic; }
 
             /* Inline auth block (login / register) */
             .lg-auth { margin-top: .85em; padding: 1.1em; background: rgba(250,246,238,0.7); border: 1px solid rgba(236,179,81,0.28); border-radius: 8px; }
