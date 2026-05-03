@@ -680,9 +680,10 @@ final class Shortcodes
             // since their mode-section is hidden by CSS.
             (function initManagedDefault(){
                 if (CONFIG.loggedIn) return;
-                const root = document.querySelector('.lg-gift');
-                if (root) root.classList.add('lg-gift--mode-managed');
-                if (authBlock && !isAuthed) authBlock.hidden = false;
+                const root  = document.querySelector('.lg-gift');
+                const block = document.querySelector('[data-lg-auth-block]');
+                if (root)  root.classList.add('lg-gift--mode-managed');
+                if (block) block.hidden = false;
             })();
 
             let redirectOverlayShownAt = 0;
