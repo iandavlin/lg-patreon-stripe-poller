@@ -1130,19 +1130,43 @@ final class RestController
         $existing = get_user_by( 'email', $email );
 
         if ( $existing ) {
-            // Login flow.
-            if ( ! wp_check_password( $password, $existing->user_pass, $existing->ID ) ) {
-                return new WP_REST_Response( [ 'ok' => false, 'error' => 'Incorrect password.', 'forgot' => true ], 401 );
-            }
-            $user = $existing;
-            // Demote looth1 (subscriber-tier) to customer if they have no paid role.
-            $roles = (array) $user->roles;
-            if ( in_array( 'looth1', $roles, true )
-                && ! in_array( 'looth2', $roles, true )
-                && ! in_array( 'looth3', $roles, true ) ) {
-                $user->set_role( 'customer' );
-                $user->remove_role( 'bbp_participant' );
-                self::eraseBuddypressFootprint( (int) $user->ID );
+            $autoProvisioned = (bool) get_user_meta( $existing->ID, 'lg_auto_provisioned', true );
+            $redemptionCode  = strtoupper( trim( (string) ( $body['redemption_code'] ?? '' ) ) );
+
+            if ( $autoProvisioned && $redemptionCode !== '' && self::redemptionCodeProves( $redemptionCode, $email ) ) {
+                // First-claim: this user was auto-provisioned (no real
+                // password yet), and the caller proved access by passing a
+                // gift code that was just redeemed under this email. Treat
+                // the supplied password as the new account password.
+                wp_set_password( $password, $existing->ID );
+                delete_user_meta( $existing->ID, 'lg_auto_provisioned' );
+                $user = get_user_by( 'id', $existing->ID );
+                if ( $displayName !== '' && ( empty( $user->display_name ) || $user->display_name === $user->user_login ) ) {
+                    $parts = preg_split( '/\\s+/', $displayName, 2 );
+                    wp_update_user( [
+                        'ID'           => $user->ID,
+                        'display_name' => $displayName,
+                        'first_name'   => $parts[0] ?? '',
+                        'last_name'    => $parts[1] ?? '',
+                        'nickname'     => $displayName,
+                    ] );
+                    $user = get_user_by( 'id', $user->ID );
+                }
+            } else {
+                // Login flow.
+                if ( ! wp_check_password( $password, $existing->user_pass, $existing->ID ) ) {
+                    return new WP_REST_Response( [ 'ok' => false, 'error' => 'Incorrect password.', 'forgot' => true ], 401 );
+                }
+                $user = $existing;
+                // Demote looth1 (subscriber-tier) to customer if they have no paid role.
+                $roles = (array) $user->roles;
+                if ( in_array( 'looth1', $roles, true )
+                    && ! in_array( 'looth2', $roles, true )
+                    && ! in_array( 'looth3', $roles, true ) ) {
+                    $user->set_role( 'customer' );
+                    $user->remove_role( 'bbp_participant' );
+                    self::eraseBuddypressFootprint( (int) $user->ID );
+                }
             }
         } else {
             // No account on file — require consent before creating one. The
@@ -1249,5 +1273,40 @@ final class RestController
         delete_user_meta( $userId, 'bp_latest_update' );
         delete_user_meta( $userId, 'total_friend_count' );
         delete_user_meta( $userId, 'total_group_count' );
+    }
+
+    /**
+     * Returns true when the given $code was redeemed within the last
+     * 10 minutes AND its recipient_email matches $email. Used to gate
+     * password-set on auto-provisioned WP users in giftAuth().
+     */
+    private static function redemptionCodeProves( string $code, string $email ): bool
+    {
+        if ( $code === '' || $email === '' ) {
+            return false;
+        }
+        try {
+            // Proof is valid when the gift code is stamped to this email AND
+            // is either (a) just-redeemed within the last 10 min, OR (b)
+            // not yet redeemed (i.e. about to be — gift-auth runs before
+            // the redeem in the new flow). Either case demonstrates the
+            // caller has access to the recipients gift email.
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'SELECT 1 FROM gift_codes
+                  WHERE code = ?
+                    AND LOWER(recipient_email) = LOWER(?)
+                    AND voided_at IS NULL
+                    AND (
+                        ( redeemed_at IS NOT NULL AND redeemed_at >= (NOW() - INTERVAL 10 MINUTE) )
+                        OR redeemed_at IS NULL
+                    )
+                  LIMIT 1'
+            );
+            $stmt->execute( [ $code, $email ] );
+            return (bool) $stmt->fetchColumn();
+        } catch ( \Throwable $e ) {
+            error_log( 'gift-auth redemption proof: ' . $e->getMessage() );
+            return false;
+        }
     }
 }

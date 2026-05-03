@@ -2108,25 +2108,11 @@ final class Shortcodes
             function renderSuccess(json){
                 resultEl.className   = 'lg-redeem-gift__result is-success';
                 resultEl.textContent = json.message + ' (expires ' + json.expires_at + ')';
-
-                const fd       = new FormData(form);
-                const email    = (fd.get('email')    || '').toString().trim();
-                const password = (fd.get('password') || '').toString();
-                const name     = (fd.get('name')     || '').toString().trim();
-
                 form.reset();
                 pending = null;
-
-                finalizeLogin(email, password, name).then(auth => {
-                    if (!auth || !auth.ok) {
-                        // Membership IS granted; just couldn't log them in.
-                        resultEl.className = 'lg-redeem-gift__result is-success';
-                        resultEl.innerHTML = json.message + ' (expires ' + json.expires_at + ')<br><small>' +
-                            (auth && auth.error ? auth.error : 'Log in any time to manage your membership.') + '</small>';
-                        return;
-                    }
-                    showWelcome();
-                });
+                // gift-auth already ran and set the cookie before redeem,
+                // so we can hop straight to the welcome modal + activity.
+                showWelcome();
             }
 
             function renderError(msg, portalUrl){
@@ -2273,7 +2259,7 @@ final class Shortcodes
 
             form.addEventListener('submit', async function(e){
                 e.preventDefault();
-                resultEl.textContent = 'Redeeming…';
+                resultEl.textContent = 'Working…';
                 resultEl.className   = 'lg-redeem-gift__result is-pending';
                 submitBt.disabled    = true;
 
@@ -2282,7 +2268,56 @@ final class Shortcodes
                     email: (form.email.value || '').trim(),
                     name:  (form.name.value  || '').trim(),
                 };
+                const password = (form.password ? form.password.value : '');
 
+                // Force-login gate: if the email already has a WP account,
+                // we MUST authenticate before redeeming so a stranger with
+                // the gift code can't decide what happens to someone else's
+                // membership. /gift-auth handles the three cases:
+                //   - existing user, correct pw  -> ok, cookie set, proceed
+                //   - existing user, wrong pw    -> "Incorrect password"
+                //   - new user                   -> created + logged in
+                if (!ALREADY_IN) {
+                    if (!password || password.length < 8) {
+                        resultEl.className = 'lg-redeem-gift__result is-error';
+                        resultEl.textContent = 'Please enter a password (8+ characters).';
+                        submitBt.disabled = false;
+                        return;
+                    }
+                    try {
+                        const authRes = await fetch(AUTH_URL, {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({
+                                email:    payload.email,
+                                password: password,
+                                display_name:      payload.name,
+                                confirmed_consent: true,
+                                redemption_code:   payload.code,
+                            }),
+                        });
+                        const authData = await authRes.json();
+                        if (!authData.ok) {
+                            resultEl.className = 'lg-redeem-gift__result is-error';
+                            resultEl.innerHTML =
+                                '<strong>This email already has an account.</strong> ' +
+                                'Please enter your account password to log in and redeem this gift.<br>' +
+                                '<small>' + (authData.error || 'Sign-in failed.') +
+                                (authData.forgot ? ' &middot; <a href="<?php echo esc_url( wp_lostpassword_url() ); ?>">Forgot your password?</a>' : '') +
+                                '</small>';
+                            submitBt.disabled = false;
+                            return;
+                        }
+                        // logged in — proceed to redeem
+                    } catch (e) {
+                        resultEl.className = 'lg-redeem-gift__result is-error';
+                        resultEl.textContent = 'Network error during sign-in. Please try again.';
+                        submitBt.disabled = false;
+                        return;
+                    }
+                }
+
+                resultEl.textContent = 'Redeeming…';
                 try {
                     const json = await postRedeem(payload);
 
