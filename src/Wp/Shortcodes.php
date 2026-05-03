@@ -163,6 +163,7 @@ final class Shortcodes
                 <div class="lg-consent" data-lg-consent-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-consent-title">
                     <div class="lg-consent__backdrop" data-lg-consent-cancel></div>
                     <div class="lg-consent__card">
+                        <button type="button" class="lg-consent__close" data-lg-consent-cancel aria-label="Close">&times;</button>
                         <h3 id="lg-consent-title" class="lg-consent__title">One more thing</h3>
                         <p class="lg-consent__body">
                             We&rsquo;re creating an account for <strong data-lg-consent-email>your email</strong>.
@@ -361,7 +362,11 @@ final class Shortcodes
             .lg-gift--mode-managed [data-lg-buyer-email-section] { display: none !important; }
 
             /* Consent modal */
-            .lg-consent { position: fixed; inset: 0; z-index: 100000; display: flex; align-items: center; justify-content: center; padding: 1em; }
+            .lg-consent { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
+            .lg-consent[hidden] { display: none !important; }
+            .lg-consent__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.35em; line-height: 1; cursor: pointer; color: #444; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+            .lg-consent__close:hover { color: #000; background: #f5f5f5; }
+            .lg-consent__card { position: relative; }
             .lg-consent__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
             .lg-consent__card { position: relative; max-width: 420px; width: 100%; padding: 1.6em 1.5em; background: #fff; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); color: #1f1d1a; }
             .lg-consent__title { margin: 0 0 .55em; font-size: 1.25em; font-weight: 700; }
@@ -842,6 +847,8 @@ final class Shortcodes
                 if (authWelcome)  authWelcome.textContent = 'You' + String.fromCharCode(39) + 're logged in as ' + data.name + '.';
                 const buyerInput = document.querySelector('[name="email"]');
                 if (buyerInput && data.email) buyerInput.value = data.email;
+                if (consentModal) consentModal.hidden = true;
+                if (!checkoutModal || checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
             }
 
             async function doAuth(payload) {
@@ -878,10 +885,16 @@ final class Shortcodes
                             applyAuthSuccess(data);
                         } else if (data.needs_consent) {
                             // New email — show consent modal before creating account.
-                            if (consentEmail) consentEmail.textContent = email;
+                            // Defensive: if for any reason the local email is
+                            // empty, fall back to the server-echoed email.
+                            const showEmail = email || (data.email || '');
+                            if (consentEmail) consentEmail.textContent = showEmail || 'this email';
                             if (consentSub)   consentSub.checked = false;
                             if (consentErr)   consentErr.hidden = true;
-                            if (consentModal) consentModal.hidden = false;
+                            if (consentModal) {
+                                consentModal.hidden = false;
+                                document.body.classList.add('lg-modal-open');
+                            }
                         } else {
                             if (authErrEl)  { authErrEl.textContent = data.error || 'Something went wrong. Please try again.'; authErrEl.hidden = false; }
                             if (authForgot && data.forgot) authForgot.hidden = false;
@@ -897,7 +910,19 @@ final class Shortcodes
 
             // Consent modal — confirm or cancel new-account creation.
             document.querySelectorAll('[data-lg-consent-cancel]').forEach(el => {
-                el.addEventListener('click', () => { if (consentModal) consentModal.hidden = true; });
+                el.addEventListener('click', () => {
+                    if (consentModal) consentModal.hidden = true;
+                    if (!checkoutModal || checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
+                });
+            });
+
+            // Esc key closes consent modal as a final escape hatch.
+            document.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                if (consentModal && !consentModal.hidden) {
+                    consentModal.hidden = true;
+                    if (!checkoutModal || checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
+                }
             });
 
             if (consentConfirm) {
