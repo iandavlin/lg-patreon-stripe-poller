@@ -2967,7 +2967,7 @@ final class Shortcodes
         }
 
         $css = '
-            .lg-member-nav { margin: 0 0 1.5em; padding: 0.5em 0; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; flex-wrap: wrap; gap: 0.25em 1.25em; align-items: center; }
+            .lg-member-nav { margin: 0 0 1.5em; padding: 0.5em 0; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; flex-wrap: wrap; gap: 0.25em 1.25em; align-items: center; justify-content: center; }
             .lg-member-nav__link { display: inline-block; padding: 0.35em 0; color: inherit; text-decoration: none; font-size: 0.95em; opacity: 0.7; border-bottom: 2px solid transparent; transition: opacity .15s, border-color .15s; }
             .lg-member-nav__link:hover { opacity: 1; }
             .lg-member-nav__link.is-current { opacity: 1; font-weight: 600; border-bottom-color: currentColor; }
