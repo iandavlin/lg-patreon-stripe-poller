@@ -1944,11 +1944,36 @@ final class Shortcodes
             $codeFromUrl = substr( $codeFromUrl, 0, 12 );
         }
 
+        // If the code in the URL maps to a sent gift (recipient_email set),
+        // staple the email to the code: pre-fill and lock the email field.
+        // Anonymous-mode codes (buyer forwards manually) leave the field
+        // editable.
+        $stapledEmail = '';
+        if ( $codeFromUrl !== '' && strlen( $codeFromUrl ) === 12 ) {
+            try {
+                $stmt = \LGMS\Db::pdo()->prepare(
+                    'SELECT recipient_email FROM gift_codes
+                      WHERE code = ?
+                        AND recipient_email IS NOT NULL
+                        AND recipient_email <> ""
+                      LIMIT 1'
+                );
+                $stmt->execute( [ $codeFromUrl ] );
+                $stapledEmail = (string) ( $stmt->fetchColumn() ?: '' );
+            } catch ( \Throwable $e ) {
+                error_log( 'lg_redeem_gift: recipient_email lookup failed: ' . $e->getMessage() );
+            }
+        }
+        if ( $stapledEmail !== '' ) {
+            $emailValue = $stapledEmail;
+        }
+
         $heading  = esc_html( (string) $atts['heading'] );
         $email    = esc_attr( $emailValue );
         $name     = esc_attr( $nameValue );
         $codeAttr = esc_attr( $codeFromUrl );
         $endpoint = esc_js( $endpointUrl );
+        $emailLocked = ( $stapledEmail !== '' );
 
         ob_start();
         ?>
@@ -1972,7 +1997,18 @@ final class Shortcodes
                 </label>
                 <label class="lg-redeem-gift__label">
                     <span>Email</span>
-                    <input type="email" name="email" required value="<?php echo $email; ?>">
+                    <input
+                        type="email"
+                        name="email"
+                        required
+                        value="<?php echo $email; ?>"
+                        <?php if ( $emailLocked ) : ?>readonly aria-readonly="true" style="background:#f4f4f0;cursor:not-allowed;color:#444;"<?php endif; ?>
+                    >
+                    <?php if ( $emailLocked ) : ?>
+                    <small style="display:block;margin-top:.3em;color:rgba(0,0,0,0.55);font-size:.85em;line-height:1.4;">
+                        This gift was sent to <strong><?php echo esc_html( $emailValue ); ?></strong>. Your account will be created (or signed into) under this email so the membership lands where the sender intended.
+                    </small>
+                    <?php endif; ?>
                 </label>
                 <label class="lg-redeem-gift__label">
                     <span>Name <em style="opacity:.6;">(shown to other members)</em></span>
