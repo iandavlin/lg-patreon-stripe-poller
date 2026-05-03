@@ -194,8 +194,13 @@ final class Shortcodes
                 <div class="lg-co-modal" data-lg-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
                     <div class="lg-co-modal__backdrop" data-lg-checkout-close></div>
                     <div class="lg-co-modal__card">
-                        <button type="button" class="lg-co-modal__close" data-lg-checkout-close aria-label="Close checkout">&times;</button>
+                        <button type="button" class="lg-co-modal__close" data-lg-checkout-close aria-label="Close checkout" data-lg-co-close-btn>&times;</button>
                         <div class="lg-co-modal__body" data-lg-gift-checkout></div>
+                        <div class="lg-co-modal__processing" data-lg-co-processing hidden>
+                            <div class="lg-co-modal__processing-spinner" aria-hidden="true"></div>
+                            <h3 class="lg-co-modal__processing-title">Processing your purchase&hellip;</h3>
+                            <p class="lg-co-modal__processing-body">Please stay on this page &mdash; we&rsquo;re finalizing your gift codes and will redirect you to your gift dashboard in a moment.</p>
+                        </div>
                     </div>
                 </div>
 
@@ -430,6 +435,14 @@ final class Shortcodes
             .lg-co-modal__close:hover { color: #000 !important; background: #f3f3f3 !important; }
             .lg-co-modal__body { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 0 !important; }
             .lg-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
+            .lg-co-modal__processing { padding: 3em 1.6em 3.4em; text-align: center; color: #1f1d1a; }
+            .lg-co-modal__processing[hidden] { display: none !important; }
+            .lg-co-modal__processing-spinner { width: 44px; height: 44px; margin: 0 auto 1.1em; border: 3px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-redirect-spin .85s linear infinite; }
+            .lg-co-modal__processing-title { margin: 0 0 .55em; font-size: 1.2em; font-weight: 700; }
+            .lg-co-modal__processing-body { margin: 0; font-size: .95em; line-height: 1.5; color: #444; max-width: 360px; margin-left: auto; margin-right: auto; }
+            .lg-co-modal--processing .lg-co-modal__close { display: none !important; }
+            .lg-co-modal--processing .lg-co-modal__body { display: none !important; }
+            .lg-co-modal--processing .lg-co-modal__backdrop { pointer-events: none !important; }
             @media (max-width: 700px) {
                 .lg-co-modal { padding: 0 !important; }
                 .lg-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
@@ -822,7 +835,25 @@ final class Shortcodes
                         stripe = Stripe(cfg.publishableKey);
                     }
 
-                    mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
+                    mountedSession = await stripe.initEmbeddedCheckout({
+                        clientSecret: sessData.clientSecret,
+                        onComplete: () => {
+                            // Payment succeeded. Flip the modal into the
+                            // processing state: hide the X, hide the
+                            // iframe, show the spinner + stay-on-page copy.
+                            // Then redirect to /my-gifts/?for=<email> so the
+                            // dashboard knows whose codes to show.
+                            const procEl  = document.querySelector('[data-lg-co-processing]');
+                            const card    = document.querySelector('.lg-co-modal__card');
+                            const wrapper = document.querySelector('.lg-co-modal');
+                            if (wrapper) wrapper.classList.add('lg-co-modal--processing');
+                            if (procEl)  procEl.hidden = false;
+                            // Briefly let webhooks settle, then redirect.
+                            const target = '<?php echo esc_js( esc_url_raw( home_url( '/my-gifts/' ) ) ); ?>'
+                                         + '?for=' + encodeURIComponent(email);
+                            setTimeout(() => { window.location.href = target; }, 1800);
+                        },
+                    });
 
                     // Show the modal BEFORE mounting — Stripes embedded iframe
                     // wont initialize correctly inside a display:none container,
