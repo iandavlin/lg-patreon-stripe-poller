@@ -2138,6 +2138,80 @@ final class Shortcodes
                 }
             }
 
+            // Inline login form shown when an anonymous redeemer hits a
+            // tier conflict — they have to authenticate before deciding how
+            // to apply the new code to an existing membership.
+            function renderConflictLogin(payload) {
+                resultEl.className = 'lg-redeem-gift__result is-warn';
+                resultEl.innerHTML = '';
+
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'padding:1em 1.1em;background:rgba(255,200,80,0.08);border:1px solid rgba(255,180,40,0.4);border-radius:8px;';
+                wrap.innerHTML =
+                    '<p style="margin:0 0 .8em;"><strong>This email already has an active membership.</strong><br>' +
+                    'Log in to add this gift to your account &mdash; this protects you from anyone else stacking time onto your account without your permission.</p>' +
+                    '<div class="lg-redeem-gift__loginrow" style="display:flex;flex-direction:column;gap:.55em;">' +
+                        '<input type="email" data-lg-conflict-email value="' + payload.email.replace(/"/g, '&quot;') + '" readonly style="width:100%;padding:.55em .8em;border:1px solid rgba(0,0,0,0.15);border-radius:6px;background:#f4f4f0;color:#444;">' +
+                        '<input type="password" data-lg-conflict-pass placeholder="Your account password" autocomplete="current-password" style="width:100%;padding:.55em .8em;border:1px solid rgba(0,0,0,0.15);border-radius:6px;">' +
+                    '</div>' +
+                    '<div data-lg-conflict-error style="display:none;margin-top:.55em;color:#b91c1c;font-size:.9em;"></div>' +
+                    '<div style="margin-top:.85em;display:flex;align-items:center;gap:.85em;flex-wrap:wrap;">' +
+                        '<button type="button" data-lg-conflict-go style="padding:.55em 1.1em;background:var(--lg-amber,#ECB351);color:#1f1d1a;border:none;border-radius:6px;font-weight:600;cursor:pointer;">Log in &amp; apply</button>' +
+                        '<a href="<?php echo esc_url( wp_lostpassword_url() ); ?>" style="font-size:.85em;">Forgot your password?</a>' +
+                    '</div>';
+                resultEl.appendChild(wrap);
+
+                const passEl = wrap.querySelector('[data-lg-conflict-pass]');
+                const errEl  = wrap.querySelector('[data-lg-conflict-error]');
+                const btn    = wrap.querySelector('[data-lg-conflict-go]');
+                passEl.focus();
+
+                btn.addEventListener('click', async () => {
+                    const pwd = passEl.value;
+                    if (!pwd || pwd.length < 8) {
+                        errEl.textContent = 'Please enter your account password.';
+                        errEl.style.display = 'block';
+                        return;
+                    }
+                    errEl.style.display = 'none';
+                    btn.disabled = true;
+                    btn.textContent = 'Signing in…';
+
+                    try {
+                        const res = await fetch(AUTH_URL, {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({
+                                email:    payload.email,
+                                password: pwd,
+                                display_name: payload.name,
+                                confirmed_consent: true,
+                                redemption_code: payload.code,
+                            }),
+                        });
+                        const data = await res.json();
+                        if (!data.ok) {
+                            errEl.textContent = (data.error || 'Sign-in failed.') +
+                                (data.forgot ? ' Use "Forgot your password?" if you need a reset.' : '');
+                            errEl.style.display = 'block';
+                            btn.disabled    = false;
+                            btn.textContent = 'Log in & apply';
+                            return;
+                        }
+                        // Auth cookie is now set. Reload to /lggift/?code=XXX
+                        // so the page renders with CONFIG.loggedIn = true and
+                        // the next submit hits the ALREADY_IN strategy picker.
+                        const url = window.location.pathname + '?code=' + encodeURIComponent(payload.code);
+                        window.location.href = url;
+                    } catch (e) {
+                        errEl.textContent = 'Network error. Please try again.';
+                        errEl.style.display = 'block';
+                        btn.disabled    = false;
+                        btn.textContent = 'Log in & apply';
+                    }
+                });
+            }
+
             function renderChoice(json){
                 pending = { code: json._payload.code, email: json._payload.email, name: json._payload.name };
                 const recommended = json.recommended;
@@ -2219,20 +2293,9 @@ final class Shortcodes
                             json._payload = payload;
                             renderChoice(json);
                         } else {
-                            // Anonymous: don't let just-anyone with the code
-                            // decide how to stack time onto someone else's
-                            // active membership. Punt them to log in first;
-                            // the redirect brings them back here with the
-                            // code pre-filled and the cookie set, where the
-                            // ALREADY_IN branch above will then fire.
-                            const back = window.location.pathname + '?code=' + encodeURIComponent(payload.code);
-                            const loginUrl = '<?php echo esc_js( esc_url_raw( wp_login_url() ) ); ?>' + '?redirect_to=' + encodeURIComponent(back);
-                            resultEl.className = 'lg-redeem-gift__result is-error';
-                            resultEl.innerHTML =
-                                '<strong>This email already has an active membership.</strong><br>' +
-                                'Log in and re-enter the code to add this gift to your account &mdash; ' +
-                                'this protects you from anyone else stacking time onto your account without your permission.<br>' +
-                                '<a class="lg-redeem-gift__loginbtn" href="' + loginUrl + '" style="display:inline-block;margin-top:.7em;padding:.55em 1.1em;background:var(--lg-amber,#ECB351);color:#1f1d1a !important;border-radius:6px;font-weight:600;text-decoration:none;">Log in to apply this code &rarr;</a>';
+                            // Anonymous: render an inline login form so they
+                            // can authenticate without leaving the page.
+                            renderConflictLogin(payload);
                         }
                     } else if (json.ok) {
                         renderSuccess(json);
