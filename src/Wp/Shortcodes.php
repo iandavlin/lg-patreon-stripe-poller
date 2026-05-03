@@ -204,6 +204,7 @@ final class Shortcodes
         <style>
             .lg-gift { max-width: 720px; margin: 0 auto; padding: 1.5em 1.2em; box-sizing: border-box; }
             .lg-gift * { box-sizing: border-box; }
+            .lg-gift [hidden] { display: none !important; }
             .lg-gift__hero { text-align: center; margin-bottom: 1.6em; }
             .lg-gift__heading { margin: 0 0 .3em; font-size: 1.8em; }
             .lg-gift__intro { margin: 0 0 .9em; opacity: .85; }
@@ -680,7 +681,6 @@ final class Shortcodes
                     if (modeLabel) modeLabel.textContent = '(codes will be sent here)';
                     if (modeHelp)  modeHelp.textContent  = 'We send all codes to this address. You forward / share them yourself.';
                     if (authBlock && !isAuthed) authBlock.hidden = true;
-                    ctaSpan.textContent = origCta;
                 }
             }));
 
@@ -718,7 +718,6 @@ final class Shortcodes
                             if (authWelcome) authWelcome.textContent = 'You're logged in as ' + data.name + '.';
                             const buyerInput = document.querySelector('[name="email"]');
                             if (buyerInput && data.email) buyerInput.value = data.email;
-                            ctaSpan.textContent = origCta;
                         } else {
                             if (authErrEl)  { authErrEl.textContent = data.error || 'Something went wrong. Please try again.'; authErrEl.hidden = false; }
                             if (authForgot && data.forgot) authForgot.hidden = false;
