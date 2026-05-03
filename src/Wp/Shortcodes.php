@@ -142,9 +142,10 @@ final class Shortcodes
 
                     <div class="lg-auth" data-lg-auth-block hidden>
                         <div class="lg-auth__fields">
-                            <input type="email"    class="lg-auth__input" data-lg-auth-email    placeholder="your@email.com"         autocomplete="email">
-                            <input type="password" class="lg-auth__input" data-lg-auth-password placeholder="Password (min 8 chars)" autocomplete="current-password">
+                            <input type="email"    class="lg-auth__input" data-lg-auth-email    placeholder="your@email.com"                       autocomplete="email">
+                            <input type="password" class="lg-auth__input" data-lg-auth-password placeholder="Password — or pick one if you're new" autocomplete="current-password">
                         </div>
+                        <p class="lg-auth__hint">Existing members: enter your password. New here? Pick one (8+ characters) and we'll set up your account.</p>
                         <button type="button" class="lg-auth__btn" data-lg-auth-btn>Log in or create account</button>
                         <p class="lg-auth__error" data-lg-auth-error hidden></p>
                         <p class="lg-auth__forgot" data-lg-auth-forgot hidden>
@@ -298,6 +299,7 @@ final class Shortcodes
             .lg-auth__fields { display: flex; flex-direction: column; gap: .5em; margin-bottom: .7em; }
             .lg-auth__input { width: 100%; padding: .6em .85em; font-size: .95em; border: 1px solid rgba(0,0,0,0.15); border-radius: 6px; background: #fff; color: inherit; box-sizing: border-box; }
             .lg-auth__check-row { display: flex; align-items: center; gap: .5em; font-size: .88em; margin-bottom: .75em; cursor: pointer; }
+            .lg-auth__hint { font-size: .82em; color: rgba(0,0,0,0.55); margin: -.25em 0 .85em; line-height: 1.4; }
             .lg-auth__btn { width: 100%; padding: .65em 1em; background: var(--lg-amber, #ECB351); border: none; border-radius: 6px; font-weight: 600; font-size: .95em; cursor: pointer; color: #1f1d1a; transition: opacity .15s; }
             .lg-auth__btn:hover { opacity: .88; }
             .lg-auth__btn:disabled { opacity: .55; cursor: default; }

@@ -1140,6 +1140,7 @@ final class RestController
                 && ! in_array( 'looth2', $roles, true )
                 && ! in_array( 'looth3', $roles, true ) ) {
                 $user->set_role( 'customer' );
+                $user->remove_role( 'bbp_participant' );
             }
         } else {
             // No account on file — require consent before creating one. The
@@ -1165,6 +1166,7 @@ final class RestController
             }
             $user = get_user_by( 'id', $userId );
             $user->set_role( 'customer' );
+            $user->remove_role( 'bbp_participant' );
         }
 
         // Weekly email opt-in — FluentCRM list 7 "Non Member Weekly Email Subscriber".

@@ -75,6 +75,11 @@ final class Plugin
         // Cron handler — Stripe poll + sync sweep.
         add_action( self::CRON_HOOK, [ Tick::class, 'run' ] );
 
+        // Block bbPress from auto-adding bbp_participant to gift-only buyers.
+        // The "customer" role is for users who only need to manage their gift
+        // dashboard — they shouldn't appear in forums or get participant caps.
+        add_filter( 'bbp_allow_global_access', [ self::class, 'denyGlobalAccessForCustomers' ] );
+
         // REST endpoints for Slim to trigger immediate syncs.
         add_action( 'rest_api_init', [ Wp\RestController::class, 'register' ] );
 
@@ -142,5 +147,24 @@ final class Plugin
                 return;
             }
         }
+    }
+
+    /**
+     * Filter for bbp_allow_global_access — returns false for users whose only
+     * role is "customer" (gift-only buyers), so bbPress doesn\'t auto-add
+     * bbp_participant on every page load.
+     */
+    public static function denyGlobalAccessForCustomers( $allow )
+    {
+        $user = wp_get_current_user();
+        if ( ! $user || ! $user->ID ) {
+            return $allow;
+        }
+        $roles = (array) $user->roles;
+        if ( in_array( 'customer', $roles, true )
+            && ! array_intersect( [ 'administrator', 'editor', 'looth1', 'looth2', 'looth3', 'looth4' ], $roles ) ) {
+            return false;
+        }
+        return $allow;
     }
 }
