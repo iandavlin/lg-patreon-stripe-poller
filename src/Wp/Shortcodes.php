@@ -120,22 +120,22 @@ final class Shortcodes
                     <h3 class="lg-gift__panel-heading">3. How do you want your codes?</h3>
                     <div class="lg-mode">
 
-                        <label class="lg-mode__opt is-selected" data-mode="self">
-                            <input type="radio" name="mode" value="self" checked>
+                        <label class="lg-mode__opt is-selected" data-mode="managed">
+                            <input type="radio" name="mode" value="managed" checked>
+                            <span class="lg-mode__radio"></span>
+                            <div>
+                                <div class="lg-mode__title">Log in to manage &amp; send personalized gift emails <span class="lg-mode__badge">Recommended</span></div>
+                                <div class="lg-mode__sub">Access your gift dashboard after purchase &mdash; resend, refund, or send a beautiful personalized email to each recipient whenever you&rsquo;re ready.</div>
+                            </div>
+                        </label>
+
+                        <label class="lg-mode__opt" data-mode="self">
+                            <input type="radio" name="mode" value="self">
                             <span class="lg-mode__radio"></span>
                             <div>
                                 <div class="lg-mode__title">Get codes via email</div>
                                 <div class="lg-mode__sub">We send all codes to your email. Forward or share them yourself.</div>
                                 <div class="lg-mode__note">Heads up: without an account we can&rsquo;t recover or refund these codes if you lose access to this email.</div>
-                            </div>
-                        </label>
-
-                        <label class="lg-mode__opt" data-mode="managed">
-                            <input type="radio" name="mode" value="managed">
-                            <span class="lg-mode__radio"></span>
-                            <div>
-                                <div class="lg-mode__title">Log in to manage &amp; send personalized gift emails</div>
-                                <div class="lg-mode__sub">Access your gift dashboard after purchase — send each recipient a beautiful personalized email whenever you&rsquo;re ready.</div>
                             </div>
                         </label>
 
@@ -329,6 +329,7 @@ final class Shortcodes
             .lg-mode__radio { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.25); margin-top: .18em; transition: border-color .15s, background .15s; }
             .lg-mode__opt.is-selected .lg-mode__radio { border-color: var(--lg-amber, #ECB351); background: radial-gradient(circle at center, var(--lg-amber,#ECB351) 5px, #fff 5px); }
             .lg-mode__title { font-weight: 600; }
+            .lg-mode__badge { display: inline-block; margin-left: .5em; padding: .12em .55em; background: var(--lg-amber, #ECB351); color: #1f1d1a; border-radius: 999px; font-size: .7em; font-weight: 700; letter-spacing: .03em; vertical-align: middle; }
             .lg-mode__sub { font-size: .88em; opacity: .7; margin-top: .2em; }
             .lg-mode__note { font-size: .8em; color: #92400e; margin-top: .35em; font-style: italic; }
 
@@ -673,6 +674,17 @@ final class Shortcodes
                 if (el && el.parentNode !== document.body) document.body.appendChild(el);
             });
 
+            // Default mode is "managed" — apply its UI state on load so
+            // anonymous visitors land with the auth panel open and step 4
+            // (your email) hidden. Skipped for already-logged-in users
+            // since their mode-section is hidden by CSS.
+            (function initManagedDefault(){
+                if (CONFIG.loggedIn) return;
+                const root = document.querySelector('.lg-gift');
+                if (root) root.classList.add('lg-gift--mode-managed');
+                if (authBlock && !isAuthed) authBlock.hidden = false;
+            })();
+
             let redirectOverlayShownAt = 0;
             function lockCheckout() {
                 checkoutInProgress = true;
@@ -856,7 +868,7 @@ final class Shortcodes
             const toggleApply = document.querySelector('[data-lg-toggle-applyall]');
             const applyAllBtn = document.querySelector('[data-lg-recip-applyall-btn]');
 
-            let sendMode = 'self';
+            let sendMode = 'managed';
             let recipRows = []; // {name, email, message, noteOpen}
 
             function syncRows(){
