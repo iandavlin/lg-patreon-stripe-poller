@@ -630,13 +630,28 @@ final class Shortcodes
                 if (el && el.parentNode !== document.body) document.body.appendChild(el);
             });
 
+            let redirectOverlayShownAt = 0;
             function lockCheckout() {
                 checkoutInProgress = true;
-                if (redirectOverlay) redirectOverlay.hidden = false;
+                if (redirectOverlay) {
+                    // Always re-park as the LAST child of <body> so the theme
+                    // can't paint anything above it.
+                    if (redirectOverlay.parentNode !== document.body || redirectOverlay !== document.body.lastChild) {
+                        document.body.appendChild(redirectOverlay);
+                    }
+                    redirectOverlay.hidden = false;
+                    redirectOverlayShownAt = Date.now();
+                }
                 document.body.classList.add('lg-modal-open');
                 const root = document.querySelector('.lg-gift');
                 if (root) root.classList.add('lg-gift--checkout-locked');
                 submitBtn.disabled = true;
+            }
+            function hideRedirectOverlaySoon() {
+                if (!redirectOverlay) return;
+                const elapsed = Date.now() - redirectOverlayShownAt;
+                const remain  = Math.max(0, 700 - elapsed);
+                setTimeout(() => { redirectOverlay.hidden = true; }, remain);
             }
             function unlockCheckout() {
                 checkoutInProgress = false;
@@ -722,7 +737,7 @@ final class Shortcodes
                     mountedSession.mount(checkoutEl);
                     clearTimeout(watchdog);
 
-                    if (redirectOverlay) redirectOverlay.hidden = true;
+                    hideRedirectOverlaySoon();
                 } catch (err) {
                     showError('Network error: ' + err.message);
                     ctaSpan.textContent = origCta;
@@ -866,6 +881,23 @@ final class Shortcodes
                 if (buyerInput && data.email) buyerInput.value = data.email;
                 if (consentModal) consentModal.hidden = true;
                 if (!checkoutModal || checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
+
+                // Strip the buy-flow chrome: now that codes attach to their
+                // account, drop the mode picker and the buyer-email section.
+                // Re-use the existing logged-in CSS class which already
+                // hides [data-lg-mode-section] and [data-lg-buyer-email-section].
+                const root = document.querySelector('.lg-gift');
+                if (root) root.classList.add('lg-gift--logged-in');
+
+                // Floating "Hi <name> — codes will land in your dashboard"
+                // banner the logged-in branch normally renders server-side.
+                if (root && !document.querySelector('.lg-gift__loggedin-banner')) {
+                    const banner = document.createElement('div');
+                    banner.className = 'lg-gift__loggedin-banner';
+                    banner.innerHTML = 'Hi <strong>' + (data.name ? String(data.name).replace(/[<>&]/g, '') : 'there') +
+                                       '</strong> &mdash; codes you buy will land in your <a href="/my-gifts/">gift dashboard</a> after checkout.';
+                    root.insertBefore(banner, root.firstChild);
+                }
             }
 
             async function doAuth(payload) {
