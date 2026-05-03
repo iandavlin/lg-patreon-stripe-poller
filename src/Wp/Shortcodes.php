@@ -198,6 +198,26 @@ final class Shortcodes
                     </div>
                 </div>
 
+                <div class="lg-anonwarn" data-lg-anonwarn-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-anonwarn-title">
+                    <div class="lg-anonwarn__backdrop" data-lg-anonwarn-cancel></div>
+                    <div class="lg-anonwarn__card">
+                        <button type="button" class="lg-anonwarn__close" data-lg-anonwarn-cancel aria-label="Close">&times;</button>
+                        <h3 id="lg-anonwarn-title" class="lg-anonwarn__title">Heads up &mdash; checking out without an account</h3>
+                        <p class="lg-anonwarn__body">
+                            You&rsquo;ll get the codes via email, but <strong>if you ever lose access to that email we won&rsquo;t be able to recover or refund the codes for you.</strong>
+                            With a free account you also get a dashboard to resend, void, or refund codes any time.
+                        </p>
+                        <label class="lg-anonwarn__check">
+                            <input type="checkbox" data-lg-anonwarn-confirm-check>
+                            <span>I understand and want to proceed without an account.</span>
+                        </label>
+                        <div class="lg-anonwarn__actions">
+                            <button type="button" class="lg-anonwarn__btn lg-anonwarn__btn--ghost"   data-lg-anonwarn-cancel>Go back</button>
+                            <button type="button" class="lg-anonwarn__btn lg-anonwarn__btn--primary" data-lg-anonwarn-confirm disabled>Continue to payment</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div data-lg-buyer-email-section>
                     <h3 class="lg-gift__panel-heading">4. Your email <span style="font-weight:400;font-size:.85em;color:rgba(0,0,0,0.5);" data-lg-mode-label>(codes will be sent here)</span></h3>
                     <div class="lg-gift__field">
@@ -411,6 +431,26 @@ final class Shortcodes
                 .lg-co-modal { padding: 0 !important; }
                 .lg-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
             }
+
+            /* Anonymous-checkout warning modal — same pattern as the consent
+               modal so it escapes BuddyBoss containing-block traps. */
+            .lg-anonwarn { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
+            .lg-anonwarn[hidden] { display: none !important; }
+            .lg-anonwarn__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+            .lg-anonwarn__card { position: relative; background: #fff; border-radius: 12px; padding: 1.6em 1.5em; max-width: 460px; width: 100%; box-shadow: 0 16px 50px rgba(0,0,0,0.4); color: #1f1d1a; }
+            .lg-anonwarn__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.35em; line-height: 1; cursor: pointer; color: #444; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+            .lg-anonwarn__close:hover { color: #000; background: #f5f5f5; }
+            .lg-anonwarn__title { margin: 0 0 .55em; font-size: 1.2em; font-weight: 700; line-height: 1.3; padding-right: 2em; }
+            .lg-anonwarn__body { margin: 0 0 1em; font-size: .95em; line-height: 1.5; color: #333; }
+            .lg-anonwarn__check { display: flex; align-items: flex-start; gap: .6em; padding: .8em .9em; margin-bottom: 1.1em; background: rgba(255,200,80,0.14); border: 1px solid rgba(255,180,40,0.45); border-radius: 6px; cursor: pointer; font-size: .92em; line-height: 1.4; font-weight: 500; }
+            .lg-anonwarn__check input { margin-top: .15em; flex-shrink: 0; }
+            .lg-anonwarn__actions { display: flex; gap: .65em; justify-content: flex-end; }
+            .lg-anonwarn__btn { padding: .6em 1.15em; border-radius: 6px; font-weight: 600; font-size: .92em; cursor: pointer; border: none; transition: opacity .15s, background .15s; }
+            .lg-anonwarn__btn--ghost { background: transparent; border: 1.5px solid rgba(0,0,0,0.2); color: #1f1d1a; }
+            .lg-anonwarn__btn--ghost:hover { background: rgba(0,0,0,0.04); }
+            .lg-anonwarn__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; }
+            .lg-anonwarn__btn--primary:hover { opacity: .88; }
+            .lg-anonwarn__btn:disabled { opacity: .45; cursor: not-allowed; }
 
             /* Same body-class lockdown so the redirect overlay and consent
                modal also escape any transformed ancestors. */
@@ -626,7 +666,8 @@ final class Shortcodes
 
             // Move modal/overlay elements to <body> so ancestor transforms
             // (BuddyBoss theme uses them) can't trap position:fixed.
-            [redirectOverlay, checkoutModal, document.querySelector('[data-lg-consent-modal]')].forEach(el => {
+            const anonWarnModal = document.querySelector('[data-lg-anonwarn-modal]');
+            [redirectOverlay, checkoutModal, document.querySelector('[data-lg-consent-modal]'), anonWarnModal].forEach(el => {
                 if (el && el.parentNode !== document.body) document.body.appendChild(el);
             });
 
@@ -673,6 +714,45 @@ final class Shortcodes
                 el.addEventListener('click', closeCheckoutModal);
             });
 
+            // Anon-warn modal wiring
+            const anonCheck   = document.querySelector('[data-lg-anonwarn-confirm-check]');
+            const anonConfirm = document.querySelector('[data-lg-anonwarn-confirm]');
+            if (anonCheck && anonConfirm) {
+                anonCheck.addEventListener('change', () => { anonConfirm.disabled = !anonCheck.checked; });
+            }
+            document.querySelectorAll('[data-lg-anonwarn-cancel]').forEach(el => {
+                el.addEventListener('click', () => {
+                    if (anonWarnModal) anonWarnModal.hidden = true;
+                    if (anonCheck) anonCheck.checked = false;
+                    if (anonConfirm) anonConfirm.disabled = true;
+                    document.body.classList.remove('lg-modal-open');
+                });
+            });
+            if (anonConfirm) {
+                anonConfirm.addEventListener('click', () => {
+                    if (anonWarnModal) anonWarnModal.hidden = true;
+                    if (anonCheck) anonCheck.checked = false;
+                    anonConfirm.disabled = true;
+                    document.body.classList.remove('lg-modal-open');
+                    launchCheckout();
+                });
+            }
+
+            // Per-click checkout context — captured when submit fires, used
+            // by launchCheckout() (which can be called directly OR after
+            // the user acknowledges the anon-warn modal).
+            let pendingPrice = null, pendingQty = 0, pendingEmail = '';
+
+            async function launchCheckout(){
+                lockCheckout();
+                if (mountedSession) { try { mountedSession.destroy(); } catch (e) {} mountedSession = null; }
+                if (checkoutEl) checkoutEl.innerHTML = '';
+                const origCta = ctaSpan.textContent;
+                ctaSpan.textContent = 'Loading…';
+
+                await runCheckout(pendingPrice, pendingQty, pendingEmail, origCta);
+            }
+
             submitBtn.addEventListener('click', async function(){
                 if (checkoutInProgress) return;
 
@@ -685,11 +765,22 @@ final class Shortcodes
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
 
-                lockCheckout();
-                if (mountedSession) { try { mountedSession.destroy(); } catch (e) {} mountedSession = null; }
-                if (checkoutEl) checkoutEl.innerHTML = '';
-                const origCta = ctaSpan.textContent;
-                ctaSpan.textContent = 'Loading…';
+                pendingPrice = price; pendingQty = qty; pendingEmail = email;
+
+                // Self-mode anonymous buyers see the warn modal first.
+                // Logged-in (server-side or via auth panel) and managed-mode
+                // users skip it — they have an account on file.
+                const isAnonSelf = (sendMode === 'self') && !CONFIG.loggedIn && !isAuthed;
+                if (isAnonSelf && anonWarnModal) {
+                    anonWarnModal.hidden = false;
+                    document.body.classList.add('lg-modal-open');
+                    return;
+                }
+
+                launchCheckout();
+            });
+
+            async function runCheckout(price, qty, email, origCta){
 
                 try {
                     const sessRes = await fetch(ENDPOINTS.checkout, {
@@ -746,7 +837,7 @@ final class Shortcodes
                     document.body.classList.remove('lg-modal-open');
                     recompute();
                 }
-            });
+            }
 
             // ── Send-mode toggle + recipient repeater ─────────────────────────
             const modeOpts    = document.querySelectorAll('.lg-mode__opt');
