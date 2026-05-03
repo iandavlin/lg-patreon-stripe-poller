@@ -385,7 +385,8 @@ final class Shortcodes
             /* Redirect overlay shown immediately on first checkout click —
                blocks the page so a frantic second click can't fire a second
                Stripe session before the embedded form is ready. */
-            .lg-redirect { position: fixed; inset: 0; z-index: 100002; display: flex; align-items: center; justify-content: center; padding: 1em; background: rgba(0,0,0,0.55); }
+            .lg-redirect { position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; background: rgba(0,0,0,0.55) !important; }
+            .lg-redirect[hidden] { display: none !important; }
             .lg-redirect__card { background: #fff; padding: 1.8em 2em; border-radius: 12px; max-width: 380px; text-align: center; box-shadow: 0 16px 50px rgba(0,0,0,0.35); color: #1f1d1a; }
             .lg-redirect__spinner { width: 38px; height: 38px; margin: 0 auto 1em; border: 3px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-redirect-spin .85s linear infinite; }
             @keyframes lg-redirect-spin { to { transform: rotate(360deg); } }
@@ -701,17 +702,33 @@ final class Shortcodes
                     }
 
                     mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
-                    mountedSession.mount(checkoutEl);
 
-                    // Mount succeeded — open the modal and hide the spinner
-                    // overlay so the user can interact with Stripe. Submit
-                    // button stays locked until they pay or close the modal.
-                    if (checkoutModal)   checkoutModal.hidden   = false;
+                    // Show the modal BEFORE mounting — Stripes embedded iframe
+                    // wont initialize correctly inside a display:none container,
+                    // which is why the Setting up checkout spinner could get
+                    // stuck. The redirect overlay stays on top (max z-index)
+                    // until mount completes.
+                    if (checkoutModal) checkoutModal.hidden = false;
+                    document.body.classList.add('lg-modal-open');
+
+                    // Watchdog — never trap the user behind the spinner forever.
+                    const watchdog = setTimeout(() => {
+                        if (redirectOverlay && !redirectOverlay.hidden) {
+                            redirectOverlay.hidden = true;
+                            showError('Checkout took longer than expected to load. Try again, or refresh the page.');
+                        }
+                    }, 12000);
+
+                    mountedSession.mount(checkoutEl);
+                    clearTimeout(watchdog);
+
                     if (redirectOverlay) redirectOverlay.hidden = true;
                 } catch (err) {
                     showError('Network error: ' + err.message);
                     ctaSpan.textContent = origCta;
                     unlockCheckout();
+                    if (checkoutModal) checkoutModal.hidden = true;
+                    document.body.classList.remove('lg-modal-open');
                     recompute();
                 }
             });
