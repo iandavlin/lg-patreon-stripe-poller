@@ -103,7 +103,7 @@ final class Shortcodes
                     <p class="lg-gift__loading">Loading tiers…</p>
                 </div>
 
-                <h3 class="lg-gift__panel-heading">2. How many codes?</h3>
+                <h3 class="lg-gift__panel-heading">2. How many gift memberships?</h3>
                 <div class="lg-gift__quantity-row">
                     <button type="button" class="lg-gift__qbtn" data-lg-qty-step="-1" aria-label="Decrease">−</button>
                     <input type="number" class="lg-gift__qinput" name="quantity" value="1" min="1" step="1" required>
@@ -1975,12 +1975,45 @@ final class Shortcodes
                     <input type="email" name="email" required value="<?php echo $email; ?>">
                 </label>
                 <label class="lg-redeem-gift__label">
-                    <span>Name <em style="opacity:.6;">(optional)</em></span>
-                    <input type="text" name="name" value="<?php echo $name; ?>">
+                    <span>Name <em style="opacity:.6;">(shown to other members)</em></span>
+                    <input type="text" name="name" value="<?php echo $name; ?>" required>
                 </label>
-                <button type="submit" class="lg-redeem-gift__submit">Redeem</button>
+                <?php if ( ! $isLoggedIn ) : ?>
+                <label class="lg-redeem-gift__label">
+                    <span>Password</span>
+                    <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick one if you're new (8+ characters)">
+                    <small style="display:block;margin-top:.3em;color:rgba(0,0,0,0.55);font-size:.85em;line-height:1.4;">
+                        Existing member? Enter your password. New here? Choose one &mdash;
+                        this becomes your account password so you can log in any time to manage your membership.
+                    </small>
+                </label>
+                <?php endif; ?>
+                <button type="submit" class="lg-redeem-gift__submit">Redeem &amp; activate my account</button>
             </form>
             <div class="lg-redeem-gift__result" data-lg-redeem-result aria-live="polite"></div>
+
+            <style>
+                .lg-welcome { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
+                .lg-welcome[hidden] { display: none !important; }
+                .lg-welcome__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.65); }
+                .lg-welcome__card { position: relative; background: #fff; border-radius: 14px; padding: 1.8em 1.7em; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.45); color: #1f1d1a; }
+                .lg-welcome__icon { font-size: 2.6em; margin-bottom: .25em; line-height: 1; }
+                .lg-welcome__title { margin: 0 0 .55em; font-size: 1.3em; font-weight: 700; }
+                .lg-welcome__body { margin: 0 0 1.2em; font-size: .96em; line-height: 1.5; color: #333; }
+                .lg-welcome__btn { display: inline-block; padding: .7em 1.4em; background: var(--lg-amber, #ECB351); color: #1f1d1a !important; border-radius: 8px; font-weight: 700; text-decoration: none; transition: opacity .15s; }
+                .lg-welcome__btn:hover { opacity: .9; }
+            </style>
+            <div class="lg-welcome" data-lg-welcome-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-welcome-title">
+                <div class="lg-welcome__backdrop"></div>
+                <div class="lg-welcome__card">
+                    <div class="lg-welcome__icon" aria-hidden="true">&#127881;</div>
+                    <h3 id="lg-welcome-title" class="lg-welcome__title">Welcome to the Looth Group!</h3>
+                    <p class="lg-welcome__body">
+                        Your gift code is redeemed and your account is live. Jump into the activity feed to meet other members, browse the archive, and join a forum.
+                    </p>
+                    <a class="lg-welcome__btn" data-lg-welcome-go href="<?php echo esc_url( home_url( '/activity/' ) ); ?>">Take me to the feed &rarr;</a>
+                </div>
+            </div>
         </div>
         <script>
         (function(){
@@ -2003,11 +2036,60 @@ final class Shortcodes
                 return res.json();
             }
 
+            const AUTH_URL    = '<?php echo esc_js( esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ) ); ?>';
+            const ALREADY_IN  = <?php echo $isLoggedIn ? 'true' : 'false'; ?>;
+            const welcomeEl   = document.querySelector('[data-lg-welcome-modal]');
+            if (welcomeEl && welcomeEl.parentNode !== document.body) document.body.appendChild(welcomeEl);
+
+            async function finalizeLogin(email, password, displayName){
+                if (ALREADY_IN) return { ok: true };
+                try {
+                    const res = await fetch(AUTH_URL, {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify({
+                            email, password,
+                            display_name: displayName,
+                            confirmed_consent: true,
+                        }),
+                    });
+                    return await res.json();
+                } catch (e) {
+                    return { ok: false, error: 'Could not finish account setup. Try logging in manually.' };
+                }
+            }
+
+            function showWelcome(){
+                if (!welcomeEl) {
+                    window.location.href = '<?php echo esc_js( esc_url( home_url( '/activity/' ) ) ); ?>';
+                    return;
+                }
+                welcomeEl.hidden = false;
+                document.body.classList.add('lg-modal-open');
+            }
+
             function renderSuccess(json){
                 resultEl.className   = 'lg-redeem-gift__result is-success';
                 resultEl.textContent = json.message + ' (expires ' + json.expires_at + ')';
+
+                const fd       = new FormData(form);
+                const email    = (fd.get('email')    || '').toString().trim();
+                const password = (fd.get('password') || '').toString();
+                const name     = (fd.get('name')     || '').toString().trim();
+
                 form.reset();
                 pending = null;
+
+                finalizeLogin(email, password, name).then(auth => {
+                    if (!auth || !auth.ok) {
+                        // Membership IS granted; just couldn't log them in.
+                        resultEl.className = 'lg-redeem-gift__result is-success';
+                        resultEl.innerHTML = json.message + ' (expires ' + json.expires_at + ')<br><small>' +
+                            (auth && auth.error ? auth.error : 'Log in any time to manage your membership.') + '</small>';
+                        return;
+                    }
+                    showWelcome();
+                });
             }
 
             function renderError(msg, portalUrl){

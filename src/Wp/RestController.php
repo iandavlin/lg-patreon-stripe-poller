@@ -1114,10 +1114,11 @@ final class RestController
      */
     public static function giftAuth( WP_REST_Request $req ): WP_REST_Response
     {
-        $body      = (array) $req->get_json_params();
-        $email     = strtolower( trim( (string) ( $body['email']    ?? '' ) ) );
-        $password  = (string) ( $body['password']          ?? '' );
-        $subWeekly = (bool)   ( $body['subscribe_weekly']  ?? false );
+        $body        = (array) $req->get_json_params();
+        $email       = strtolower( trim( (string) ( $body['email']    ?? '' ) ) );
+        $password    = (string) ( $body['password']          ?? '' );
+        $subWeekly   = (bool)   ( $body['subscribe_weekly']  ?? false );
+        $displayName = trim( (string) ( $body['display_name'] ?? '' ) );
 
         if ( $email === '' || ! is_email( $email ) ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Please enter a valid email address.' ], 400 );
@@ -1169,6 +1170,20 @@ final class RestController
             $user->set_role( 'customer' );
             $user->remove_role( 'bbp_participant' );
             self::eraseBuddypressFootprint( (int) $userId );
+
+            // Set display_name + first/last from the optional param so
+            // the activity feed and member chrome show a recognizable
+            // name, not the email-derived username.
+            if ( $displayName !== '' ) {
+                $parts = preg_split( '/\\s+/', $displayName, 2 );
+                wp_update_user( [
+                    'ID'           => $userId,
+                    'display_name' => $displayName,
+                    'first_name'   => $parts[0] ?? '',
+                    'last_name'    => $parts[1] ?? '',
+                    'nickname'     => $displayName,
+                ] );
+            }
         }
 
         // Weekly email opt-in — FluentCRM list 7 "Non Member Weekly Email Subscriber".
