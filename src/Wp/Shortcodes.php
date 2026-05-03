@@ -2087,6 +2087,7 @@ final class Shortcodes
                             email, password,
                             display_name: displayName,
                             confirmed_consent: true,
+                            redemption_code: (form.querySelector('input[name="code"]')?.value || '').trim().toUpperCase(),
                         }),
                     });
                     return await res.json();
@@ -2212,8 +2213,27 @@ final class Shortcodes
                     const json = await postRedeem(payload);
 
                     if (json.ok && json.requires_choice) {
-                        json._payload = payload;
-                        renderChoice(json);
+                        if (ALREADY_IN) {
+                            // Logged-in: they own this account, show the
+                            // strategy picker.
+                            json._payload = payload;
+                            renderChoice(json);
+                        } else {
+                            // Anonymous: don't let just-anyone with the code
+                            // decide how to stack time onto someone else's
+                            // active membership. Punt them to log in first;
+                            // the redirect brings them back here with the
+                            // code pre-filled and the cookie set, where the
+                            // ALREADY_IN branch above will then fire.
+                            const back = window.location.pathname + '?code=' + encodeURIComponent(payload.code);
+                            const loginUrl = '<?php echo esc_js( esc_url_raw( wp_login_url() ) ); ?>' + '?redirect_to=' + encodeURIComponent(back);
+                            resultEl.className = 'lg-redeem-gift__result is-error';
+                            resultEl.innerHTML =
+                                '<strong>This email already has an active membership.</strong><br>' +
+                                'Log in and re-enter the code to add this gift to your account &mdash; ' +
+                                'this protects you from anyone else stacking time onto your account without your permission.<br>' +
+                                '<a class="lg-redeem-gift__loginbtn" href="' + loginUrl + '" style="display:inline-block;margin-top:.7em;padding:.55em 1.1em;background:var(--lg-amber,#ECB351);color:#1f1d1a !important;border-radius:6px;font-weight:600;text-decoration:none;">Log in to apply this code &rarr;</a>';
+                        }
                     } else if (json.ok) {
                         renderSuccess(json);
                     } else {
