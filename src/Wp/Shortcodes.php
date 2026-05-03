@@ -389,19 +389,27 @@ final class Shortcodes
             .lg-gift--checkout-locked .lg-gift__panel { pointer-events: none; opacity: .6; }
             .lg-gift--checkout-locked .lg-gift__submit { pointer-events: none; opacity: .55; cursor: not-allowed; }
 
-            /* Stripe embedded-checkout modal — full-height centered card so
-               the iframe doesn't get squeezed inline below the form. */
-            .lg-co-modal { position: fixed; inset: 0; z-index: 100003; display: flex; align-items: center; justify-content: center; padding: 1em; }
-            .lg-co-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
-            .lg-co-modal__card { position: relative; background: #fff; border-radius: 12px; width: 100%; max-width: 560px; max-height: 92vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; flex-direction: column; }
-            .lg-co-modal__close { position: absolute; top: .35em; right: .55em; width: 2em; height: 2em; padding: 0; background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.1); border-radius: 50%; font-size: 1.4em; line-height: 1; cursor: pointer; color: #444; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
-            .lg-co-modal__close:hover { color: #000; background: #fff; }
-            .lg-co-modal__body { flex: 1; min-height: 0; overflow: auto; padding: 1.2em 1em; }
-            .lg-co-modal__body iframe { width: 100% !important; min-height: 70vh; border: 0; display: block; }
-            @media (max-width: 600px) {
-                .lg-co-modal { padding: 0; }
-                .lg-co-modal__card { max-height: 100vh; height: 100vh; border-radius: 0; }
+            /* Stripe embedded-checkout modal — !important everywhere because
+               the BuddyBoss theme injects rules that fight non-themed UI.
+               These elements get moved to <body> at runtime so ancestor
+               transforms can't break position:fixed. */
+            .lg-co-modal { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1.2em !important; margin: 0 !important; }
+            .lg-co-modal[hidden] { display: none !important; }
+            .lg-co-modal__backdrop { position: absolute !important; inset: 0 !important; background: rgba(0,0,0,0.78) !important; }
+            .lg-co-modal__card { position: relative !important; background: #fff !important; border-radius: 14px !important; width: 100% !important; max-width: 720px !important; max-height: 92vh !important; overflow: hidden !important; box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important; display: flex !important; flex-direction: column !important; margin: 0 auto !important; }
+            .lg-co-modal__close { position: absolute !important; top: .55em !important; right: .55em !important; width: 2.1em !important; height: 2.1em !important; padding: 0 !important; background: #fff !important; border: 1px solid rgba(0,0,0,0.15) !important; border-radius: 50% !important; font-size: 1.4em !important; line-height: 1 !important; cursor: pointer !important; color: #333 !important; z-index: 2 !important; box-shadow: 0 3px 8px rgba(0,0,0,0.18) !important; display: flex !important; align-items: center !important; justify-content: center !important; }
+            .lg-co-modal__close:hover { color: #000 !important; background: #f3f3f3 !important; }
+            .lg-co-modal__body { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 0 !important; }
+            .lg-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
+            @media (max-width: 700px) {
+                .lg-co-modal { padding: 0 !important; }
+                .lg-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
             }
+
+            /* Same body-class lockdown so the redirect overlay and consent
+               modal also escape any transformed ancestors. */
+            .lg-redirect, .lg-consent { z-index: 2147483600 !important; }
+            body.lg-modal-open { overflow: hidden !important; }
         </style>
 
         <script src="https://js.stripe.com/v3/"></script>
@@ -610,9 +618,16 @@ final class Shortcodes
             const redirectOverlay = document.querySelector('[data-lg-redirect-overlay]');
             const checkoutModal   = document.querySelector('[data-lg-checkout-modal]');
 
+            // Move modal/overlay elements to <body> so ancestor transforms
+            // (BuddyBoss theme uses them) can't trap position:fixed.
+            [redirectOverlay, checkoutModal, document.querySelector('[data-lg-consent-modal]')].forEach(el => {
+                if (el && el.parentNode !== document.body) document.body.appendChild(el);
+            });
+
             function lockCheckout() {
                 checkoutInProgress = true;
                 if (redirectOverlay) redirectOverlay.hidden = false;
+                document.body.classList.add('lg-modal-open');
                 const root = document.querySelector('.lg-gift');
                 if (root) root.classList.add('lg-gift--checkout-locked');
                 submitBtn.disabled = true;
@@ -620,12 +635,14 @@ final class Shortcodes
             function unlockCheckout() {
                 checkoutInProgress = false;
                 if (redirectOverlay) redirectOverlay.hidden = true;
+                if (checkoutModal && checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
                 const root = document.querySelector('.lg-gift');
                 if (root) root.classList.remove('lg-gift--checkout-locked');
                 submitBtn.disabled = false;
             }
             function closeCheckoutModal() {
                 if (checkoutModal) checkoutModal.hidden = true;
+                document.body.classList.remove('lg-modal-open');
                 if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
                 if (checkoutEl) checkoutEl.innerHTML = '';
                 unlockCheckout();
