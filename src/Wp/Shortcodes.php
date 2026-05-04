@@ -199,6 +199,14 @@ final class Shortcodes
                     </div>
                 </div>
 
+            <div class="lg-processing" data-lg-gift-processing hidden role="status" aria-live="polite" aria-label="Processing payment">
+                <div class="lg-processing__card">
+                    <div class="lg-processing__spinner" aria-hidden="true"></div>
+                    <h3 class="lg-processing__title">Still processing your payment&hellip;</h3>
+                    <p class="lg-processing__body">Your payment went through. We&rsquo;re finalizing your order &mdash; please don&rsquo;t close this tab. You&rsquo;ll be redirected in a moment.</p>
+                </div>
+            </div>
+
                 <div class="lg-anonwarn" data-lg-anonwarn-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-anonwarn-title">
                     <div class="lg-anonwarn__backdrop" data-lg-anonwarn-cancel></div>
                     <div class="lg-anonwarn__card">
@@ -497,6 +505,27 @@ final class Shortcodes
             .lg-pwd-eye { position: absolute; right: .35em; top: 50%; transform: translateY(-50%); width: 2em; height: 2em; padding: 0; background: transparent; border: none; cursor: pointer; opacity: .55; font-size: 1.05em; line-height: 1; display: flex; align-items: center; justify-content: center; }
             .lg-pwd-eye:hover { opacity: .9; }
             .lg-pwd-mismatch { color: #b91c1c !important; font-size: .85em; margin-top: .3em; }
+
+                /* Post-payment processing lock — shown when Stripe fires onComplete.
+                   Sits above everything (max z-index) so the user cannot click into
+                   nav, close the tab silently (beforeunload warns), or otherwise
+                   navigate away while the post-pay redirect to /welcome/ is in flight. */
+                .lg-processing { position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+                .lg-processing[hidden] { display: none !important; }
+                .lg-processing__card { background: #fff; border-radius: 12px; padding: 2em 1.8em; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.5); color: #1f1d1a; }
+                .lg-processing__spinner { width: 44px; height: 44px; margin: 0 auto 1em; border: 4px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-processing-spin 0.9s linear infinite; }
+                .lg-processing__title { margin: 0 0 .6em; font-size: 1.15em; font-weight: 700; }
+                .lg-processing__body  { margin: 0; font-size: .92em; line-height: 1.5; color: #444; }
+                @keyframes lg-processing-spin { to { transform: rotate(360deg); } }
+                /* Once Stripe iframe is mounted, lock the modal closed. The X
+                   button disappears and backdrop dismiss is disabled until
+                   Stripe completes the session (success → redirect, or expiry).
+                   This eliminates the "user closes mid-charge → paid but
+                   stranded" failure mode at the UI source. */
+                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__close { display: none !important; }
+                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__backdrop { pointer-events: none !important; }
+                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__close { display: none !important; }
+                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__backdrop { pointer-events: none !important; }
         </style>
         <script src="https://js.stripe.com/v3/"></script>
         <script>
@@ -762,8 +791,60 @@ final class Shortcodes
                 unlockCheckout();
                 recompute();
             }
+
+            // Two-stage close protection for the Stripe checkout modal:
+            //
+            //   1. paymentInFlight — set true when the modal opens with a mounted
+            //      Stripe iframe. Any close attempt while this is true triggers
+            //      a confirm() dialog warning the user that their card may
+            //      already be charged (Stripe submits to the bank the instant
+            //      they click Pay, before onComplete fires).
+            //
+            //   2. paymentCompleted — set true when Stripe fires onComplete.
+            //      At this point close is suppressed entirely; we show the
+            //      processing overlay and let Stripe's redirect to /welcome/
+            //      finish the flow. A beforeunload listener also blocks tab
+            //      close until the redirect lands.
+            //
+            // The pre-onComplete confirm() is the critical fix for the bug
+            // where users close the modal mid-charge and end up paid but with
+            // no account / no redirect / no entitlement.
+            let paymentInFlight = false;
+            let paymentCompleted = false;
+            const processingOverlay = document.querySelector('[data-lg-gift-processing]');
+            if (processingOverlay && processingOverlay.parentNode !== document.body) {
+                document.body.appendChild(processingOverlay);
+            }
+            function markPaymentInFlight() {
+                paymentInFlight = true;
+                window.addEventListener('beforeunload', preventNavWhileProcessing);
+            }
+            function showProcessingOverlay() {
+                paymentCompleted = true;
+                if (processingOverlay) processingOverlay.hidden = false;
+                document.body.classList.add('lg-modal-open');
+                // Stripe is about to navigate parent to return_url — remove the
+                // beforeunload guard so the intended redirect sails through
+                // without the browser's "Leave site?" prompt.
+                window.removeEventListener('beforeunload', preventNavWhileProcessing);
+            }
+            function preventNavWhileProcessing(e) {
+                if (!paymentInFlight && !paymentCompleted) return;
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+
             document.querySelectorAll('[data-lg-checkout-close]').forEach(el => {
-                el.addEventListener('click', closeCheckoutModal);
+                el.addEventListener('click', () => {
+                    // Paid: show overlay, never close.
+                    if (paymentCompleted) { showProcessingOverlay(); return; }
+                    // Stripe mounted: hard-refuse close. CSS already hides the
+                    // X and disables backdrop pointer events; this guard
+                    // covers any other dispatch (Esc keybinds, programmatic).
+                    if (paymentInFlight) return;
+                    closeCheckoutModal();
+                });
             });
 
             // Anon-warn modal wiring
@@ -859,7 +940,10 @@ final class Shortcodes
                         stripe = Stripe(cfg.publishableKey);
                     }
 
-                    mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
+                    mountedSession = await stripe.initEmbeddedCheckout({
+                        clientSecret: sessData.clientSecret,
+                        onComplete: showProcessingOverlay,
+                    });
 
                     // Show the modal BEFORE mounting — Stripes embedded iframe
                     // wont initialize correctly inside a display:none container,
@@ -879,6 +963,13 @@ final class Shortcodes
 
                     mountedSession.mount(checkoutEl);
                     clearTimeout(watchdog);
+
+                    // Stripe is mounted — lock the modal closed. The X button is
+                    // hidden via CSS (data-lg-locked) and the backdrop becomes
+                    // non-clickable. The user must complete or wait for Stripe
+                    // to expire the session, eliminating the close-mid-charge bug.
+                    if (checkoutModal) checkoutModal.dataset.lgLocked = '1';
+                    markPaymentInFlight();
 
                     hideRedirectOverlaySoon();
                 } catch (err) {
@@ -1656,23 +1747,23 @@ final class Shortcodes
                         <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
                     </div>
                     <?php if ( ! $isLoggedIn ) : ?>
-                    <div class="lg-join__field" style="grid-column:1 / -1;">
+                    <div class="lg-join__field">
                         <label>Password
                             <span class="lg-pwd-wrap">
                                 <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick a password (8+ characters)">
-                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password" aria-label="Show password">&#128065;</button>
+                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
                             </span>
                         </label>
                         <small>This becomes your account password so you can log in any time to manage your subscription.</small>
                     </div>
-                    <div class="lg-join__field" style="grid-column:1 / -1;">
+                    <div class="lg-join__field">
                         <label>Confirm password
                             <span class="lg-pwd-wrap">
                                 <input type="password" name="password_confirm" minlength="8" required autocomplete="new-password" placeholder="Re-enter your password">
-                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password_confirm" aria-label="Show password">&#128065;</button>
+                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password_confirm" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
                             </span>
                         </label>
-                        <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
+                        <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don’t match.</small>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -1694,6 +1785,14 @@ final class Shortcodes
                 <div class="lg-join-co-modal__card">
                     <button type="button" class="lg-join-co-modal__close" data-lg-join-checkout-close aria-label="Close checkout">&times;</button>
                     <div class="lg-join-co-modal__body" data-lg-join-checkout></div>
+                </div>
+            </div>
+
+            <div class="lg-processing" data-lg-join-processing hidden role="status" aria-live="polite" aria-label="Processing payment">
+                <div class="lg-processing__card">
+                    <div class="lg-processing__spinner" aria-hidden="true"></div>
+                    <h3 class="lg-processing__title">Still processing your payment&hellip;</h3>
+                    <p class="lg-processing__body">Your payment went through. We&rsquo;re finalizing your subscription &mdash; please don&rsquo;t close this tab. You&rsquo;ll be redirected in a moment.</p>
                 </div>
             </div>
 
@@ -1727,6 +1826,49 @@ final class Shortcodes
                     .lg-join-co-modal { padding: 0 !important; }
                     .lg-join-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
                 }
+
+                /* Fields use the form grid; inputs fill their cell so columns align. */
+                .lg-join__field label { display: block; }
+                .lg-join__field input[type=email],
+                .lg-join__field input[type=text],
+                .lg-join__field input[type=password] { width: 100%; box-sizing: border-box; }
+
+                /* Subtle inline password reveal: icon sits inside the input on the right. */
+                .lg-pwd-wrap { position: relative; display: block; }
+                .lg-pwd-wrap input { width: 100%; padding-right: 2.6em !important; box-sizing: border-box; }
+                .lg-pwd-eye {
+                    position: absolute; right: .35em; top: 50%; transform: translateY(-50%);
+                    width: 1.9em; height: 1.9em; padding: 0;
+                    background: transparent; border: none; cursor: pointer;
+                    color: rgba(0,0,0,0.55);
+                    display: flex; align-items: center; justify-content: center;
+                    transition: color .15s;
+                }
+                .lg-pwd-eye:hover { color: rgba(0,0,0,0.85); }
+                .lg-pwd-eye:focus-visible { outline: 2px solid var(--lg-amber, #ECB351); outline-offset: 2px; border-radius: 4px; }
+                .lg-pwd-eye__icon { width: 1.15em; height: 1.15em; display: block; }
+                .lg-pwd-mismatch { color: #b91c1c !important; font-size: .85em; margin-top: .3em; }
+
+                /* Post-payment processing lock — shown when Stripe fires onComplete.
+                   Sits above everything (max z-index) so the user cannot click into
+                   nav, close the tab silently (beforeunload warns), or otherwise
+                   navigate away while the post-pay redirect to /welcome/ is in flight. */
+                .lg-processing { position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+                .lg-processing[hidden] { display: none !important; }
+                .lg-processing__card { background: #fff; border-radius: 12px; padding: 2em 1.8em; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.5); color: #1f1d1a; }
+                .lg-processing__spinner { width: 44px; height: 44px; margin: 0 auto 1em; border: 4px solid rgba(0,0,0,0.1); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-processing-spin 0.9s linear infinite; }
+                .lg-processing__title { margin: 0 0 .6em; font-size: 1.15em; font-weight: 700; }
+                .lg-processing__body  { margin: 0; font-size: .92em; line-height: 1.5; color: #444; }
+                @keyframes lg-processing-spin { to { transform: rotate(360deg); } }
+                /* Once Stripe iframe is mounted, lock the modal closed. The X
+                   button disappears and backdrop dismiss is disabled until
+                   Stripe completes the session (success → redirect, or expiry).
+                   This eliminates the "user closes mid-charge → paid but
+                   stranded" failure mode at the UI source. */
+                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__close { display: none !important; }
+                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__backdrop { pointer-events: none !important; }
+                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__close { display: none !important; }
+                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__backdrop { pointer-events: none !important; }
             </style>
             <div class="lg-giftwarn" data-lg-giftwarn-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-giftwarn-title">
                 <div class="lg-giftwarn__backdrop" data-lg-giftwarn-cancel></div>
@@ -2135,7 +2277,10 @@ final class Shortcodes
                         stripe = Stripe(cfg.publishableKey);
                     }
 
-                    mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
+                    mountedSession = await stripe.initEmbeddedCheckout({
+                        clientSecret: sessData.clientSecret,
+                        onComplete: showJoinProcessingOverlay,
+                    });
 
                     // Open the modal BEFORE mounting so Stripes iframe has
                     // real dimensions to lay out against. (Hidden parents
@@ -2144,6 +2289,10 @@ final class Shortcodes
                     document.body.classList.add('lg-modal-open');
 
                     mountedSession.mount(checkoutEl);
+
+                    // Stripe is mounted — lock the modal closed. See gift flow.
+                    if (joinCheckoutModal) joinCheckoutModal.dataset.lgLocked = '1';
+                    markJoinPaymentInFlight();
                 } catch (err) {
                     showError('Network error: ' + err.message);
                 } finally {
@@ -2205,8 +2354,38 @@ final class Shortcodes
                 if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
                 if (checkoutEl) checkoutEl.innerHTML = '';
             }
+
+            // Two-stage close protection (see gift flow above for full rationale).
+            let joinPaymentInFlight = false;
+            let joinPaymentCompleted = false;
+            const joinProcessingOverlay = document.querySelector('[data-lg-join-processing]');
+            if (joinProcessingOverlay && joinProcessingOverlay.parentNode !== document.body) {
+                document.body.appendChild(joinProcessingOverlay);
+            }
+            function markJoinPaymentInFlight() {
+                joinPaymentInFlight = true;
+                window.addEventListener('beforeunload', preventJoinNavWhileProcessing);
+            }
+            function showJoinProcessingOverlay() {
+                joinPaymentCompleted = true;
+                if (joinProcessingOverlay) joinProcessingOverlay.hidden = false;
+                document.body.classList.add('lg-modal-open');
+                // Stripe is about to redirect — same rationale as gift flow.
+                window.removeEventListener('beforeunload', preventJoinNavWhileProcessing);
+            }
+            function preventJoinNavWhileProcessing(e) {
+                if (!joinPaymentInFlight && !joinPaymentCompleted) return;
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+
             document.querySelectorAll('[data-lg-join-checkout-close]').forEach(el => {
-                el.addEventListener('click', closeJoinCheckoutModal);
+                el.addEventListener('click', () => {
+                    if (joinPaymentCompleted) { showJoinProcessingOverlay(); return; }
+                    if (joinPaymentInFlight) return;
+                    closeJoinCheckoutModal();
+                });
             });
 
             // Wire step 2 buttons
