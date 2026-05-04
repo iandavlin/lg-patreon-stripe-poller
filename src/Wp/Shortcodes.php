@@ -1623,7 +1623,61 @@ final class Shortcodes
                 </div>
             </div>
 
-            <div class="lg-join__checkout" data-lg-join-checkout></div>
+            <div class="lg-join-co-modal" data-lg-join-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
+                <div class="lg-join-co-modal__backdrop" data-lg-join-checkout-close></div>
+                <div class="lg-join-co-modal__card">
+                    <button type="button" class="lg-join-co-modal__close" data-lg-join-checkout-close aria-label="Close checkout">&times;</button>
+                    <div class="lg-join-co-modal__body" data-lg-join-checkout></div>
+                </div>
+            </div>
+
+            <style>
+                .lg-giftwarn { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
+                .lg-giftwarn[hidden] { display: none !important; }
+                .lg-giftwarn__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+                .lg-giftwarn__card { position: relative; background: #fff; border-radius: 12px; padding: 1.6em 1.5em; max-width: 460px; width: 100%; box-shadow: 0 16px 50px rgba(0,0,0,0.4); color: #1f1d1a; }
+                .lg-giftwarn__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.35em; line-height: 1; cursor: pointer; color: #444; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+                .lg-giftwarn__close:hover { color: #000; background: #f5f5f5; }
+                .lg-giftwarn__title { margin: 0 0 .55em; font-size: 1.2em; font-weight: 700; line-height: 1.3; padding-right: 2em; }
+                .lg-giftwarn__body { margin: 0 0 1em; font-size: .95em; line-height: 1.5; color: #333; }
+                .lg-giftwarn__check { display: flex; align-items: flex-start; gap: .6em; padding: .8em .9em; margin-bottom: 1.1em; background: rgba(255,200,80,0.14); border: 1px solid rgba(255,180,40,0.45); border-radius: 6px; cursor: pointer; font-size: .92em; line-height: 1.4; font-weight: 500; }
+                .lg-giftwarn__check input { margin-top: .15em; flex-shrink: 0; }
+                .lg-giftwarn__actions { display: flex; gap: .65em; justify-content: flex-end; flex-wrap: wrap; }
+                .lg-giftwarn__btn { padding: .6em 1.15em; border-radius: 6px; font-weight: 600; font-size: .92em; cursor: pointer; border: none; transition: opacity .15s, background .15s; }
+                .lg-giftwarn__btn--ghost { background: transparent; border: 1.5px solid rgba(0,0,0,0.2); color: #1f1d1a; }
+                .lg-giftwarn__btn--ghost:hover { background: rgba(0,0,0,0.04); }
+                .lg-giftwarn__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; }
+                .lg-giftwarn__btn--primary:hover { opacity: .88; }
+                .lg-giftwarn__btn:disabled { opacity: .45; cursor: not-allowed; }
+                .lg-join-co-modal { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1.2em !important; }
+                .lg-join-co-modal[hidden] { display: none !important; }
+                .lg-join-co-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.78); }
+                .lg-join-co-modal__card { position: relative; background: #fff; border-radius: 14px; width: 100%; max-width: 720px; max-height: 92vh; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,0.55); display: flex; flex-direction: column; }
+                .lg-join-co-modal__close { position: absolute; top: .55em; right: .55em; width: 2.1em; height: 2.1em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.4em; line-height: 1; cursor: pointer; color: #333; z-index: 2; box-shadow: 0 3px 8px rgba(0,0,0,0.18); display: flex; align-items: center; justify-content: center; }
+                .lg-join-co-modal__close:hover { color: #000; background: #f3f3f3; }
+                .lg-join-co-modal__body { flex: 1; min-height: 0; overflow: auto; padding: 0; }
+                .lg-join-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
+                @media (max-width: 700px) {
+                    .lg-join-co-modal { padding: 0 !important; }
+                    .lg-join-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
+                }
+            </style>
+            <div class="lg-giftwarn" data-lg-giftwarn-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-giftwarn-title">
+                <div class="lg-giftwarn__backdrop" data-lg-giftwarn-cancel></div>
+                <div class="lg-giftwarn__card">
+                    <button type="button" class="lg-giftwarn__close" data-lg-giftwarn-cancel aria-label="Close">&times;</button>
+                    <h3 id="lg-giftwarn-title" class="lg-giftwarn__title">You already have an active gift</h3>
+                    <p class="lg-giftwarn__body" data-lg-giftwarn-body></p>
+                    <label class="lg-giftwarn__check">
+                        <input type="checkbox" data-lg-giftwarn-confirm-check>
+                        <span>I understand &mdash; charge me today and stack the subscription on top of my gift time.</span>
+                    </label>
+                    <div class="lg-giftwarn__actions">
+                        <button type="button" class="lg-giftwarn__btn lg-giftwarn__btn--ghost" data-lg-giftwarn-cancel>Wait until gift expires</button>
+                        <button type="button" class="lg-giftwarn__btn lg-giftwarn__btn--primary" data-lg-giftwarn-confirm disabled>Subscribe anyway</button>
+                    </div>
+                </div>
+            </div>
 
             <div class="lg-join__error" data-lg-join-error aria-live="polite"></div>
         </div>
@@ -1874,6 +1928,9 @@ final class Shortcodes
                         email:    email,
                         name:     (nameInput.value || '').trim(),
                     };
+                    if (window.__lgAckActiveGift) {
+                        body.acknowledged_active_gift = true;
+                    }
                     const promoInput = document.querySelector('input[name="promo_code"]');
                     const typedPromo = promoInput ? (promoInput.value || '').trim() : '';
                     const finalPromo = typedPromo !== '' ? typedPromo : (PROMO || '');
@@ -1886,6 +1943,10 @@ final class Shortcodes
                         body:    JSON.stringify(body),
                     });
                     const sessData = await sessRes.json();
+                    if (sessData.needs_gift_confirmation) {
+                        showGiftWarnModal(sessData.active_gift || {});
+                        return;
+                    }
                     if (!sessData.clientSecret) {
                         showError(sessData.error || 'Could not start checkout.');
                         return;
@@ -1898,8 +1959,14 @@ final class Shortcodes
                     }
 
                     mountedSession = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
+
+                    // Open the modal BEFORE mounting so Stripes iframe has
+                    // real dimensions to lay out against. (Hidden parents
+                    // sometimes leave the embed at 0x0 and never recover.)
+                    if (joinCheckoutModal) joinCheckoutModal.hidden = false;
+                    document.body.classList.add('lg-modal-open');
+
                     mountedSession.mount(checkoutEl);
-                    checkoutEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 } catch (err) {
                     showError('Network error: ' + err.message);
                 } finally {
@@ -1908,13 +1975,70 @@ final class Shortcodes
                 }
             }
 
+            const giftWarnModal   = document.querySelector('[data-lg-giftwarn-modal]');
+            const giftWarnBody    = document.querySelector('[data-lg-giftwarn-body]');
+            const giftWarnCheck   = document.querySelector('[data-lg-giftwarn-confirm-check]');
+            const giftWarnConfirm = document.querySelector('[data-lg-giftwarn-confirm]');
+            if (giftWarnModal && giftWarnModal.parentNode !== document.body) document.body.appendChild(giftWarnModal);
+
+            function tierLabel(tier) {
+                return ({ looth1:'Looth Public', looth2:'Looth LITE', looth3:'Looth PRO', looth4:'Looth Premium Plus' })[tier] || tier;
+            }
+            function showGiftWarnModal(active) {
+                const tier  = tierLabel(active.tier || '');
+                const days  = parseInt(active.days_remaining, 10) || 0;
+                const exp   = active.expires_at || '';
+                if (giftWarnBody) {
+                    giftWarnBody.innerHTML =
+                        'Your account already has <strong>' + days + ' day' + (days === 1 ? '' : 's') + ' of ' + tier + '</strong> ' +
+                        'from a redeemed gift' + (exp ? ', good through <strong>' + exp + '</strong>' : '') + '. ' +
+                        'If you start a subscription now, Stripe will charge you today and the subscription will run on top of your gift time &mdash; ' +
+                        'so you\'ll be paying for coverage you already have. Most folks wait until the gift expires before subscribing.';
+                }
+                if (giftWarnCheck)   giftWarnCheck.checked = false;
+                if (giftWarnConfirm) giftWarnConfirm.disabled = true;
+                if (giftWarnModal)   giftWarnModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+            }
+            function hideGiftWarnModal() {
+                if (giftWarnModal) giftWarnModal.hidden = true;
+                document.body.classList.remove('lg-modal-open');
+            }
+            if (giftWarnCheck && giftWarnConfirm) {
+                giftWarnCheck.addEventListener('change', () => { giftWarnConfirm.disabled = !giftWarnCheck.checked; });
+            }
+            document.querySelectorAll('[data-lg-giftwarn-cancel]').forEach(el => {
+                el.addEventListener('click', hideGiftWarnModal);
+            });
+            if (giftWarnConfirm) {
+                giftWarnConfirm.addEventListener('click', () => {
+                    window.__lgAckActiveGift = true;
+                    hideGiftWarnModal();
+                    startCheckout();
+                });
+            }
+
+            const joinCheckoutModal = document.querySelector('[data-lg-join-checkout-modal]');
+            if (joinCheckoutModal && joinCheckoutModal.parentNode !== document.body) {
+                document.body.appendChild(joinCheckoutModal);
+            }
+            function closeJoinCheckoutModal() {
+                if (joinCheckoutModal) joinCheckoutModal.hidden = true;
+                document.body.classList.remove('lg-modal-open');
+                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
+                if (checkoutEl) checkoutEl.innerHTML = '';
+            }
+            document.querySelectorAll('[data-lg-join-checkout-close]').forEach(el => {
+                el.addEventListener('click', closeJoinCheckoutModal);
+            });
+
             // Wire step 2 buttons
             continueBt.addEventListener('click', startCheckout);
             backBt.addEventListener('click', function(){
                 formEl.hidden = true;
                 pendingPriceId = null;
                 document.querySelectorAll('.lg-join__tier').forEach(c => c.classList.remove('is-selected'));
-                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; checkoutEl.innerHTML = ''; }
+                closeJoinCheckoutModal();
                 tiersEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
 
