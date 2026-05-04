@@ -741,12 +741,16 @@ function lgpo_success( $message ) {
 register_activation_hook( __FILE__, 'lgpo_activate' );
 function lgpo_activate() {
     lgpo_register_rewrite();
-    flush_rewrite_rules();
+    // Defer flush_rewrite_rules() to 'init' priority 9999 via transient.
+    // Activation runs in isolation before 'init' fires, so flushing here
+    // serializes a partial rule set missing rules other plugins register on init.
+    // See \LGMS\Plugin::boot() for the deferred handler.
+    set_transient( 'lgms_pending_rewrite_flush', 1, HOUR_IN_SECONDS );
 }
 
 register_deactivation_hook( __FILE__, 'lgpo_deactivate' );
 function lgpo_deactivate() {
-    flush_rewrite_rules();
+    set_transient( 'lgms_pending_rewrite_flush', 1, HOUR_IN_SECONDS );
     LGPO_Sync_Cron::deactivate();
 }
 

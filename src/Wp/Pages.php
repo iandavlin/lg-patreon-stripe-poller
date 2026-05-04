@@ -250,10 +250,21 @@ final class Pages
 
         $allowlisted = self::ensureBuddyBossAllowlist();
 
-        // Permalink + object cache hygiene — same flush we documented in PROD-CUTOVER.md
-        // for the BuddyBoss allowlist.
-        flush_rewrite_rules( false );
-        wp_cache_flush();
+        // Defer rewrite flush to 'init' priority 9999 via transient — flushing
+        // mid-activation serializes a partial rule set (other plugins haven't
+        // registered their rules yet). See \LGMS\Plugin::boot().
+        // Only set the flag if state actually changed; no-op otherwise.
+        if ( $created !== [] || $allowlisted !== [] ) {
+            set_transient( 'lgms_pending_rewrite_flush', 1, HOUR_IN_SECONDS );
+        }
+
+        // Targeted cache invalidation: BB reads the public-content allowlist
+        // through alloptions, so just bust that key. wp_cache_flush() (the old
+        // approach) evicts the entire object cache mid-request and can break
+        // in-flight requests that rely on cached state.
+        if ( $allowlisted !== [] ) {
+            wp_cache_delete( 'alloptions', 'options' );
+        }
 
         return compact( 'created', 'skipped', 'allowlisted' );
     }

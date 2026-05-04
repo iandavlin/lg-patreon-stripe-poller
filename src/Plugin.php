@@ -72,6 +72,19 @@ final class Plugin
 
     public static function boot(): void
     {
+        // Deferred rewrite flush — when activation or Pages::ensureAll()
+        // mutates page state, they set the 'lgms_pending_rewrite_flush'
+        // transient instead of flushing immediately. Flushing here at
+        // 'init' priority 9999 ensures every plugin's rewrite rules
+        // are registered before WP serializes the rules option, avoiding
+        // the partial-rules race that produces unexplained 404s.
+        add_action( 'init', static function (): void {
+            if ( get_transient( 'lgms_pending_rewrite_flush' ) ) {
+                delete_transient( 'lgms_pending_rewrite_flush' );
+                flush_rewrite_rules( false );
+            }
+        }, 9999 );
+
         // Cron handler — Stripe poll + sync sweep.
         add_action( self::CRON_HOOK, [ Tick::class, 'run' ] );
 
