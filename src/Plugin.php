@@ -10,7 +10,11 @@ namespace LGMS;
 final class Plugin
 {
     public const CRON_HOOK     = 'lgms_poll_tick';
-    public const CRON_SCHEDULE = 'hourly'; // WP built-in
+    // Custom 5-minute interval registered below in registerCronSchedule().
+    // Was 'hourly' before the orphaned-checkout reconcile sweep landed —
+    // the sweep wants a tighter latency floor so a stranded customer is
+    // recovered within ~5 minutes of bailing.
+    public const CRON_SCHEDULE = 'lgms_5min';
 
     /**
      * Role assigned on first purchase to gift-only buyers (no existing WP
@@ -72,6 +76,15 @@ final class Plugin
 
     public static function boot(): void
     {
+        // Register a custom 5-minute cron interval (WP only ships hourly,
+        // twicedaily, daily). Used by the reconcile-pending sweep.
+        add_filter( 'cron_schedules', [ self::class, 'registerCronSchedule' ] );
+
+        // Self-heal the scheduled event's interval. If a previous version
+        // of the plugin scheduled the tick on 'hourly', migrate to the new
+        // 5-minute schedule without forcing a deactivate/reactivate.
+        add_action( 'init', [ self::class, 'maybeRescheduleCron' ], 99 );
+
         // Deferred rewrite flush — when activation or Pages::ensureAll()
         // mutates page state, they set the 'lgms_pending_rewrite_flush'
         // transient instead of flushing immediately. Flushing here at
@@ -117,6 +130,13 @@ final class Plugin
 
         // Front-end shortcodes (gift redemption etc.).
         add_action( 'init', [ Wp\Shortcodes::class, 'register' ] );
+
+        // Welcome modal: print celebratory modal in the footer when the
+        // current user has just been upgraded into a paid tier (looth2+).
+        // Triggered by the _lg_pending_welcome user meta which Arbiter
+        // sets on the upgrade transition. Modal is single-use; dismiss
+        // hits a REST endpoint that clears the meta.
+        add_action( 'wp_footer', [ self::class, 'maybePrintWelcomeModal' ] );
 
         // Conditionally enqueue the shortcode stylesheet only on pages
         // that actually contain one of our shortcodes.
@@ -342,6 +362,48 @@ final class Plugin
      * 6 hours via a transient lock so we don't write the option on every
      * pageload but still catch new pages within a reasonable window.
      */
+    /**
+     * Filter for cron_schedules — register a 5-minute interval.
+     */
+    public static function registerCronSchedule( array $schedules ): array
+    {
+        if ( ! isset( $schedules['lgms_5min'] ) ) {
+            $schedules['lgms_5min'] = [
+                'interval' => 5 * MINUTE_IN_SECONDS,
+                'display'  => 'Every 5 minutes (LGMS reconcile sweep)',
+            ];
+        }
+        return $schedules;
+    }
+
+    /**
+     * Reschedule the tick event if it was previously scheduled on a
+     * different interval. WP's wp_schedule_event() is idempotent on the
+     * schedule NAME — once scheduled on 'hourly', it stays 'hourly' until
+     * we explicitly clear and re-schedule. This runs on every init pass
+     * (cheap) but only does work when the scheduled interval differs from
+     * the desired CRON_SCHEDULE constant.
+     */
+    public static function maybeRescheduleCron(): void
+    {
+        $next     = wp_next_scheduled( self::CRON_HOOK );
+        $current  = wp_get_schedule( self::CRON_HOOK );
+        $expected = self::CRON_SCHEDULE;
+
+        if ( $next === false ) {
+            // Not scheduled at all — schedule fresh.
+            wp_schedule_event( time() + 60, $expected, self::CRON_HOOK );
+            return;
+        }
+
+        if ( $current === $expected ) {
+            return; // already correct
+        }
+
+        wp_unschedule_event( $next, self::CRON_HOOK );
+        wp_schedule_event( time() + 60, $expected, self::CRON_HOOK );
+    }
+
     public static function maybeRefreshBbAllowlist(): void
     {
         if ( get_transient( 'lgms_bb_allowlist_synced' ) ) {
@@ -351,5 +413,102 @@ final class Plugin
             \LGMS\Wp\Pages::ensureBuddyBossAllowlist();
         }
         set_transient( 'lgms_bb_allowlist_synced', 1, 6 * HOUR_IN_SECONDS );
+    }
+
+    /**
+     * wp_footer handler: render the post-upgrade welcome modal exactly
+     * once per upgrade event. Cheap on the common case — bails before
+     * doing any work if the meta isn't set.
+     */
+    public static function maybePrintWelcomeModal(): void
+    {
+        if ( ! is_user_logged_in() ) {
+            return;
+        }
+        if ( is_admin() ) {
+            return; // never show in wp-admin
+        }
+        if ( wp_doing_ajax() ) {
+            return; // do not corrupt XHR responses
+        }
+        if ( function_exists( 'is_page' ) && is_page( 'welcome' ) ) {
+            return; // /welcome/ has its own confirmation UI; don't double-celebrate
+        }
+
+        $userId = get_current_user_id();
+        $tier   = (string) get_user_meta( $userId, '_lg_pending_welcome', true );
+        if ( $tier === '' ) {
+            return;
+        }
+
+        $tierLabel = [
+            'looth2' => 'Looth LITE',
+            'looth3' => 'Looth PRO',
+            'looth4' => 'Looth Premium Plus',
+        ][ $tier ] ?? 'Looth';
+
+        $endpoint = esc_url_raw( rest_url( self::class === 'LGMS\Plugin' ? 'lg-member-sync/v1/dismiss-welcome' : 'lg-member-sync/v1/dismiss-welcome' ) );
+        $nonce    = wp_create_nonce( 'wp_rest' );
+        $manage   = esc_url( home_url( '/manage-subscription/' ) );
+        $titleEsc = esc_html( "🎉 Welcome to {$tierLabel}!" );
+        $bodyEsc  = esc_html( 'Your membership is active. You now have full access to forums, archives, member events, and more.' );
+        $manageEsc = esc_html( 'Manage subscription' );
+        $gotitEsc  = esc_html( 'Got it →' );
+
+        ?>
+        <div id="lg-welcome-modal" class="lg-welcome-modal" role="dialog" aria-modal="true" aria-labelledby="lg-welcome-title">
+            <div class="lg-welcome-modal__backdrop" data-lg-welcome-dismiss></div>
+            <div class="lg-welcome-modal__card">
+                <h3 id="lg-welcome-title" class="lg-welcome-modal__title"><?php echo $titleEsc; ?></h3>
+                <p class="lg-welcome-modal__body"><?php echo $bodyEsc; ?></p>
+                <div class="lg-welcome-modal__actions">
+                    <a class="lg-welcome-modal__manage" href="<?php echo $manage; ?>"><?php echo $manageEsc; ?></a>
+                    <button type="button" class="lg-welcome-modal__btn" data-lg-welcome-dismiss><?php echo $gotitEsc; ?></button>
+                </div>
+            </div>
+        </div>
+        <style>
+            .lg-welcome-modal { position: fixed; inset: 0; z-index: 2147483600; display: flex; align-items: center; justify-content: center; padding: 1em; opacity: 0; pointer-events: auto; transition: opacity .25s ease; }
+            .lg-welcome-modal.is-visible { opacity: 1; }
+            .lg-welcome-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+            .lg-welcome-modal__card { position: relative; background: #fff; color: #1f1d1a; border: 2px solid var(--lg-amber, #ECB351); border-radius: 12px; padding: 1.8em 1.6em; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.45); transform: translateY(16px); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+            .lg-welcome-modal.is-visible .lg-welcome-modal__card { transform: translateY(0); }
+            .lg-welcome-modal__title { margin: 0 0 .55em; font-size: 1.25em; font-weight: 700; line-height: 1.3; }
+            .lg-welcome-modal__body { margin: 0 0 1.3em; font-size: .95em; line-height: 1.5; color: #444; }
+            .lg-welcome-modal__actions { display: flex; gap: .6em; justify-content: center; flex-wrap: wrap; }
+            .lg-welcome-modal__btn { padding: .65em 1.3em; background: var(--lg-amber, #ECB351); color: #1f1d1a !important; border: none; border-radius: 8px; font-weight: 700; font-size: .95em; cursor: pointer; transition: opacity .15s; }
+            .lg-welcome-modal__btn:hover { opacity: .88; }
+            .lg-welcome-modal__manage { padding: .65em 1.3em; background: transparent; color: #1f1d1a !important; border: 1.5px solid rgba(0,0,0,0.2); border-radius: 8px; font-weight: 600; font-size: .92em; text-decoration: none; transition: background .15s; }
+            .lg-welcome-modal__manage:hover { background: rgba(0,0,0,0.04); }
+        </style>
+        <script>
+        (function(){
+            var modal = document.getElementById('lg-welcome-modal');
+            if ( ! modal ) return;
+            // Move out of any positioned ancestor (BB themes set transforms
+            // on .site that trap fixed-position children).
+            if ( modal.parentNode !== document.body ) document.body.appendChild( modal );
+            requestAnimationFrame( function(){ modal.classList.add('is-visible'); } );
+
+            function dismiss() {
+                modal.classList.remove('is-visible');
+                setTimeout( function(){ modal.parentNode && modal.parentNode.removeChild(modal); }, 250 );
+                // Fire-and-forget — even if this fails the modal is gone
+                // locally; worst case it shows again on next page load.
+                try {
+                    fetch(<?php echo wp_json_encode( $endpoint ); ?>, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'X-WP-Nonce': <?php echo wp_json_encode( $nonce ); ?>, 'Content-Type': 'application/json' },
+                        body: '{}'
+                    });
+                } catch (e) {}
+            }
+            modal.querySelectorAll('[data-lg-welcome-dismiss]').forEach(function(el){
+                el.addEventListener('click', dismiss);
+            });
+        })();
+        </script>
+        <?php
     }
 }

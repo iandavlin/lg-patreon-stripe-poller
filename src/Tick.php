@@ -70,6 +70,77 @@ final class Tick
             ), FILE_APPEND );
         }
 
+        // Pass 1.7: reconcile orphaned Stripe Checkout sessions.
+        // Catches cases where the customer paid but their browser never
+        // hit /v1/return (modal close, browser crash, network drop).
+        // Slim is authoritative — we just trigger the sweep.
+        //
+        // CF bot-challenge bypass: Cloudflare intercepts wp_remote_post
+        // when we call our own host from PHP-cURL (the request looks like
+        // a server-side bot). Pin resolution to 127.0.0.1 to hit origin
+        // nginx directly — same trick Slim's WpSync uses in reverse.
+        try {
+            $base   = (string) get_option( 'lgms_billing_base_url', home_url( '/billing' ) );
+            $secret = (string) get_option( 'lgms_shared_secret', '' );
+            if ( $secret === '' ) {
+                @file_put_contents( $log, sprintf(
+                    "[%s] reconcile-pending SKIPPED: no shared secret configured
+",
+                    gmdate( 'c' )
+                ), FILE_APPEND );
+            } else {
+                $url   = rtrim( $base, '/' ) . '/v1/reconcile-pending';
+                $parts = parse_url( $url );
+                $host  = $parts['host'] ?? '';
+                $ch    = curl_init( $url );
+                curl_setopt_array( $ch, [
+                    CURLOPT_POST           => true,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT        => 30,
+                    CURLOPT_CONNECTTIMEOUT => 5,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => 0,
+                    CURLOPT_HTTPHEADER     => [
+                        'Content-Type: application/json',
+                        'X-LGMS-Token: ' . $secret,
+                    ],
+                    CURLOPT_POSTFIELDS     => '{}',
+                ] );
+                if ( $host !== '' ) {
+                    $scheme = $parts['scheme'] ?? 'https';
+                    $port   = $parts['port'] ?? ( $scheme === 'https' ? 443 : 80 );
+                    curl_setopt( $ch, CURLOPT_RESOLVE, [ "{$host}:{$port}:127.0.0.1" ] );
+                }
+                $body = (string) curl_exec( $ch );
+                $err  = curl_error( $ch );
+                $code = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+                curl_close( $ch );
+                if ( $err !== '' ) {
+                    @file_put_contents( $log, sprintf(
+                        "[%s] reconcile-pending FAILED: %s
+",
+                        gmdate( 'c' ),
+                        $err
+                    ), FILE_APPEND );
+                } else {
+                    @file_put_contents( $log, sprintf(
+                        "[%s] reconcile-pending: HTTP %d %s
+",
+                        gmdate( 'c' ),
+                        $code,
+                        substr( $body, 0, 400 )
+                    ), FILE_APPEND );
+                }
+            }
+        } catch ( Throwable $e ) {
+            @file_put_contents( $log, sprintf(
+                "[%s] reconcile-pending threw: %s
+",
+                gmdate( 'c' ),
+                $e->getMessage()
+            ), FILE_APPEND );
+        }
+
         // Pass 2: sync sweep
         try {
             $results = Sync::all();

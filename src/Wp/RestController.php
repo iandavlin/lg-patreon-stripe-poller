@@ -129,6 +129,15 @@ final class RestController
             'callback'            => [ self::class, 'giftAuth' ],
             'permission_callback' => '__return_true',
         ] );
+
+        // Logged-in only: dismiss the welcome modal (consume the
+        // _lg_pending_welcome meta). Called via AJAX from wp_footer when
+        // the user clicks "Got it" on the post-purchase celebration.
+        register_rest_route( self::NAMESPACE, '/dismiss-welcome', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'dismissWelcome' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
     }
 
     public static function authLoggedInUser(WP_REST_Request $req): bool
@@ -1106,11 +1115,15 @@ final class RestController
      * POST /gift-auth  (public — no nonce required)
      * Body: { email, password, subscribe_weekly? }
      *
-     * Logs in an existing user or creates a new customer-role account.
+     * Logs in an existing user or creates a new looth1 (starter-tier) account.
      * - Wrong password  → 401 with forgot:true hint
-     * - looth1 role     → demoted to customer (gift-only buyer)
      * - subscribe_weekly → added to FluentCRM list 7 (Non Member Weekly Email)
      * Returns { ok, nonce, name, email } on success.
+     *
+     * Role model: every account created through this endpoint starts as
+     * looth1. Arbiter promotes to looth2/3 when a paid entitlement is
+     * recorded post-Stripe. Existing accounts are not demoted on login —
+     * Arbiter is the sole writer of tier roles.
      */
     public static function giftAuth( WP_REST_Request $req ): WP_REST_Response
     {
@@ -1158,15 +1171,11 @@ final class RestController
                     return new WP_REST_Response( [ 'ok' => false, 'error' => 'Incorrect password.', 'forgot' => true ], 401 );
                 }
                 $user = $existing;
-                // Demote looth1 (subscriber-tier) to customer if they have no paid role.
-                $roles = (array) $user->roles;
-                if ( in_array( 'looth1', $roles, true )
-                    && ! in_array( 'looth2', $roles, true )
-                    && ! in_array( 'looth3', $roles, true ) ) {
-                    $user->set_role( 'customer' );
-                    $user->remove_role( 'bbp_participant' );
-                    self::eraseBuddypressFootprint( (int) $user->ID );
-                }
+                // (Previously demoted looth1 → customer here when no paid
+                // role was present. Removed: looth1 is now the starter
+                // tier in our role model, not a lapsed-paid sentinel, so
+                // logging in via gift-auth must not silently downgrade
+                // their access. Arbiter is the sole writer of tier roles.)
             }
         } else {
             // No account on file — require consent before creating one. The
@@ -1190,8 +1199,14 @@ final class RestController
             if ( is_wp_error( $userId ) ) {
                 return new WP_REST_Response( [ 'ok' => false, 'error' => $userId->get_error_message() ], 500 );
             }
+            // looth1 is now the starter tier — every account that comes through
+            // gift-auth lands here. Arbiter will upgrade to looth2/3 once a
+            // paid entitlement is recorded (post-Stripe, via /v1/return or
+            // the cron-driven reconcile-pending sweep). The bbp_participant
+            // role is removed and the BP footprint erased so the user starts
+            // clean; BB chrome reflects their actual tier as Arbiter resolves.
             $user = get_user_by( 'id', $userId );
-            $user->set_role( 'customer' );
+            $user->set_role( 'looth1' );
             $user->remove_role( 'bbp_participant' );
             self::eraseBuddypressFootprint( (int) $userId );
 
@@ -1308,5 +1323,22 @@ final class RestController
             error_log( 'gift-auth redemption proof: ' . $e->getMessage() );
             return false;
         }
+    }
+
+    /**
+     * POST /dismiss-welcome
+     *
+     * Consumes the _lg_pending_welcome meta on the current user. Called
+     * from the wp_footer welcome modal's "Got it" button. Idempotent —
+     * deleting an absent meta is a no-op.
+     */
+    public static function dismissWelcome( WP_REST_Request $req ): WP_REST_Response
+    {
+        $userId = get_current_user_id();
+        if ( $userId <= 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'not_logged_in' ], 401 );
+        }
+        delete_user_meta( $userId, '_lg_pending_welcome' );
+        return new WP_REST_Response( [ 'ok' => true ] );
     }
 }

@@ -29,6 +29,7 @@ final class Arbiter
             return [ 'ok' => true, 'reason' => 'looth4 protected, skipped' ];
         }
 
+        $oldTier = self::currentTier( (array) $user->roles );
         $sources = RoleSourceWriter::readAllForUser( $wpUserId );
         $winning = self::computeWinningTier( $sources );
 
@@ -44,7 +45,61 @@ final class Arbiter
             $user->add_role( $winning );
         }
 
-        return [ 'ok' => true, 'winning_tier' => $winning, 'sources' => $sources ];
+        // Welcome trigger: stamp a one-shot user meta whenever the user is
+        // upgraded INTO a paid tier (looth2+) from a lower/null state.
+        // The wp_footer modal hook reads this meta on the next page load
+        // and shows a "your membership is active" celebration. The flag
+        // is consumed (deleted) by the dismiss-welcome REST endpoint.
+        // Idempotent: re-running Arbiter on a stable looth2 user does NOT
+        // re-set the flag (oldTier === winning).
+        if ( self::isUpgradeToPaid( $oldTier, $winning ) ) {
+            update_user_meta( $wpUserId, '_lg_pending_welcome', (string) $winning );
+            // Fire the welcome email once. WelcomeMailer is idempotent —
+            // it tracks delivery via _lg_welcome_email_sent_at user meta
+            // and silently bails on repeat calls. The modal handles
+            // returning users; this email handles users who don't return
+            // on their own (e.g. because they backed out of Stripe and
+            // the cron sweep / webhook provisioned silently).
+            \LGMS\Wp\WelcomeMailer::sendIfNeeded( $wpUserId, (string) $winning );
+        }
+
+        return [ 'ok' => true, 'winning_tier' => $winning, 'sources' => $sources, 'old_tier' => $oldTier ];
+    }
+
+    /**
+     * Highest looth* role currently on the user (lookup, no DB write).
+     * Returns null if none of the tier roles are present.
+     */
+    private static function currentTier( array $roles ): ?string
+    {
+        $best = null;
+        foreach ( self::TIER_ROLES as $role ) {
+            if ( in_array( $role, $roles, true ) ) {
+                if ( $best === null || strcmp( $role, $best ) > 0 ) {
+                    $best = $role;
+                }
+            }
+        }
+        return $best;
+    }
+
+    /**
+     * True when the transition $old → $new represents a real upgrade INTO
+     * a paid tier. looth1 is the starter (free) tier and does not trigger
+     * the welcome modal; looth2/3/4 are paid and do.
+     */
+    private static function isUpgradeToPaid( ?string $old, ?string $new ): bool
+    {
+        if ( $new === null || $new === 'looth1' ) {
+            return false;
+        }
+        if ( ! in_array( $new, [ 'looth2', 'looth3', 'looth4' ], true ) ) {
+            return false;
+        }
+        if ( $old === null ) {
+            return true;  // first-ever tier assignment, paid
+        }
+        return strcmp( $new, $old ) > 0;
     }
 
     /**
