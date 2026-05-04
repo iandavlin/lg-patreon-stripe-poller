@@ -1574,7 +1574,14 @@ final class Shortcodes
         $name         = esc_attr( $nameValue );
         $promoEsc     = esc_attr( (string) $promoFromUrl );
         $endpointsJs  = wp_json_encode( $endpoints );
-        $configJs     = wp_json_encode( [ 'popular' => $popularRef, 'taglines' => $taglineMap ] );
+        $authUrl      = esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) );
+        $configJs     = wp_json_encode( [
+            'popular'   => $popularRef,
+            'taglines'  => $taglineMap,
+            'loggedIn'  => $isLoggedIn,
+            'authUrl'   => $authUrl,
+            'forgotUrl' => wp_lostpassword_url(),
+        ] );
 
         ob_start();
         ?>
@@ -1606,9 +1613,17 @@ final class Shortcodes
                         <label>Email <input type="email" name="email" value="<?php echo $email; ?>" required></label>
                     </div>
                     <div class="lg-join__field">
-                        <label>Name <input type="text" name="name" value="<?php echo $name; ?>" required></label>
-                        <small>Used for your account / community profile.</small>
+                        <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em>
+                            <input type="text" name="name" value="<?php echo $name; ?>" required>
+                        </label>
+                        <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
                     </div>
+                    <?php if ( ! $isLoggedIn ) : ?>
+                    <div class="lg-join__field lg-join__field--full">
+                        <label>Password <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick one if you're new (8+ characters)"></label>
+                        <small>Existing member? Enter your password. New here? Choose one &mdash; this becomes your account password so you can log in any time to manage your subscription.</small>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <details class="lg-join__discount" <?php echo $promoFromUrl !== '' ? 'open' : ''; ?>>
                     <summary>Have a discount code?</summary>
@@ -1915,6 +1930,61 @@ final class Shortcodes
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
                 if (!pendingPriceId) { showError('Pick a plan first.'); return; }
+
+                const name = (nameInput.value || '').trim();
+                if (!name) { showError('Profile name is required.'); nameInput.focus(); return; }
+
+                // Auth-before-Stripe: if the visitor isnt logged in, run gift-auth
+                // FIRST so the cookie is set before Stripe redirects them. Same
+                // pattern as the gift purchase form.
+                if (!CONFIG.loggedIn && !window.__lgJoinAuthed) {
+                    const passwordEl = document.querySelector('input[name="password"]');
+                    const password   = passwordEl ? passwordEl.value : '';
+                    if (!password || password.length < 8) {
+                        showError('Please enter a password (8+ characters).');
+                        if (passwordEl) passwordEl.focus();
+                        return;
+                    }
+                    continueBt.disabled = true;
+                    const origAuth = continueBt.textContent;
+                    continueBt.textContent = 'Signing in…';
+                    try {
+                        const authRes = await fetch(CONFIG.authUrl, {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({
+                                email, password,
+                                display_name:      name,
+                                confirmed_consent: true,
+                            }),
+                        });
+                        const authData = await authRes.json();
+                        if (!authData.ok) {
+                            const forgot = authData.forgot
+                                ? ' &middot; <a href="' + CONFIG.forgotUrl + '">Forgot your password?</a>'
+                                : '';
+                            const errEl = document.querySelector('[data-lg-join-error]');
+                            if (errEl) {
+                                errEl.innerHTML =
+                                    '<strong>This email already has an account.</strong> ' +
+                                    'Please enter your account password to log in and continue.<br>' +
+                                    '<small>' + (authData.error || 'Sign-in failed.') + forgot + '</small>';
+                            } else {
+                                showError(authData.error || 'Sign-in failed.');
+                            }
+                            continueBt.disabled    = false;
+                            continueBt.textContent = origAuth;
+                            return;
+                        }
+                        window.__lgJoinAuthed = true;
+                    } catch (e) {
+                        showError('Network error during sign-in. Please try again.');
+                        continueBt.disabled    = false;
+                        continueBt.textContent = origAuth;
+                        return;
+                    }
+                    continueBt.textContent = origAuth;
+                }
 
                 if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
                 checkoutEl.innerHTML = '';
