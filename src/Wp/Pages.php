@@ -91,7 +91,7 @@ final class Pages
             'slug'       => 'manage-subscription',
             'title'      => 'Manage Subscription',
             'shortcode'  => 'lg_manage_subscription',
-            'public'     => false,
+            'public'     => true,
             'template'   => 'page-fullwidth.php',
             'in_nav'     => true,
             'nav_label'  => 'Manage Subscription',
@@ -127,7 +127,7 @@ final class Pages
             'slug'       => 'my-gifts',
             'title'      => 'My Gifts',
             'shortcode'  => 'lg_my_gifts',
-            'public'     => false, // logged-in only — shortcode renders "please sign in" for anon
+            'public'     => true, // shortcode renders "please sign in" for anon; BB allowlist entry is for logged-in non-admin members
             'template'   => 'page-fullwidth.php',
             'in_nav'     => true,
             'nav_label'  => 'My Gifts',

@@ -75,6 +75,11 @@ final class Plugin
         // Cron handler — Stripe poll + sync sweep.
         add_action( self::CRON_HOOK, [ Tick::class, 'run' ] );
 
+        // Self-heal BuddyBoss public-content allowlist daily so our shortcode
+        // pages (my-gifts, lggift-buy, etc.) bypass BB's bpnoaccess gate
+        // without needing manual setting changes after cutover or page renames.
+        add_action( 'init', [ self::class, 'maybeRefreshBbAllowlist' ], 20 );
+
         // Block bbPress from auto-adding bbp_participant to gift-only buyers.
         // The "customer" role is for users who only need to manage their gift
         // dashboard — they shouldn't appear in forums or get participant caps.
@@ -317,5 +322,21 @@ final class Plugin
             $classes[] = 'lg-customer-only';
         }
         return $classes;
+    }
+
+    /**
+     * Idempotent BuddyBoss allowlist refresher. Runs at most once every
+     * 6 hours via a transient lock so we don't write the option on every
+     * pageload but still catch new pages within a reasonable window.
+     */
+    public static function maybeRefreshBbAllowlist(): void
+    {
+        if ( get_transient( 'lgms_bb_allowlist_synced' ) ) {
+            return;
+        }
+        if ( class_exists( '\\LGMS\\Wp\\Pages' ) ) {
+            \LGMS\Wp\Pages::ensureBuddyBossAllowlist();
+        }
+        set_transient( 'lgms_bb_allowlist_synced', 1, 6 * HOUR_IN_SECONDS );
     }
 }
