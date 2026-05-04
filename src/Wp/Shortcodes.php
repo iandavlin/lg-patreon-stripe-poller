@@ -461,6 +461,43 @@ final class Shortcodes
             body.lg-modal-open { overflow: hidden !important; }
         </style>
 
+        <div class="lg-existacct" data-lg-existacct-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-existacct-title">
+            <div class="lg-existacct__backdrop" data-lg-existacct-cancel></div>
+            <div class="lg-existacct__card">
+                <button type="button" class="lg-existacct__close" data-lg-existacct-cancel aria-label="Close">&times;</button>
+                <h3 id="lg-existacct-title" class="lg-existacct__title">This email already has an account</h3>
+                <p class="lg-existacct__body" data-lg-existacct-body></p>
+                <div class="lg-existacct__actions">
+                    <a class="lg-existacct__btn lg-existacct__btn--primary" data-lg-existacct-login href="#">Log in &amp; manage subscription</a>
+                    <a class="lg-existacct__btn lg-existacct__btn--ghost"   data-lg-existacct-forgot hidden href="#">Forgot your password?</a>
+                </div>
+                <p class="lg-existacct__alt"><a href="#" data-lg-existacct-cancel>Use a different email instead</a></p>
+            </div>
+        </div>
+        <style>
+            .lg-existacct { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
+            .lg-existacct[hidden] { display: none !important; }
+            .lg-existacct__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+            .lg-existacct__card { position: relative; background: #fff; border-radius: 12px; padding: 1.7em 1.6em; max-width: 460px; width: 100%; box-shadow: 0 16px 50px rgba(0,0,0,0.4); color: #1f1d1a; }
+            .lg-existacct__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.35em; line-height: 1; cursor: pointer; color: #444; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+            .lg-existacct__close:hover { color: #000; background: #f5f5f5; }
+            .lg-existacct__title { margin: 0 0 .55em; font-size: 1.2em; font-weight: 700; line-height: 1.3; padding-right: 2em; }
+            .lg-existacct__body { margin: 0 0 1.2em; font-size: .95em; line-height: 1.5; color: #333; }
+            .lg-existacct__actions { display: flex; gap: .65em; flex-wrap: wrap; }
+            .lg-existacct__btn { padding: .65em 1.2em; border-radius: 6px; font-weight: 600; font-size: .92em; text-decoration: none; display: inline-block; cursor: pointer; }
+            .lg-existacct__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a !important; }
+            .lg-existacct__btn--primary:hover { opacity: .88; }
+            .lg-existacct__btn--ghost { background: transparent; border: 1.5px solid rgba(0,0,0,0.2); color: #1f1d1a !important; }
+            .lg-existacct__btn--ghost:hover { background: rgba(0,0,0,0.04); }
+            .lg-existacct__alt { margin: 1em 0 0; font-size: .85em; color: #666; }
+            .lg-existacct__alt a { color: var(--lg-sage, #87986A); }
+
+            .lg-pwd-wrap { position: relative; display: block; }
+            .lg-pwd-wrap input { width: 100%; padding-right: 2.6em !important; }
+            .lg-pwd-eye { position: absolute; right: .35em; top: 50%; transform: translateY(-50%); width: 2em; height: 2em; padding: 0; background: transparent; border: none; cursor: pointer; opacity: .55; font-size: 1.05em; line-height: 1; display: flex; align-items: center; justify-content: center; }
+            .lg-pwd-eye:hover { opacity: .9; }
+            .lg-pwd-mismatch { color: #b91c1c !important; font-size: .85em; margin-top: .3em; }
+        </style>
         <script src="https://js.stripe.com/v3/"></script>
         <script>
         (function(){
@@ -1608,7 +1645,7 @@ final class Shortcodes
 
             <div class="lg-join__form" data-lg-join-form hidden>
                 <h3 class="lg-join__form-heading" data-lg-form-heading>Almost there</h3>
-                <div class="lg-join__form-grid">
+                <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
                     <div class="lg-join__field">
                         <label>Email <input type="email" name="email" value="<?php echo $email; ?>" required></label>
                     </div>
@@ -1619,9 +1656,23 @@ final class Shortcodes
                         <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
                     </div>
                     <?php if ( ! $isLoggedIn ) : ?>
-                    <div class="lg-join__field lg-join__field--full">
-                        <label>Password <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick one if you're new (8+ characters)"></label>
-                        <small>Existing member? Enter your password. New here? Choose one &mdash; this becomes your account password so you can log in any time to manage your subscription.</small>
+                    <div class="lg-join__field" style="grid-column:1 / -1;">
+                        <label>Password
+                            <span class="lg-pwd-wrap">
+                                <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick a password (8+ characters)">
+                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password" aria-label="Show password">&#128065;</button>
+                            </span>
+                        </label>
+                        <small>This becomes your account password so you can log in any time to manage your subscription.</small>
+                    </div>
+                    <div class="lg-join__field" style="grid-column:1 / -1;">
+                        <label>Confirm password
+                            <span class="lg-pwd-wrap">
+                                <input type="password" name="password_confirm" minlength="8" required autocomplete="new-password" placeholder="Re-enter your password">
+                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password_confirm" aria-label="Show password">&#128065;</button>
+                            </span>
+                        </label>
+                        <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -1787,6 +1838,63 @@ final class Shortcodes
             const backBt     = document.querySelector('[data-lg-back]');
             const checkoutEl = document.querySelector('[data-lg-join-checkout]');
             const errorEl    = document.querySelector('[data-lg-join-error]');
+            // Existing-account modal — fired when /gift-auth says incorrect
+            // password for an email that already has a WP user. Push the
+            // visitor toward /manage-subscription/ instead of letting them
+            // start a duplicate sub.
+            const existAcctModal   = document.querySelector('[data-lg-existacct-modal]');
+            const existAcctBody    = document.querySelector('[data-lg-existacct-body]');
+            const existAcctLogin   = document.querySelector('[data-lg-existacct-login]');
+            const existAcctForgot  = document.querySelector('[data-lg-existacct-forgot]');
+            if (existAcctModal && existAcctModal.parentNode !== document.body) document.body.appendChild(existAcctModal);
+
+            function showExistingAccountModal(opts) {
+                const target   = '<?php echo esc_js( esc_url_raw( home_url( '/manage-subscription/' ) ) ); ?>';
+                const loginUrl = '<?php echo esc_js( esc_url_raw( wp_login_url() ) ); ?>'
+                               + '?redirect_to=' + encodeURIComponent(target);
+                if (existAcctBody) {
+                    existAcctBody.innerHTML =
+                        '<strong>' + opts.email + '</strong> already has an account. Log in and we' + String.fromCharCode(39) + 'll take you straight to your subscription dashboard where you can change plan, update your card, or cancel.<br><br>' +
+                        '<small style="color:#888;">' + (opts.error || '') + '</small>';
+                }
+                if (existAcctLogin)  existAcctLogin.href  = loginUrl;
+                if (existAcctForgot) {
+                    existAcctForgot.href = '<?php echo esc_js( esc_url_raw( wp_lostpassword_url() ) ); ?>';
+                    existAcctForgot.hidden = !opts.forgot;
+                }
+                if (existAcctModal) existAcctModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+            }
+            function hideExistingAccountModal() {
+                if (existAcctModal) existAcctModal.hidden = true;
+                document.body.classList.remove('lg-modal-open');
+            }
+            document.querySelectorAll('[data-lg-existacct-cancel]').forEach(el => {
+                el.addEventListener('click', (e) => { e.preventDefault(); hideExistingAccountModal(); });
+            });
+
+            // Password eyeball toggles (works for both password + confirm)
+            document.querySelectorAll('[data-lg-pwd-eye-for]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const target = document.querySelector('input[name="' + btn.dataset.lgPwdEyeFor + '"]');
+                    if (!target) return;
+                    target.type = (target.type === 'password') ? 'text' : 'password';
+                    btn.setAttribute('aria-label', target.type === 'password' ? 'Show password' : 'Hide password');
+                });
+            });
+
+            // Live password-match check
+            const pwdEl     = document.querySelector('input[name="password"]');
+            const pwd2El    = document.querySelector('input[name="password_confirm"]');
+            const mismatchEl= document.querySelector('[data-lg-pwd-mismatch]');
+            function checkPwdMatch() {
+                if (!pwdEl || !pwd2El || !mismatchEl) return;
+                const a = pwdEl.value, b = pwd2El.value;
+                mismatchEl.hidden = !(a.length > 0 && b.length > 0 && a !== b);
+            }
+            if (pwdEl)  pwdEl.addEventListener('input',  checkPwdMatch);
+            if (pwd2El) pwd2El.addEventListener('input', checkPwdMatch);
+
             const emailInput = document.querySelector('input[name="email"]');
             const nameInput  = document.querySelector('input[name="name"]');
 
@@ -1945,6 +2053,12 @@ final class Shortcodes
                         if (passwordEl) passwordEl.focus();
                         return;
                     }
+                    const passwordConfirmEl = document.querySelector('input[name="password_confirm"]');
+                    if (passwordConfirmEl && passwordConfirmEl.value !== password) {
+                        showError('Passwords don' + String.fromCharCode(39) + 't match.');
+                        passwordConfirmEl.focus();
+                        return;
+                    }
                     continueBt.disabled = true;
                     const origAuth = continueBt.textContent;
                     continueBt.textContent = 'Signing in…';
@@ -1960,18 +2074,11 @@ final class Shortcodes
                         });
                         const authData = await authRes.json();
                         if (!authData.ok) {
-                            const forgot = authData.forgot
-                                ? ' &middot; <a href="' + CONFIG.forgotUrl + '">Forgot your password?</a>'
-                                : '';
-                            const errEl = document.querySelector('[data-lg-join-error]');
-                            if (errEl) {
-                                errEl.innerHTML =
-                                    '<strong>This email already has an account.</strong> ' +
-                                    'Please enter your account password to log in and continue.<br>' +
-                                    '<small>' + (authData.error || 'Sign-in failed.') + forgot + '</small>';
-                            } else {
-                                showError(authData.error || 'Sign-in failed.');
-                            }
+                            showExistingAccountModal({
+                                email,
+                                error:  authData.error || 'Sign-in failed.',
+                                forgot: !!authData.forgot,
+                            });
                             continueBt.disabled    = false;
                             continueBt.textContent = origAuth;
                             return;
