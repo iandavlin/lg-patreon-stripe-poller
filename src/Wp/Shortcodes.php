@@ -195,7 +195,22 @@ final class Shortcodes
                     <div class="lg-co-modal__backdrop" data-lg-checkout-close></div>
                     <div class="lg-co-modal__card">
                         <button type="button" class="lg-co-modal__close" data-lg-checkout-close aria-label="Close checkout">&times;</button>
+
+                        <!-- Embedded path: kept for fallback if server returns ui_mode=embedded. -->
                         <div class="lg-co-modal__body" data-lg-gift-checkout></div>
+
+                        <!-- Custom path (Basil): we mount Stripe Elements + render our own Pay button. -->
+                        <div class="lg-co-modal__custom" data-lg-gift-checkout-custom hidden>
+                            <div class="lg-co-modal__pe" data-lg-gift-payment-element></div>
+                            <div class="lg-co-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
+                            <button type="button" class="lg-co-modal__pay" data-lg-gift-checkout-pay disabled>
+                                <span data-lg-gift-pay-label>Pay</span>
+                            </button>
+                            <p class="lg-co-modal__secured">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l3 5h6l-5 4 2 7-6-4-6 4 2-7-5-4h6z"/></svg>
+                                Secured by Stripe
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -437,7 +452,18 @@ final class Shortcodes
             .lg-co-modal__close { position: absolute !important; top: .55em !important; right: .55em !important; width: 2.1em !important; height: 2.1em !important; padding: 0 !important; background: #fff !important; border: 1px solid rgba(0,0,0,0.15) !important; border-radius: 50% !important; font-size: 1.4em !important; line-height: 1 !important; cursor: pointer !important; color: #333 !important; z-index: 2 !important; box-shadow: 0 3px 8px rgba(0,0,0,0.18) !important; display: flex !important; align-items: center !important; justify-content: center !important; }
             .lg-co-modal__close:hover { color: #000 !important; background: #f3f3f3 !important; }
             .lg-co-modal__body { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 0 !important; }
+            .lg-co-modal__body[hidden] { display: none !important; }
             .lg-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
+            .lg-co-modal__custom { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 1.6em 1.4em 1.4em !important; display: flex !important; flex-direction: column !important; gap: 1em !important; background: #fff !important; }
+            .lg-co-modal__custom[hidden] { display: none !important; }
+            .lg-co-modal__pe { background: #fff !important; }
+            .lg-co-modal__error { color: #b91c1c !important; font-size: .92em !important; line-height: 1.4 !important; padding: .6em .8em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 8px !important; }
+            .lg-co-modal__error[hidden] { display: none !important; }
+            .lg-co-modal__pay { width: 100% !important; padding: .9em 1em !important; font-size: 1.05em !important; font-weight: 700 !important; background: var(--lg-amber, #ECB351) !important; color: #1f1d1a !important; border: none !important; border-radius: 10px !important; cursor: pointer !important; box-shadow: 0 4px 14px rgba(236, 179, 81, 0.45) !important; transition: opacity .15s, transform .05s !important; }
+            .lg-co-modal__pay:hover:not(:disabled) { opacity: .92 !important; }
+            .lg-co-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
+            .lg-co-modal__pay:disabled { opacity: .55 !important; cursor: not-allowed !important; box-shadow: none !important; }
+            .lg-co-modal__secured { margin: 0 !important; text-align: center !important; font-size: .82em !important; color: #6b6b6b !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: .35em !important; }
             @media (max-width: 700px) {
                 .lg-co-modal { padding: 0 !important; }
                 .lg-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
@@ -527,7 +553,9 @@ final class Shortcodes
                 .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__close { display: none !important; }
                 .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__backdrop { pointer-events: none !important; }
         </style>
-        <script src="https://js.stripe.com/v3/"></script>
+        <!-- Basil release of Stripe.js — required for stripe.initCheckout()
+             (custom UI mode). Must match the API-version pin on the Slim side. -->
+        <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
@@ -546,6 +574,11 @@ final class Shortcodes
             const ctaSpan     = document.querySelector('[data-lg-gift-cta]');
             const errorEl     = document.querySelector('[data-lg-gift-error]');
             const checkoutEl  = document.querySelector('[data-lg-gift-checkout]');
+            const giftCustomEl   = document.querySelector('[data-lg-gift-checkout-custom]');
+            const giftPeEl       = document.querySelector('[data-lg-gift-payment-element]');
+            const giftPayBt      = document.querySelector('[data-lg-gift-checkout-pay]');
+            const giftPayLabelEl = document.querySelector('[data-lg-gift-pay-label]');
+            const giftCustomErrorEl = document.querySelector('[data-lg-gift-checkout-error]');
             const qtyInput    = document.querySelector('input[name="quantity"]');
             const emailInput  = document.querySelector('input[name="email"]');
 
@@ -553,7 +586,9 @@ final class Shortcodes
             let bulkTiers      = [];
             let selectedRef    = null;
             let stripe         = null;
-            let mountedSession = null;
+            let mountedSession = null;     // embedded handle
+            let giftCustomCheckout = null; // custom handle
+            let giftPaymentElement = null;
 
             const dollars = (cents) => '$' + (cents / 100).toFixed(2);
             const dollarsRound = (cents) => '$' + Math.round(cents / 100);
@@ -783,11 +818,110 @@ final class Shortcodes
                 if (root) root.classList.remove('lg-gift--checkout-locked');
                 submitBtn.disabled = false;
             }
+            function showGiftCheckoutError(msg) {
+                if (!giftCustomErrorEl) return;
+                if (msg) {
+                    giftCustomErrorEl.textContent = msg;
+                    giftCustomErrorEl.hidden = false;
+                } else {
+                    giftCustomErrorEl.textContent = '';
+                    giftCustomErrorEl.hidden = true;
+                }
+            }
+
+            function teardownGiftMount() {
+                if (mountedSession) {
+                    try { mountedSession.destroy(); } catch (_) {}
+                    mountedSession = null;
+                }
+                if (giftPaymentElement) {
+                    try { giftPaymentElement.unmount(); } catch (_) {}
+                    giftPaymentElement = null;
+                }
+                giftCustomCheckout = null;
+                if (checkoutEl) checkoutEl.innerHTML = '';
+                if (giftPeEl) giftPeEl.innerHTML = '';
+                if (giftCustomEl) giftCustomEl.hidden = true;
+                if (checkoutEl) checkoutEl.hidden = false;
+                showGiftCheckoutError('');
+                if (giftPayBt) giftPayBt.disabled = true;
+            }
+
+            async function mountGiftEmbeddedCheckout(clientSecret) {
+                if (giftCustomEl) giftCustomEl.hidden = true;
+                if (checkoutEl) checkoutEl.hidden = false;
+                mountedSession = await stripe.initEmbeddedCheckout({
+                    clientSecret: clientSecret,
+                    onComplete: showProcessingOverlay,
+                });
+                mountedSession.mount(checkoutEl);
+            }
+
+            async function mountGiftCustomCheckout(clientSecret) {
+                if (checkoutEl) checkoutEl.hidden = true;
+                if (giftCustomEl) giftCustomEl.hidden = false;
+
+                giftCustomCheckout = await stripe.initCheckout({
+                    fetchClientSecret: async () => clientSecret,
+                });
+
+                giftCustomCheckout.on('change', (session) => {
+                    if (!giftPayBt) return;
+                    giftPayBt.disabled = !session.canConfirm;
+                    if (giftPayLabelEl) {
+                        const cents = session && session.total && session.total.total
+                            ? session.total.total.amount
+                            : null;
+                        if (typeof cents === 'number' && !isNaN(cents)) {
+                            giftPayLabelEl.textContent = 'Pay $' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
+                        } else {
+                            giftPayLabelEl.textContent = 'Pay';
+                        }
+                    }
+                });
+
+                giftPaymentElement = giftCustomCheckout.createPaymentElement();
+                giftPaymentElement.mount(giftPeEl);
+            }
+
+            async function onGiftPayClick() {
+                if (!giftCustomCheckout || !giftPayBt || giftPayBt.disabled) return;
+                showGiftCheckoutError('');
+
+                if (checkoutModal) checkoutModal.dataset.lgLocked = '1';
+                markPaymentInFlight();
+
+                const origLabel = giftPayLabelEl ? giftPayLabelEl.textContent : '';
+                if (giftPayLabelEl) giftPayLabelEl.textContent = 'Processing…';
+                giftPayBt.disabled = true;
+
+                try {
+                    const result = await giftCustomCheckout.confirm();
+                    if (result && result.error) {
+                        if (checkoutModal) delete checkoutModal.dataset.lgLocked;
+                        paymentInFlight = false;
+                        window.removeEventListener('beforeunload', preventNavWhileProcessing);
+                        showGiftCheckoutError(result.error.message || 'Payment failed. Please try again.');
+                        if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
+                        giftPayBt.disabled = false;
+                        return;
+                    }
+                    showProcessingOverlay();
+                } catch (err) {
+                    if (checkoutModal) delete checkoutModal.dataset.lgLocked;
+                    paymentInFlight = false;
+                    window.removeEventListener('beforeunload', preventNavWhileProcessing);
+                    showGiftCheckoutError('Network error: ' + (err && err.message ? err.message : err));
+                    if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
+                    giftPayBt.disabled = false;
+                }
+            }
+            if (giftPayBt) giftPayBt.addEventListener('click', onGiftPayClick);
+
             function closeCheckoutModal() {
                 if (checkoutModal) checkoutModal.hidden = true;
                 document.body.classList.remove('lg-modal-open');
-                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
-                if (checkoutEl) checkoutEl.innerHTML = '';
+                teardownGiftMount();
                 unlockCheckout();
                 recompute();
             }
@@ -940,16 +1074,6 @@ final class Shortcodes
                         stripe = Stripe(cfg.publishableKey);
                     }
 
-                    mountedSession = await stripe.initEmbeddedCheckout({
-                        clientSecret: sessData.clientSecret,
-                        onComplete: showProcessingOverlay,
-                    });
-
-                    // Show the modal BEFORE mounting — Stripes embedded iframe
-                    // wont initialize correctly inside a display:none container,
-                    // which is why the Setting up checkout spinner could get
-                    // stuck. The redirect overlay stays on top (max z-index)
-                    // until mount completes.
                     if (checkoutModal) checkoutModal.hidden = false;
                     document.body.classList.add('lg-modal-open');
 
@@ -961,15 +1085,20 @@ final class Shortcodes
                         }
                     }, 12000);
 
-                    mountedSession.mount(checkoutEl);
+                    const uiMode = sessData.ui_mode || 'embedded';
+                    if (uiMode === 'custom') {
+                        await mountGiftCustomCheckout(sessData.clientSecret);
+                    } else {
+                        await mountGiftEmbeddedCheckout(sessData.clientSecret);
+                    }
                     clearTimeout(watchdog);
 
-                    // Stripe is mounted — lock the modal closed. The X button is
-                    // hidden via CSS (data-lg-locked) and the backdrop becomes
-                    // non-clickable. The user must complete or wait for Stripe
-                    // to expire the session, eliminating the close-mid-charge bug.
-                    if (checkoutModal) checkoutModal.dataset.lgLocked = '1';
-                    markPaymentInFlight();
+                    // Custom mode: lock-at-Pay-click is wired in onGiftPayClick.
+                    // Embedded mode (fallback): lock at mount, same as before.
+                    if (uiMode !== 'custom') {
+                        if (checkoutModal) checkoutModal.dataset.lgLocked = '1';
+                        markPaymentInFlight();
+                    }
 
                     hideRedirectOverlaySoon();
                 } catch (err) {
