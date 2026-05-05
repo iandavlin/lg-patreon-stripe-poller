@@ -116,6 +116,12 @@ final class RestController
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
 
+        register_rest_route( self::NAMESPACE, '/me/invoices', [
+            'methods'             => 'GET',
+            'callback'            => [ self::class, 'meGetInvoices' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
         register_rest_route( self::NAMESPACE, '/send-gift-recipient', [
             'methods'             => 'POST',
             'callback'            => [ self::class, 'sendGiftRecipient' ],
@@ -976,6 +982,56 @@ final class RestController
             return new \WP_REST_Response( [ 'ok' => true, 'message' => 'Payment method removed.' ] );
         } catch ( \Throwable $e ) {
             return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not remove payment method. Please try again.' ], 500 );
+        }
+    }
+
+    /**
+     * GET /me/invoices
+     *
+     * Returns up to 24 recent invoices for the logged-in customer, newest
+     * first. Each row includes a billing period label so the customer can
+     * identify what each charge was for without decoding Stripe descriptions.
+     */
+    public static function meGetInvoices( \WP_REST_Request $req ): \WP_REST_Response
+    {
+        $user     = wp_get_current_user();
+        $customer = CustomerRepo::findByEmail( (string) $user->user_email );
+        if ( ! $customer || empty( $customer['stripe_customer_id'] ) ) {
+            return new \WP_REST_Response( [ 'ok' => true, 'invoices' => [] ] );
+        }
+        try {
+            $stripe   = new StripeClient();
+            $invoices = $stripe->listInvoices( (string) $customer['stripe_customer_id'] );
+            $result   = [];
+            foreach ( $invoices as $inv ) {
+                $lines = (array) ( $inv->lines->data ?? [] );
+                $line0 = $lines[0] ?? null;
+
+                // Build a human-readable period label ("Dec 1 – Jan 1") when
+                // available; fall back to the raw Stripe line description.
+                $desc = '';
+                if ( $line0 && isset( $line0->period->start, $line0->period->end ) && (int) $line0->period->start > 0 ) {
+                    $desc = date( 'M j', (int) $line0->period->start ) . ' – ' . date( 'M j', (int) $line0->period->end );
+                } elseif ( $line0 && isset( $line0->description ) ) {
+                    // Strip Stripe's "1 × " quantity prefix and " (at $X / mo)" suffix.
+                    $desc = preg_replace( '/^\d+ × /', '', (string) $line0->description ) ?? '';
+                    $desc = preg_replace( '/ \(at .+\)$/', '', $desc ) ?? $desc;
+                }
+
+                $result[] = [
+                    'id'          => (string) $inv->id,
+                    'date'        => date( 'Y-m-d', (int) ( $inv->created ?? 0 ) ),
+                    'amount'      => (int) ( $inv->amount_paid ?? $inv->total ?? 0 ),
+                    'currency'    => strtoupper( (string) ( $inv->currency ?? 'usd' ) ),
+                    'status'      => (string) ( $inv->status ?? '' ),
+                    'description' => $desc,
+                    'invoice_pdf' => (string) ( $inv->invoice_pdf ?? '' ),
+                    'hosted_url'  => (string) ( $inv->hosted_invoice_url ?? '' ),
+                ];
+            }
+            return new \WP_REST_Response( [ 'ok' => true, 'invoices' => $result ] );
+        } catch ( \Throwable $e ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not load billing history.' ], 500 );
         }
     }
 

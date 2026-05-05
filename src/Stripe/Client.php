@@ -85,6 +85,20 @@ final class Client
     }
 
     /**
+     * Recent invoices for a customer, newest first.
+     *
+     * @return list<object>
+     */
+    public function listInvoices(string $customerId, int $limit = 24): array
+    {
+        $resp = $this->sdk->invoices->all( [
+            'customer' => $customerId,
+            'limit'    => $limit,
+        ] );
+        return iterator_to_array( $resp->data ?? [] );
+    }
+
+    /**
      * Most-recent paid invoice for a subscription, or null if none paid yet.
      */
     public function latestPaidInvoiceForSubscription(string $subscriptionId): ?object

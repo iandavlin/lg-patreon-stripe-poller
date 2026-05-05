@@ -1561,6 +1561,7 @@ final class Shortcodes
         $setDefaultPmEndpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/me/set-default-payment-method' ) );
         $getPmsEndpoint       = esc_url_raw( rest_url( 'lg-member-sync/v1/me/payment-methods' ) );
         $deletePmEndpoint     = esc_url_raw( rest_url( 'lg-member-sync/v1/me/delete-payment-method' ) );
+        $getInvoicesEndpoint  = esc_url_raw( rest_url( 'lg-member-sync/v1/me/invoices' ) );
         $nonce               = wp_create_nonce( 'wp_rest' );
         $emailEsc            = esc_attr( $email );
 
@@ -1645,11 +1646,10 @@ final class Shortcodes
                 </button>
             </div>
 
-            <p style="margin-top:1.5em;color:#888;font-size:0.9em;">
-                Need to download invoices?
-                <a href="#" data-lg-portal>Open billing history &rarr;</a>
-                <span data-lg-portal-error style="color:#b00;margin-left:8px;"></span>
-            </p>
+            <div class="lg-billing-history" style="max-width:680px;margin-top:2em;padding-top:1.5em;border-top:1px solid #e0e0e0;">
+                <h3 style="font-size:1.05em;font-weight:700;margin:0 0 1em;color:var(--lg-ink,#292929);">Billing history</h3>
+                <div id="lg-billing-list" style="border-top:1px solid #f0f0f0;"></div>
+            </div>
         </div>
 
         <!-- Card update modal -->
@@ -1678,6 +1678,7 @@ final class Shortcodes
             const SET_DEFAULT_PM = '<?php echo esc_js( $setDefaultPmEndpoint ); ?>';
             const GET_PMS        = '<?php echo esc_js( $getPmsEndpoint ); ?>';
             const DELETE_PM      = '<?php echo esc_js( $deletePmEndpoint ); ?>';
+            const GET_INVOICES   = '<?php echo esc_js( $getInvoicesEndpoint ); ?>';
             const NONCE          = <?php echo wp_json_encode( $nonce ); ?>;
             const EMAIL          = <?php echo wp_json_encode( $email ); ?>;
 
@@ -1877,6 +1878,69 @@ final class Shortcodes
             }
 
             loadAndRenderPms();
+
+            // ── Billing history ──────────────────────────────────────────
+            function fmtMoney(cents, currency) {
+                try {
+                    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
+                } catch (e) {
+                    return '$' + (cents / 100).toFixed(2);
+                }
+            }
+            function fmtInvDate(dateStr) {
+                const d = new Date(dateStr + 'T12:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+            function invStatusBadge(status) {
+                const map = {
+                    paid:           { bg: '#e8f7ec', color: '#1a5d2c', border: '#c1e6cc', label: 'Paid' },
+                    open:           { bg: '#fef3c7', color: '#92400e', border: '#fcd34d', label: 'Open' },
+                    void:           { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db', label: 'Void' },
+                    uncollectible:  { bg: '#fde8e8', color: '#8a1c1c', border: '#f5b3b3', label: 'Failed' },
+                    draft:          { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db', label: 'Draft' },
+                };
+                const s = map[status] || { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db', label: status };
+                return `<span style="display:inline-block;flex-shrink:0;font-size:0.72em;font-weight:600;padding:0.15em 0.6em;border-radius:999px;background:${s.bg};color:${s.color};border:1px solid ${s.border};white-space:nowrap;">${s.label}</span>`;
+            }
+            function renderInvoices(invoices) {
+                const list = document.getElementById('lg-billing-list');
+                if (!list) return;
+                if (!invoices.length) {
+                    list.innerHTML = '<p style="padding:1.2em;color:#5b6066;font-size:0.92em;text-align:center;border:1px dashed #ddd;border-radius:8px;margin:0;">No billing history yet.</p>';
+                    return;
+                }
+                const rowS  = 'display:flex;align-items:center;gap:0.75em;padding:0.65em 0;border-bottom:1px solid #f0f0f0;';
+                const dateS = 'flex-shrink:0;width:6.5em;font-size:0.87em;color:#5b6066;';
+                const descS = 'flex:1;min-width:0;font-size:0.92em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                const amtS  = 'flex-shrink:0;font-weight:600;font-size:0.92em;';
+                const pdfS  = 'flex-shrink:0;font-size:0.85em;color:#0066c0;text-decoration:none;white-space:nowrap;';
+                list.innerHTML = invoices.map(inv => {
+                    const pdf = inv.invoice_pdf
+                        ? `<a href="${inv.invoice_pdf}" target="_blank" rel="noopener" style="${pdfS}">PDF ↓</a>`
+                        : '';
+                    return `<div style="${rowS}">
+                        <span style="${dateS}">${fmtInvDate(inv.date)}</span>
+                        <span style="${descS}" title="${inv.description}">${inv.description || '—'}</span>
+                        <span style="${amtS}">${fmtMoney(inv.amount, inv.currency)}</span>
+                        ${invStatusBadge(inv.status)}
+                        ${pdf}
+                    </div>`;
+                }).join('');
+            }
+            async function loadAndRenderInvoices() {
+                const list = document.getElementById('lg-billing-list');
+                if (!list) return;
+                list.innerHTML = '<p style="padding:0.5em 0;color:#5b6066;font-size:0.92em;font-style:italic;">Loading…</p>';
+                try {
+                    const res  = await fetch(GET_INVOICES, { headers: { 'X-WP-Nonce': NONCE } });
+                    const data = await res.json();
+                    renderInvoices(data.ok ? (data.invoices || []) : []);
+                    if (!data.ok) list.innerHTML = `<p style="color:#8a1c1c;font-size:0.92em;">${data.error || 'Could not load billing history.'}</p>`;
+                } catch (err) {
+                    list.innerHTML = '<p style="color:#8a1c1c;font-size:0.92em;">Could not load billing history.</p>';
+                }
+            }
+            loadAndRenderInvoices();
 
             let products = null;
 
