@@ -911,8 +911,11 @@ final class Shortcodes
             }
 
             async function mountGiftCustomCheckout(clientSecret) {
+                // Same pattern as join: keep custom block hidden behind the
+                // processing overlay until paymentElement is 'ready'.
                 if (checkoutEl) checkoutEl.hidden = true;
-                if (giftCustomEl) giftCustomEl.hidden = false;
+                if (giftCustomEl) giftCustomEl.hidden = true;
+                if (giftModalProcessingEl) giftModalProcessingEl.hidden = false;
 
                 giftCustomCheckout = await stripe.initCheckout({
                     fetchClientSecret: async () => clientSecret,
@@ -939,6 +942,10 @@ final class Shortcodes
                 });
 
                 giftPaymentElement = giftCustomCheckout.createPaymentElement();
+                giftPaymentElement.on('ready', () => {
+                    if (giftCustomEl) giftCustomEl.hidden = false;
+                    if (giftModalProcessingEl) giftModalProcessingEl.hidden = true;
+                });
                 giftPaymentElement.mount(giftPeEl);
             }
 
@@ -2776,9 +2783,14 @@ final class Shortcodes
             }
 
             async function mountCustomCheckout(clientSecret) {
+                // Open the modal with the processing overlay covering everything.
+                // Keep the custom block hidden until paymentElement fires 'ready'
+                // — otherwise the Pay button shows a beat before the card form,
+                // which reads as broken/half-loaded.
                 if (checkoutEl) checkoutEl.hidden = true;
-                if (customEl) customEl.hidden = false;
+                if (customEl) customEl.hidden = true;
                 if (joinCheckoutModal) joinCheckoutModal.hidden = false;
+                if (modalProcessingEl) modalProcessingEl.hidden = false;
                 document.body.classList.add('lg-modal-open');
 
                 customCheckout = await stripe.initCheckout({
@@ -2801,6 +2813,12 @@ final class Shortcodes
                 });
 
                 paymentElement = customCheckout.createPaymentElement();
+                paymentElement.on('ready', () => {
+                    // Element rendered → reveal the form + button together,
+                    // then drop the processing overlay.
+                    if (customEl) customEl.hidden = false;
+                    if (modalProcessingEl) modalProcessingEl.hidden = true;
+                });
                 paymentElement.mount(peEl);
             }
 
