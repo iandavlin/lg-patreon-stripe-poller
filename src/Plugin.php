@@ -149,6 +149,8 @@ final class Plugin
 
         // Admin screens.
         if ( is_admin() ) {
+            add_action( 'admin_notices', [ self::class, 'renderDisputeNotices' ] );
+            add_action( 'admin_init',    [ self::class, 'handleDisputeDismiss' ] );
             Admin::boot();
             Wp\UserProfile::boot();
         }
@@ -420,6 +422,70 @@ final class Plugin
      * once per upgrade event. Cheap on the common case — bails before
      * doing any work if the meta isn't set.
      */
+    /**
+     * Render a dismissible red admin notice for each open chargeback dispute.
+     * Only visible to administrators. Persists until explicitly dismissed.
+     */
+    public static function renderDisputeNotices(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        $alerts = (array) get_option( 'lgms_dispute_alerts', [] );
+        if ( $alerts === [] ) {
+            return;
+        }
+        foreach ( $alerts as $disputeId => $alert ) {
+            $nonce      = wp_create_nonce( 'lgms_dismiss_dispute_' . $disputeId );
+            $dismissUrl = esc_url( add_query_arg( [
+                'lgms_dismiss_dispute' => $disputeId,
+                '_lgms_nonce'          => $nonce,
+            ] ) );
+            $amtLabel   = '$' . number_format( (int) ( $alert['amount'] ?? 0 ) / 100, 2 ) . ' ' . esc_html( (string) ( $alert['currency'] ?? '' ) );
+            $email      = esc_html( (string) ( $alert['customer_email'] ?? 'unknown' ) );
+            $date       = esc_html( (string) ( $alert['created_at'] ?? '' ) );
+            $stripeUrl  = esc_url( (string) ( $alert['stripe_url'] ?? '' ) );
+            ?>
+            <div class="notice notice-error" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5em;padding:0.8em 1em;">
+                <p style="margin:0;">
+                    <strong>⚠ Chargeback filed:</strong>
+                    <?php echo $amtLabel; ?> from <?php echo $email; ?> on <?php echo $date; ?>.
+                    <?php if ( $stripeUrl !== '' ) : ?>
+                        <a href="<?php echo $stripeUrl; ?>" target="_blank" rel="noopener" style="margin-left:0.5em;">View in Stripe &rarr;</a>
+                    <?php endif; ?>
+                    <span style="color:#888;font-size:0.85em;margin-left:0.75em;">Access not auto-revoked — review and decide.</span>
+                </p>
+                <a href="<?php echo $dismissUrl; ?>" class="button button-secondary" style="flex-shrink:0;">Dismiss</a>
+            </div>
+            <?php
+        }
+    }
+
+    /**
+     * Handle the dismiss-dispute GET action. Nonce-verified, admin-only.
+     * Removes the alert from the stored array and redirects to clean the URL.
+     */
+    public static function handleDisputeDismiss(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        $disputeId = sanitize_text_field( (string) ( $_GET['lgms_dismiss_dispute'] ?? '' ) );
+        if ( $disputeId === '' ) {
+            return;
+        }
+        $nonce = (string) ( $_GET['_lgms_nonce'] ?? '' );
+        if ( ! wp_verify_nonce( $nonce, 'lgms_dismiss_dispute_' . $disputeId ) ) {
+            return;
+        }
+        $alerts = (array) get_option( 'lgms_dispute_alerts', [] );
+        unset( $alerts[ $disputeId ] );
+        update_option( 'lgms_dispute_alerts', $alerts, false );
+
+        wp_safe_redirect( remove_query_arg( [ 'lgms_dismiss_dispute', '_lgms_nonce' ] ) );
+        exit;
+    }
+
     public static function maybePrintWelcomeModal(): void
     {
         if ( ! is_user_logged_in() ) {

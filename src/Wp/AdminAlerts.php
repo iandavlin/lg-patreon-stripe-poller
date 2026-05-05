@@ -10,6 +10,45 @@ namespace LGMS\Wp;
  */
 final class AdminAlerts
 {
+    /**
+     * Email the admin when Stripe fires charge.dispute.created (chargeback).
+     * Best-effort; never throws.
+     */
+    public static function sendDisputeAlert(
+        string $chargeId,
+        string $disputeId,
+        ?array $customer,
+        int $amountCents,
+        string $currency
+    ): void {
+        try {
+            $to = (string) get_option( 'lgms_refund_email', '' );
+            if ( $to === '' ) { $to = (string) get_option( 'admin_email' ); }
+            if ( $to === '' ) { return; }
+
+            $site     = (string) get_bloginfo( 'name' );
+            $key      = (string) get_option( 'lgms_stripe_secret_key', '' );
+            $mode     = strpos( $key, 'sk_test_' ) === 0 ? '/test' : '';
+            $dispUrl  = 'https://dashboard.stripe.com' . $mode . '/disputes/' . rawurlencode( $disputeId );
+            $amtLabel = '$' . number_format( $amountCents / 100, 2 ) . ' ' . $currency;
+
+            $who = $customer
+                ? 'Customer #' . (int) $customer['id'] . ' &lt;' . esc_html( (string) $customer['email'] ) . '&gt;'
+                : '(unknown — Stripe charge: ' . esc_html( $chargeId ) . ')';
+
+            $html  = '<p><strong>A chargeback has been filed against ' . esc_html( $site ) . '.</strong></p>';
+            $html .= '<p><strong>Amount:</strong> ' . esc_html( $amtLabel ) . '<br>';
+            $html .= '<strong>Customer:</strong> ' . $who . '<br>';
+            $html .= '<strong>Dispute ID:</strong> <a href="' . esc_url( $dispUrl ) . '">' . esc_html( $disputeId ) . '</a></p>';
+            $html .= '<p>The customer\'s access has <strong>not</strong> been automatically revoked. Review in Stripe, then revoke access from the WP admin user profile if appropriate.</p>';
+            $html .= '<p><a href="' . esc_url( $dispUrl ) . '">View dispute in Stripe &rarr;</a></p>';
+
+            wp_mail( $to, "[{$site}] Chargeback filed — {$amtLabel}", $html, [ 'Content-Type: text/html; charset=UTF-8' ] );
+        } catch ( \Throwable $_ ) {
+            // Swallow — alert is best-effort.
+        }
+    }
+
     public static function sendFailureAlert( string $action, array $context, \Throwable $error ): void
     {
         try {

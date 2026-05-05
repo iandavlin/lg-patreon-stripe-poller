@@ -9,6 +9,7 @@ use LGMS\Repos\EntitlementRepo;
 use LGMS\Repos\GiftCodeRepo;
 use LGMS\Repos\ProductRepo;
 use LGMS\Repos\SubscriptionRepo;
+use LGMS\Wp\AdminAlerts;
 use Throwable;
 
 /**
@@ -40,6 +41,7 @@ final class EventHandler
                 'customer.subscription.deleted' => $this->onSubscriptionDeleted( $object ),
                 'invoice.payment_failed'        => $this->onPaymentFailed( $object ),
                 'charge.refunded'               => $this->onChargeRefunded( $object ),
+                'charge.dispute.created'        => $this->onChargeDisputed( $object ),
                 default                         => "skip {$type}",
             };
         } catch ( Throwable $e ) {
@@ -303,5 +305,78 @@ final class EventHandler
         }
 
         return "charge.refunded: voided {$vCount} unredeemed gift code(s)" . ( $rCount > 0 ? ", flagged {$rCount} redeemed for admin review" : '' );
+    }
+
+    /**
+     * Handle charge.dispute.created (chargeback).
+     *
+     * Policy: flag the customer for manual admin review, send an alert email,
+     * post a dismissible notice in the WP admin dashboard. Access is NOT
+     * automatically revoked — the admin decides after reviewing the dispute.
+     *
+     * Gift path: void unredeemed codes immediately (purchase fraudulent);
+     * already-redeemed codes are flagged for admin review but recipient
+     * access is not touched (the recipient is a third party).
+     */
+    private function onChargeDisputed( ?object $charge ): string
+    {
+        $chargeId         = (string) ( $charge->id ?? '' );
+        $stripeCustomerId = (string) ( $charge->customer ?? '' );
+        $disputeId        = (string) ( $charge->dispute ?? $chargeId );
+        $amountCents      = (int) ( $charge->amount ?? 0 );
+        $currency         = strtoupper( (string) ( $charge->currency ?? 'usd' ) );
+
+        $customer = $stripeCustomerId !== '' ? CustomerRepo::findByStripeCustomerId( $stripeCustomerId ) : null;
+
+        // Store a persistent WP admin notice so the banner shows until dismissed.
+        $key      = (string) get_option( 'lgms_stripe_secret_key', '' );
+        $mode     = strpos( $key, 'sk_test_' ) === 0 ? '/test' : '';
+        $alerts   = (array) get_option( 'lgms_dispute_alerts', [] );
+        $alerts[ $disputeId ] = [
+            'dispute_id'     => $disputeId,
+            'charge_id'      => $chargeId,
+            'customer_id'    => $customer ? (int) $customer['id'] : null,
+            'customer_email' => $customer ? (string) $customer['email'] : $stripeCustomerId,
+            'amount'         => $amountCents,
+            'currency'       => $currency,
+            'created_at'     => gmdate( 'Y-m-d H:i:s' ),
+            'stripe_url'     => 'https://dashboard.stripe.com' . $mode . '/disputes/' . rawurlencode( $disputeId ),
+        ];
+        update_option( 'lgms_dispute_alerts', $alerts, false );
+
+        // Admin email alert.
+        AdminAlerts::sendDisputeAlert( $chargeId, $disputeId, $customer, $amountCents, $currency );
+
+        // Gift / one-time path: void unredeemed codes, flag redeemed ones.
+        $giftNote = '';
+        $invoiceId = (string) ( $charge->invoice ?? '' );
+        if ( $invoiceId === '' ) {
+            $paymentIntentId = (string) ( $charge->payment_intent ?? '' );
+            if ( $paymentIntentId !== '' ) {
+                try {
+                    $sessions = $this->stripe->listSessionsByPaymentIntent( $paymentIntentId );
+                    if ( $sessions !== [] ) {
+                        $sessionId = (string) ( $sessions[0]->id ?? '' );
+                        if ( $sessionId !== '' ) {
+                            $result = GiftCodeRepo::voidByStripeSessionId( $sessionId );
+                            $vCount = count( $result['voided'] );
+                            $rCount = count( $result['already_redeemed'] );
+                            if ( $rCount > 0 ) {
+                                error_log( sprintf(
+                                    'LGMS DISPUTE-REVIEW: redeemed gift codes on disputed charge=%s session=%s ids=[%s] — admin must decide on revocation.',
+                                    $chargeId, $sessionId, implode( ',', $result['already_redeemed'] )
+                                ) );
+                            }
+                            $giftNote = "; voided {$vCount} unredeemed gift code(s)" . ( $rCount > 0 ? ", flagged {$rCount} redeemed for review" : '' );
+                        }
+                    }
+                } catch ( Throwable $e ) {
+                    $giftNote = '; gift code lookup failed: ' . $e->getMessage();
+                }
+            }
+        }
+
+        $who = $customer ? "customer {$customer['id']} ({$customer['email']})" : "unknown ({$stripeCustomerId})";
+        return "charge.dispute.created: flagged {$who} for manual review{$giftNote}";
     }
 }
