@@ -933,13 +933,13 @@ final class Shortcodes
                         ? '$' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
                         : '';
                     if (giftPayLabelEl) giftPayLabelEl.textContent = formatted ? 'Pay ' + formatted : 'Pay';
-                    if (giftPayAmountEl) giftPayAmountEl.textContent = formatted || ' ';
+                    if (giftPayAmountEl) { giftPayAmountEl.textContent = formatted; giftPayAmountEl.hidden = !formatted; }
                     const tier  = selectedTier();
                     const qty   = Math.max(1, parseInt(qtyInput.value, 10) || 1);
                     if (giftPaySublabelEl) {
-                        giftPaySublabelEl.textContent = tier
-                            ? (tier.name + ' · ' + qty + (qty === 1 ? ' gift' : ' gifts'))
-                            : ' ';
+                        const giftSub = tier ? (tier.name + " · " + qty + (qty === 1 ? " gift" : " gifts")) : "";
+                        giftPaySublabelEl.textContent = giftSub;
+                        giftPaySublabelEl.hidden = !giftSub;
                     }
                 });
 
@@ -2812,8 +2812,8 @@ final class Shortcodes
                         ? '$' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
                         : '';
                     if (payLabelEl) payLabelEl.textContent = formatted ? 'Pay ' + formatted : 'Pay';
-                    if (payAmountEl) payAmountEl.textContent = formatted || ' ';
-                    if (paySublabelEl) paySublabelEl.textContent = pendingLabel || ' ';
+                    if (payAmountEl) { payAmountEl.textContent = formatted; payAmountEl.hidden = !formatted; }
+                    if (paySublabelEl) { paySublabelEl.textContent = pendingLabel || ""; paySublabelEl.hidden = !pendingLabel; }
                 });
 
                 paymentElement = customCheckout.createPaymentElement();
