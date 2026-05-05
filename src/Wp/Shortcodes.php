@@ -1788,7 +1788,22 @@ final class Shortcodes
                 <div class="lg-join-co-modal__backdrop" data-lg-join-checkout-close></div>
                 <div class="lg-join-co-modal__card">
                     <button type="button" class="lg-join-co-modal__close" data-lg-join-checkout-close aria-label="Close checkout">&times;</button>
+
+                    <!-- Embedded path (one-time + regional setup): Stripe owns the iframe + Pay button. -->
                     <div class="lg-join-co-modal__body" data-lg-join-checkout></div>
+
+                    <!-- Custom path (subscription): we mount Stripe Elements ourselves and render our own Pay button. -->
+                    <div class="lg-join-co-modal__custom" data-lg-join-checkout-custom hidden>
+                        <div class="lg-join-co-modal__pe" data-lg-join-payment-element></div>
+                        <div class="lg-join-co-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
+                        <button type="button" class="lg-join-co-modal__pay" data-lg-join-checkout-pay disabled>
+                            <span data-lg-pay-label>Pay</span>
+                        </button>
+                        <p class="lg-join-co-modal__secured">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l3 5h6l-5 4 2 7-6-4-6 4 2-7-5-4h6z"/></svg>
+                            Secured by Stripe
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -1862,7 +1877,25 @@ final class Shortcodes
                 .lg-join-co-modal__close { position: absolute; top: .55em; right: .55em; width: 2.1em; height: 2.1em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.4em; line-height: 1; cursor: pointer; color: #333; z-index: 2; box-shadow: 0 3px 8px rgba(0,0,0,0.18); display: flex; align-items: center; justify-content: center; }
                 .lg-join-co-modal__close:hover { color: #000; background: #f3f3f3; }
                 .lg-join-co-modal__body { flex: 1; min-height: 0; overflow: auto; padding: 0; }
+                .lg-join-co-modal__body[hidden] { display: none !important; }
                 .lg-join-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
+                /* Custom UI mode (subscription path): we mount Stripe Elements ourselves. */
+                .lg-join-co-modal__custom { flex: 1; min-height: 0; overflow: auto; padding: 1.6em 1.4em 1.4em; display: flex; flex-direction: column; gap: 1em; background: #fff; }
+                .lg-join-co-modal__custom[hidden] { display: none !important; }
+                .lg-join-co-modal__pe { background: #fff; }
+                .lg-join-co-modal__error { color: #b91c1c; font-size: .92em; line-height: 1.4; padding: .6em .8em; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; }
+                .lg-join-co-modal__error[hidden] { display: none !important; }
+                .lg-join-co-modal__pay {
+                    width: 100%; padding: .9em 1em; font-size: 1.05em; font-weight: 700;
+                    background: var(--lg-amber, #ECB351); color: #1f1d1a;
+                    border: none; border-radius: 10px; cursor: pointer;
+                    box-shadow: 0 4px 14px rgba(236, 179, 81, 0.45);
+                    transition: opacity .15s, transform .05s;
+                }
+                .lg-join-co-modal__pay:hover:not(:disabled) { opacity: .92; }
+                .lg-join-co-modal__pay:active:not(:disabled) { transform: translateY(1px); }
+                .lg-join-co-modal__pay:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+                .lg-join-co-modal__secured { margin: 0; text-align: center; font-size: .82em; color: #6b6b6b; display: inline-flex; align-items: center; justify-content: center; gap: .35em; }
                 @media (max-width: 700px) {
                     .lg-join-co-modal { padding: 0 !important; }
                     .lg-join-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
@@ -2020,6 +2053,11 @@ final class Shortcodes
             const continueBt = document.querySelector('[data-lg-continue]');
             const backBt     = document.querySelector('[data-lg-back]');
             const checkoutEl = document.querySelector('[data-lg-join-checkout]');
+            const customEl   = document.querySelector('[data-lg-join-checkout-custom]');
+            const peEl       = document.querySelector('[data-lg-join-payment-element]');
+            const payBt      = document.querySelector('[data-lg-join-checkout-pay]');
+            const payLabelEl = document.querySelector('[data-lg-pay-label]');
+            const customErrorEl = document.querySelector('[data-lg-join-checkout-error]');
             const errorEl    = document.querySelector('[data-lg-join-error]');
             // Existing-account modal — fired when /gift-auth says incorrect
             // password for an email that already has a WP user. Push the
@@ -2094,7 +2132,9 @@ final class Shortcodes
             if (emailConfirmInput) emailConfirmInput.addEventListener('input', checkEmailMatch);
 
             let stripe         = null;
-            let mountedSession = null;
+            let mountedSession = null;     // embedded mode handle (one-time + regional)
+            let customCheckout = null;     // custom mode handle (subscription)
+            let paymentElement = null;
             let pendingPriceId = null;
             let pendingLabel   = '';
 
@@ -2242,7 +2282,7 @@ final class Shortcodes
                 formHeadEl.textContent = 'Continue to ' + prod.name + ' — ' + pendingLabel.replace(/^Subscribe\s*—\s*|^Pay once\s*—\s*/, '');
                 formEl.hidden = false;
                 // If checkout was already mounted (user clicked again), tear it down.
-                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; checkoutEl.innerHTML = ''; }
+                teardownCheckoutMount();
                 if (!opts.silent) {
                     formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     // Auto-focus email if blank (anon user); otherwise focus continue button.
@@ -2323,8 +2363,7 @@ final class Shortcodes
                     continueBt.textContent = origAuth;
                 }
 
-                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
-                checkoutEl.innerHTML = '';
+                teardownCheckoutMount();
                 continueBt.disabled = true;
                 const orig = continueBt.textContent;
                 continueBt.textContent = 'Loading…';
@@ -2365,25 +2404,12 @@ final class Shortcodes
                         stripe = Stripe(cfg.publishableKey);
                     }
 
-                    mountedSession = await stripe.initEmbeddedCheckout({
-                        clientSecret: sessData.clientSecret,
-                        onComplete: showJoinProcessingOverlay,
-                    });
-
-                    // Open the modal BEFORE mounting so Stripes iframe has
-                    // real dimensions to lay out against. (Hidden parents
-                    // sometimes leave the embed at 0x0 and never recover.)
-                    if (joinCheckoutModal) joinCheckoutModal.hidden = false;
-                    document.body.classList.add('lg-modal-open');
-
-                    mountedSession.mount(checkoutEl);
-
-                    // Mount alone no longer locks the modal — felt like a trap
-                    // (X vanished the moment Stripe rendered, even before the
-                    // user touched anything). Lockdown now triggers from
-                    // showJoinProcessingOverlay() instead, which Stripe fires
-                    // via onComplete only AFTER they hit Pay and the charge
-                    // succeeds. Until then, the X and backdrop work normally.
+                    const uiMode = sessData.ui_mode || 'embedded';
+                    if (uiMode === 'custom') {
+                        await mountCustomCheckout(sessData.clientSecret);
+                    } else {
+                        await mountEmbeddedCheckout(sessData.clientSecret);
+                    }
                 } catch (err) {
                     showError('Network error: ' + err.message);
                 } finally {
@@ -2439,11 +2465,118 @@ final class Shortcodes
             if (joinCheckoutModal && joinCheckoutModal.parentNode !== document.body) {
                 document.body.appendChild(joinCheckoutModal);
             }
+
+            function showCheckoutError(msg) {
+                if (!customErrorEl) return;
+                if (msg) {
+                    customErrorEl.textContent = msg;
+                    customErrorEl.hidden = false;
+                } else {
+                    customErrorEl.textContent = '';
+                    customErrorEl.hidden = true;
+                }
+            }
+
+            function teardownCheckoutMount() {
+                if (mountedSession) {
+                    try { mountedSession.destroy(); } catch (_) {}
+                    mountedSession = null;
+                }
+                if (paymentElement) {
+                    try { paymentElement.unmount(); } catch (_) {}
+                    paymentElement = null;
+                }
+                customCheckout = null;
+                if (checkoutEl) checkoutEl.innerHTML = '';
+                if (peEl) peEl.innerHTML = '';
+                if (customEl) customEl.hidden = true;
+                if (checkoutEl) checkoutEl.hidden = false;
+                showCheckoutError('');
+                if (payBt) payBt.disabled = true;
+            }
+
+            async function mountEmbeddedCheckout(clientSecret) {
+                if (customEl) customEl.hidden = true;
+                if (checkoutEl) checkoutEl.hidden = false;
+                mountedSession = await stripe.initEmbeddedCheckout({
+                    clientSecret: clientSecret,
+                    onComplete: showJoinProcessingOverlay,
+                });
+                // Open the modal BEFORE mounting so Stripe's iframe has
+                // real dimensions to lay out against.
+                if (joinCheckoutModal) joinCheckoutModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+                mountedSession.mount(checkoutEl);
+            }
+
+            async function mountCustomCheckout(clientSecret) {
+                if (checkoutEl) checkoutEl.hidden = true;
+                if (customEl) customEl.hidden = false;
+                if (joinCheckoutModal) joinCheckoutModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+
+                customCheckout = await stripe.initCheckout({ clientSecret: clientSecret });
+
+                // Reflect Stripe's "ready to confirm" state into the Pay button.
+                customCheckout.on('change', (session) => {
+                    if (!payBt) return;
+                    payBt.disabled = !session.canConfirm;
+                    if (payLabelEl && session.total && session.total.total) {
+                        const cents = session.total.total.amount;
+                        payLabelEl.textContent = 'Pay $' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
+                    }
+                });
+
+                paymentElement = customCheckout.createPaymentElement();
+                paymentElement.mount(peEl);
+            }
+
+            async function onPayClick() {
+                if (!customCheckout || !payBt || payBt.disabled) return;
+                showCheckoutError('');
+
+                // Lock the modal BEFORE confirm: the X / backdrop become
+                // inert so a panic-click can't tear down the iframe-equivalent
+                // mid-charge. This is the whole reason we moved to custom UI
+                // mode — embedded mode hid this exact moment.
+                if (joinCheckoutModal) joinCheckoutModal.dataset.lgLocked = '1';
+                markJoinPaymentInFlight();
+
+                const origLabel = payLabelEl ? payLabelEl.textContent : '';
+                if (payLabelEl) payLabelEl.textContent = 'Processing…';
+                payBt.disabled = true;
+
+                try {
+                    const result = await customCheckout.confirm();
+                    if (result && result.error) {
+                        // Re-open the escape hatches so the customer can fix
+                        // the error and retry, or back out cleanly.
+                        if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
+                        joinPaymentInFlight = false;
+                        window.removeEventListener('beforeunload', preventJoinNavWhileProcessing);
+                        showCheckoutError(result.error.message || 'Payment failed. Please try again.');
+                        if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
+                        payBt.disabled = false;
+                        return;
+                    }
+                    // Success → Stripe is redirecting to return_url. Show the
+                    // processing overlay so the page doesn't look frozen mid-redirect.
+                    showJoinProcessingOverlay();
+                } catch (err) {
+                    if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
+                    joinPaymentInFlight = false;
+                    window.removeEventListener('beforeunload', preventJoinNavWhileProcessing);
+                    showCheckoutError('Network error: ' + (err && err.message ? err.message : err));
+                    if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
+                    payBt.disabled = false;
+                }
+            }
+            if (payBt) payBt.addEventListener('click', onPayClick);
+
             function closeJoinCheckoutModal() {
                 if (joinCheckoutModal) joinCheckoutModal.hidden = true;
                 document.body.classList.remove('lg-modal-open');
-                if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; }
-                if (checkoutEl) checkoutEl.innerHTML = '';
+                teardownCheckoutMount();
             }
 
             // Two-stage close protection (see gift flow above for full rationale).
