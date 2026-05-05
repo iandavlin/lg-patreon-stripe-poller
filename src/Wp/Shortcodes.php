@@ -1964,7 +1964,11 @@ final class Shortcodes
             <div class="lg-join__error" data-lg-join-error aria-live="polite"></div>
         </div>
 
-        <script src="https://js.stripe.com/v3/"></script>
+        <!-- Basil release of Stripe.js — required for stripe.initCheckout()
+             (custom UI mode for subscription path). The Stripe SDK
+             API-version pin on the Slim side must match. Other shortcodes
+             stay on /v3/ since they only use embedded checkout. -->
+        <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
