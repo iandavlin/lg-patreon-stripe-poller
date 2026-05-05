@@ -92,6 +92,18 @@ final class RestController
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
 
+        register_rest_route( self::NAMESPACE, '/me/create-setup-intent', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meCreateSetupIntent' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/me/set-default-payment-method', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meSetDefaultPaymentMethod' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
         register_rest_route( self::NAMESPACE, '/send-gift-recipient', [
             'methods'             => 'POST',
             'callback'            => [ self::class, 'sendGiftRecipient' ],
@@ -849,6 +861,48 @@ final class RestController
             self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, false, $e->getMessage() );
             AdminAlerts::sendFailureAlert( 'self-switch-plan', [ 'sub_id' => $subId, 'customer_id' => $owner['customer_id'], 'new_price_id' => $newPriceId, 'timing' => $timing ], $e );
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Could not switch plans right now. Our team has been notified -- please email us if this persists.' ], 500 );
+        }
+    }
+
+    public static function meCreateSetupIntent( \WP_REST_Request $req ): \WP_REST_Response
+    {
+        $user     = wp_get_current_user();
+        $customer = CustomerRepo::findByEmail( (string) $user->user_email );
+        if ( ! $customer || empty( $customer['stripe_customer_id'] ) ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'No billing record found for your account.' ], 404 );
+        }
+        try {
+            $stripe = new StripeClient();
+            $si     = $stripe->createSetupIntent( [
+                'customer'                => (string) $customer['stripe_customer_id'],
+                'usage'                   => 'off_session',
+                'automatic_payment_methods' => [ 'enabled' => true, 'allow_redirects' => 'never' ],
+            ] );
+            return new \WP_REST_Response( [ 'ok' => true, 'client_secret' => (string) $si->client_secret ] );
+        } catch ( \Throwable $e ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not start card update. Please try again.' ], 500 );
+        }
+    }
+
+    public static function meSetDefaultPaymentMethod( \WP_REST_Request $req ): \WP_REST_Response
+    {
+        $user  = wp_get_current_user();
+        $pmId  = (string) ( $req->get_json_params()['payment_method_id'] ?? '' );
+        if ( $pmId === '' ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Missing payment_method_id.' ], 400 );
+        }
+        $customer = CustomerRepo::findByEmail( (string) $user->user_email );
+        if ( ! $customer || empty( $customer['stripe_customer_id'] ) ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'No billing record found.' ], 404 );
+        }
+        try {
+            $stripe = new StripeClient();
+            $stripe->updateCustomer( (string) $customer['stripe_customer_id'], [
+                'invoice_settings' => [ 'default_payment_method' => $pmId ],
+            ] );
+            return new \WP_REST_Response( [ 'ok' => true, 'message' => 'Your payment method has been updated.' ] );
+        } catch ( \Throwable $e ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not save payment method. Please try again.' ], 500 );
         }
     }
 

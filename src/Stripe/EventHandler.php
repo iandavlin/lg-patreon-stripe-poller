@@ -206,8 +206,23 @@ final class EventHandler
 
     private function onPaymentFailed(?object $invoice): string
     {
-        $cid = (string) ( $invoice->customer ?? '' );
-        return "invoice.payment_failed: customer {$cid} (no role change — past_due retains access)";
+        $cid      = (string) ( $invoice->customer ?? '' );
+        $customer = $cid !== '' ? CustomerRepo::findByStripeCustomerId( $cid ) : null;
+
+        if ( $customer ) {
+            $email    = (string) $customer['email'];
+            $name     = trim( (string) ( $customer['name'] ?? '' ) );
+            $greeting = $name !== '' ? "Hi {$name}," : 'Hi,';
+            $siteName = (string) get_bloginfo( 'name' );
+            $updateUrl = home_url( '/manage-subscription/' );
+
+            $subject = "Action needed: payment failed for your {$siteName} membership";
+            $body    = "{$greeting}\n\nWe weren't able to process your payment for your {$siteName} membership. Your access is still active while we retry, but please update your payment method to avoid any interruption:\n\n{$updateUrl}\n\nIf you need help, just reply to this email.\n\n— The {$siteName} Team";
+
+            wp_mail( $email, $subject, $body );
+        }
+
+        return "invoice.payment_failed: customer {$cid} — email sent, past_due retains access";
     }
 
     /**

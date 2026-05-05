@@ -1552,12 +1552,15 @@ final class Shortcodes
             $subs = [];
         }
 
-        $portalEndpoint  = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/portal' );
-        $productsUrl     = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/products' );
-        $cancelEndpoint  = esc_url_raw( rest_url( 'lg-member-sync/v1/me/cancel-subscription' ) );
-        $switchEndpoint  = esc_url_raw( rest_url( 'lg-member-sync/v1/me/switch-plan' ) );
-        $nonce           = wp_create_nonce( 'wp_rest' );
-        $emailEsc        = esc_attr( $email );
+        $portalEndpoint      = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/portal' );
+        $productsUrl         = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/products' );
+        $configUrl           = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/config' );
+        $cancelEndpoint      = esc_url_raw( rest_url( 'lg-member-sync/v1/me/cancel-subscription' ) );
+        $switchEndpoint      = esc_url_raw( rest_url( 'lg-member-sync/v1/me/switch-plan' ) );
+        $setupIntentEndpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/me/create-setup-intent' ) );
+        $setDefaultPmEndpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/me/set-default-payment-method' ) );
+        $nonce               = wp_create_nonce( 'wp_rest' );
+        $emailEsc            = esc_attr( $email );
 
         ob_start();
         ?>
@@ -1590,12 +1593,19 @@ final class Shortcodes
                         <?php endif; ?>
                     </p>
 
+                    <?php if ( (string) $sub['status'] === 'past_due' ) : ?>
+                        <div style="margin-top:0.8em;padding:0.7em 1em;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;color:#856404;font-size:0.92em;">
+                            <strong>Payment failed.</strong> Your access is still active while we retry. Please <button type="button" data-lg-action="update-card" style="background:none;border:none;padding:0;color:#856404;text-decoration:underline;cursor:pointer;font-size:inherit;">update your card</button> to avoid any interruption.
+                        </div>
+                    <?php endif; ?>
+
                     <div class="lg-manage-sub__actions" style="margin-top:1em;">
                         <button type="button" class="lg-manage-sub__btn" data-lg-action="switch" data-lg-sub="<?php echo esc_attr( $subId ); ?>" data-lg-current-price="<?php echo esc_attr( (string) $sub['stripe_price_id'] ); ?>">Change plan</button>
+                        <button type="button" class="lg-manage-sub__btn" data-lg-action="update-card">Update card</button>
                         <?php if ( ! $cape ) : ?>
-                            <button type="button" class="lg-manage-sub__btn" data-lg-action="cancel" data-lg-sub="<?php echo esc_attr( $subId ); ?>" style="margin-left:8px;">Cancel subscription</button>
+                            <button type="button" class="lg-manage-sub__btn" data-lg-action="cancel" data-lg-sub="<?php echo esc_attr( $subId ); ?>">Cancel subscription</button>
                         <?php else : ?>
-                            <em style="margin-left:8px;color:#666;">Already scheduled for cancellation.</em>
+                            <em style="color:#666;">Already scheduled for cancellation.</em>
                         <?php endif; ?>
                     </div>
 
@@ -1630,14 +1640,129 @@ final class Shortcodes
             </p>
         </div>
 
+        <!-- Card update modal -->
+        <div class="lg-pay-modal" id="lg-card-update-modal" hidden>
+            <div class="lg-pay-modal__backdrop"></div>
+            <div class="lg-pay-modal__card">
+                <button class="lg-pay-modal__close" id="lg-card-modal-close">&times;</button>
+                <div class="lg-pay-modal__custom">
+                    <h3 style="margin:0 0 0.5em;font-size:1.1em;">Update payment method</h3>
+                    <div id="lg-card-pe"></div>
+                    <div id="lg-card-error" class="lg-stripe-modal__error" hidden></div>
+                    <button type="button" id="lg-card-save" class="lg-stripe-modal__pay" style="margin-top:1em;">Save card</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
-            const PORTAL  = '<?php echo esc_js( $portalEndpoint ); ?>';
-            const PROD    = '<?php echo esc_js( $productsUrl ); ?>';
-            const CANCEL  = '<?php echo esc_js( $cancelEndpoint ); ?>';
-            const SWITCH  = '<?php echo esc_js( $switchEndpoint ); ?>';
-            const NONCE   = <?php echo wp_json_encode( $nonce ); ?>;
-            const EMAIL   = <?php echo wp_json_encode( $email ); ?>;
+            const PORTAL       = '<?php echo esc_js( $portalEndpoint ); ?>';
+            const PROD         = '<?php echo esc_js( $productsUrl ); ?>';
+            const CONFIG       = '<?php echo esc_js( $configUrl ); ?>';
+            const CANCEL       = '<?php echo esc_js( $cancelEndpoint ); ?>';
+            const SWITCH       = '<?php echo esc_js( $switchEndpoint ); ?>';
+            const SETUP_INTENT = '<?php echo esc_js( $setupIntentEndpoint ); ?>';
+            const SET_DEFAULT_PM = '<?php echo esc_js( $setDefaultPmEndpoint ); ?>';
+            const NONCE        = <?php echo wp_json_encode( $nonce ); ?>;
+            const EMAIL        = <?php echo wp_json_encode( $email ); ?>;
+
+            let stripe = null, cardElements = null;
+
+            async function getStripe() {
+                if (stripe) return stripe;
+                const cfg = await (await fetch(CONFIG)).json();
+                if (!cfg.publishableKey) throw new Error('Stripe not configured.');
+                stripe = Stripe(cfg.publishableKey);
+                return stripe;
+            }
+
+            // Card update modal
+            const cardModal   = document.getElementById('lg-card-update-modal');
+            const cardClose   = document.getElementById('lg-card-modal-close');
+            const cardPeEl    = document.getElementById('lg-card-pe');
+            const cardErrEl   = document.getElementById('lg-card-error');
+            const cardSaveBtn = document.getElementById('lg-card-save');
+
+            function showCardError(msg) {
+                cardErrEl.textContent = msg;
+                cardErrEl.hidden = false;
+            }
+            function clearCardError() { cardErrEl.hidden = true; cardErrEl.textContent = ''; }
+
+            async function openCardModal() {
+                clearCardError();
+                cardPeEl.innerHTML = '<p style="color:#888;font-size:0.9em;">Loading…</p>';
+                cardModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+                cardSaveBtn.disabled = true;
+
+                try {
+                    const s = await getStripe();
+
+                    // Create SetupIntent on server.
+                    const { status: siStatus, body: siBody } = await postJson(SETUP_INTENT, {});
+                    if (!siBody.ok) { showCardError(siBody.error || 'Could not start card update.'); return; }
+
+                    cardElements = s.elements({ clientSecret: siBody.client_secret, appearance: { theme: 'stripe' } });
+                    const pe = cardElements.create('payment');
+                    cardPeEl.innerHTML = '';
+                    pe.mount(cardPeEl);
+                    pe.on('ready', () => { cardSaveBtn.disabled = false; });
+                    pe.on('change', (e) => { if (e.complete) clearCardError(); });
+                } catch (err) {
+                    showCardError('Could not load card form: ' + err.message);
+                }
+            }
+
+            function closeCardModal() {
+                cardModal.hidden = true;
+                document.body.classList.remove('lg-modal-open');
+                if (cardElements) { cardElements = null; cardPeEl.innerHTML = ''; }
+                cardSaveBtn.disabled = true;
+                clearCardError();
+            }
+
+            if (cardClose) cardClose.addEventListener('click', closeCardModal);
+            cardModal?.querySelector('.lg-pay-modal__backdrop')?.addEventListener('click', closeCardModal);
+
+            document.querySelectorAll('[data-lg-action="update-card"]').forEach(function(btn) {
+                btn.addEventListener('click', openCardModal);
+            });
+
+            cardSaveBtn?.addEventListener('click', async function() {
+                clearCardError();
+                cardSaveBtn.disabled = true;
+                cardSaveBtn.textContent = 'Saving…';
+                try {
+                    const s = await getStripe();
+                    const { setupIntent, error } = await s.confirmSetup({
+                        elements: cardElements,
+                        confirmParams: {},
+                        redirect: 'if_required',
+                    });
+                    if (error) { showCardError(error.message); cardSaveBtn.disabled = false; cardSaveBtn.textContent = 'Save card'; return; }
+
+                    // Set the new PM as default on the customer.
+                    const pmId = typeof setupIntent.payment_method === 'string'
+                        ? setupIntent.payment_method
+                        : (setupIntent.payment_method?.id || '');
+                    const { body } = await postJson(SET_DEFAULT_PM, { payment_method_id: pmId });
+                    if (!body.ok) { showCardError(body.error || 'Card saved but could not set as default. Contact support.'); cardSaveBtn.disabled = false; cardSaveBtn.textContent = 'Save card'; return; }
+
+                    closeCardModal();
+                    // Show a subtle success notice near the top of the manage-sub block.
+                    const notice = document.createElement('p');
+                    notice.style.cssText = 'padding:0.6em 1em;background:#e8f7ec;border:1px solid #c1e6cc;border-radius:4px;color:#1a5d2c;margin-bottom:1em;';
+                    notice.textContent = 'Payment method updated successfully.';
+                    document.querySelector('.lg-manage-sub')?.prepend(notice);
+                    setTimeout(() => notice.remove(), 6000);
+                } catch (err) {
+                    showCardError('Network error: ' + err.message);
+                    cardSaveBtn.disabled = false;
+                    cardSaveBtn.textContent = 'Save card';
+                }
+            });
 
             let products = null;
 

@@ -112,4 +112,14 @@ final class Client
     {
         return $this->sdk->subscriptionSchedules->update( $id, $params );
     }
+
+    public function createSetupIntent(array $params): object
+    {
+        return $this->sdk->setupIntents->create( $params );
+    }
+
+    public function updateCustomer(string $id, array $params): object
+    {
+        return $this->sdk->customers->update( $id, $params );
+    }
 }
