@@ -206,10 +206,15 @@ final class Shortcodes
                         <div class="lg-co-modal__body" data-lg-gift-checkout></div>
 
                         <!-- Custom path (Basil): we mount Stripe Elements + render our own Pay button. -->
-                        <div class="lg-co-modal__custom" data-lg-gift-checkout-custom hidden>
-                            <div class="lg-co-modal__pe" data-lg-gift-payment-element></div>
-                            <div class="lg-co-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
-                            <button type="button" class="lg-co-modal__pay" data-lg-gift-checkout-pay disabled>
+                        <div class="lg-co-modal__custom lg-stripe-modal" data-lg-gift-checkout-custom hidden>
+                            <div class="lg-stripe-modal__header">
+                                <div class="lg-stripe-modal__heading">Complete your purchase</div>
+                                <div class="lg-stripe-modal__amount" data-lg-gift-pay-amount>&nbsp;</div>
+                                <div class="lg-stripe-modal__sublabel" data-lg-gift-pay-sublabel>&nbsp;</div>
+                            </div>
+                            <div class="lg-co-modal__pe lg-stripe-modal__pe" data-lg-gift-payment-element></div>
+                            <div class="lg-co-modal__error lg-stripe-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
+                            <button type="button" class="lg-co-modal__pay lg-stripe-modal__pay" data-lg-gift-checkout-pay disabled>
                                 <span data-lg-gift-pay-label>Pay</span>
                             </button>
                             <p class="lg-co-modal__secured">
@@ -470,6 +475,42 @@ final class Shortcodes
             .lg-co-modal__pay:hover:not(:disabled) { opacity: .92 !important; }
             .lg-co-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
             .lg-co-modal__pay:disabled { opacity: .55 !important; cursor: not-allowed !important; box-shadow: none !important; }
+
+            /* ─── Stripe-flavored Pay modal (shared with join) ──────────────
+               Hardened against Elementor button-color overrides. */
+            .lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
+            .lg-stripe-modal__header { padding: 0 0 1em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1.2em !important; text-align: center !important; }
+            .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin-bottom: .35em !important; }
+            .lg-stripe-modal__amount { font-size: 2em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.1 !important; letter-spacing: -.01em !important; }
+            .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .3em !important; }
+            .lg-stripe-modal__pe { background: #fff !important; }
+            .lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
+            .lg-stripe-modal__error[hidden] { display: none !important; }
+            .lg-stripe-modal__pay,
+            button.lg-stripe-modal__pay,
+            button[type="button"].lg-stripe-modal__pay {
+                width: 100% !important;
+                padding: .95em 1em !important;
+                font-size: 1em !important;
+                font-weight: 600 !important;
+                font-family: inherit !important;
+                background: #635BFF !important;
+                background-color: #635BFF !important;
+                color: #fff !important;
+                border: 0 !important;
+                border-radius: 6px !important;
+                cursor: pointer !important;
+                box-shadow: 0 1px 2px rgba(50,50,93,0.10), 0 1px 1px rgba(0,0,0,0.07) !important;
+                transition: background-color .15s, box-shadow .15s, transform .05s !important;
+                text-shadow: none !important;
+                letter-spacing: 0 !important;
+                text-transform: none !important;
+            }
+            .lg-stripe-modal__pay:hover:not(:disabled),
+            button.lg-stripe-modal__pay:hover:not(:disabled) { background: #5851ea !important; background-color: #5851ea !important; box-shadow: 0 4px 12px rgba(99,91,255,0.35) !important; color: #fff !important; }
+            .lg-stripe-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
+            .lg-stripe-modal__pay:disabled,
+            button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; background-color: #c7c4ff !important; color: #fff !important; cursor: not-allowed !important; box-shadow: none !important; opacity: 1 !important; }
             .lg-co-modal__secured { margin: .4em 0 0 !important; text-align: center !important; font-size: .78em !important; color: #6b6b6b !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: .4em !important; }
             .lg-co-modal__secured-lock { color: #6b6b6b !important; flex-shrink: 0 !important; }
             .lg-co-modal__secured-mark { display: block !important; }
@@ -589,6 +630,8 @@ final class Shortcodes
             const giftPayLabelEl = document.querySelector('[data-lg-gift-pay-label]');
             const giftCustomErrorEl = document.querySelector('[data-lg-gift-checkout-error]');
             const giftModalProcessingEl = document.querySelector('[data-lg-gift-modal-processing]');
+            const giftPayAmountEl   = document.querySelector('[data-lg-gift-pay-amount]');
+            const giftPaySublabelEl = document.querySelector('[data-lg-gift-pay-sublabel]');
             const qtyInput    = document.querySelector('input[name="quantity"]');
             const emailInput  = document.querySelector('input[name="email"]');
 
@@ -878,15 +921,20 @@ final class Shortcodes
                 giftCustomCheckout.on('change', (session) => {
                     if (!giftPayBt) return;
                     giftPayBt.disabled = !session.canConfirm;
-                    if (giftPayLabelEl) {
-                        const cents = session && session.total && session.total.total
-                            ? session.total.total.amount
-                            : null;
-                        if (typeof cents === 'number' && !isNaN(cents)) {
-                            giftPayLabelEl.textContent = 'Pay $' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
-                        } else {
-                            giftPayLabelEl.textContent = 'Pay';
-                        }
+                    const cents = session && session.total && session.total.total
+                        ? session.total.total.amount
+                        : null;
+                    const formatted = (typeof cents === 'number' && !isNaN(cents))
+                        ? '$' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
+                        : '';
+                    if (giftPayLabelEl) giftPayLabelEl.textContent = formatted ? 'Pay ' + formatted : 'Pay';
+                    if (giftPayAmountEl) giftPayAmountEl.textContent = formatted || ' ';
+                    const tier  = selectedTier();
+                    const qty   = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+                    if (giftPaySublabelEl) {
+                        giftPaySublabelEl.textContent = tier
+                            ? (tier.name + ' · ' + qty + (qty === 1 ? ' gift' : ' gifts'))
+                            : ' ';
                     }
                 });
 
@@ -1954,10 +2002,15 @@ final class Shortcodes
                     </div>
 
                     <!-- Custom path (subscription): we mount Stripe Elements ourselves and render our own Pay button. -->
-                    <div class="lg-join-co-modal__custom" data-lg-join-checkout-custom hidden>
-                        <div class="lg-join-co-modal__pe" data-lg-join-payment-element></div>
-                        <div class="lg-join-co-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
-                        <button type="button" class="lg-join-co-modal__pay" data-lg-join-checkout-pay disabled>
+                    <div class="lg-join-co-modal__custom lg-stripe-modal" data-lg-join-checkout-custom hidden>
+                        <div class="lg-stripe-modal__header">
+                            <div class="lg-stripe-modal__heading">Complete your purchase</div>
+                            <div class="lg-stripe-modal__amount" data-lg-pay-amount>&nbsp;</div>
+                            <div class="lg-stripe-modal__sublabel" data-lg-pay-sublabel>&nbsp;</div>
+                        </div>
+                        <div class="lg-join-co-modal__pe lg-stripe-modal__pe" data-lg-join-payment-element></div>
+                        <div class="lg-join-co-modal__error lg-stripe-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
+                        <button type="button" class="lg-join-co-modal__pay lg-stripe-modal__pay" data-lg-join-checkout-pay disabled>
                             <span data-lg-pay-label>Pay</span>
                         </button>
                         <p class="lg-join-co-modal__secured">
@@ -2063,6 +2116,42 @@ final class Shortcodes
                 .lg-modal-processing__spinner { width: 64px; height: 64px; border: 5px solid rgba(0,0,0,0.08); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-pay-spin 0.85s linear infinite; }
                 .lg-modal-processing__label { margin: 0; font-size: 1em; font-weight: 600; color: #1f1d1a; }
                 @keyframes lg-pay-spin { to { transform: rotate(360deg); } }
+
+                /* ─── Stripe-flavored Pay modal (shared with gift) ──────────────
+                   Heavy !important to beat Elementor's button color overrides. */
+                .lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
+                .lg-stripe-modal__header { padding: 0 0 1em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1.2em !important; text-align: center !important; }
+                .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin-bottom: .35em !important; }
+                .lg-stripe-modal__amount { font-size: 2em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.1 !important; letter-spacing: -.01em !important; }
+                .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .3em !important; }
+                .lg-stripe-modal__pe { background: #fff !important; }
+                .lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
+                .lg-stripe-modal__error[hidden] { display: none !important; }
+                .lg-stripe-modal__pay,
+                button.lg-stripe-modal__pay,
+                button[type="button"].lg-stripe-modal__pay {
+                    width: 100% !important;
+                    padding: .95em 1em !important;
+                    font-size: 1em !important;
+                    font-weight: 600 !important;
+                    font-family: inherit !important;
+                    background: #635BFF !important;
+                    background-color: #635BFF !important;
+                    color: #fff !important;
+                    border: 0 !important;
+                    border-radius: 6px !important;
+                    cursor: pointer !important;
+                    box-shadow: 0 1px 2px rgba(50,50,93,0.10), 0 1px 1px rgba(0,0,0,0.07) !important;
+                    transition: background-color .15s, box-shadow .15s, transform .05s !important;
+                    text-shadow: none !important;
+                    letter-spacing: 0 !important;
+                    text-transform: none !important;
+                }
+                .lg-stripe-modal__pay:hover:not(:disabled),
+                button.lg-stripe-modal__pay:hover:not(:disabled) { background: #5851ea !important; background-color: #5851ea !important; box-shadow: 0 4px 12px rgba(99,91,255,0.35) !important; color: #fff !important; }
+                .lg-stripe-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
+                .lg-stripe-modal__pay:disabled,
+                button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; background-color: #c7c4ff !important; color: #fff !important; cursor: not-allowed !important; box-shadow: none !important; opacity: 1 !important; }
                 .lg-join-co-modal__secured { margin: .4em 0 0; text-align: center; font-size: .78em; color: #6b6b6b; display: flex; align-items: center; justify-content: center; gap: .4em; }
                 .lg-join-co-modal__secured-lock { color: #6b6b6b; flex-shrink: 0; }
                 .lg-join-co-modal__secured-mark { display: block; }
@@ -2233,6 +2322,8 @@ final class Shortcodes
             const payLabelEl = document.querySelector('[data-lg-pay-label]');
             const customErrorEl = document.querySelector('[data-lg-join-checkout-error]');
             const modalProcessingEl = document.querySelector('[data-lg-join-modal-processing]');
+            const payAmountEl   = document.querySelector('[data-lg-pay-amount]');
+            const paySublabelEl = document.querySelector('[data-lg-pay-sublabel]');
             const errorEl    = document.querySelector('[data-lg-join-error]');
             // Existing-account modal — fired when /gift-auth says incorrect
             // password for an email that already has a WP user. Push the
@@ -2698,16 +2789,15 @@ final class Shortcodes
                 customCheckout.on('change', (session) => {
                     if (!payBt) return;
                     payBt.disabled = !session.canConfirm;
-                    if (payLabelEl) {
-                        const cents = session && session.total && session.total.total
-                            ? session.total.total.amount
-                            : null;
-                        if (typeof cents === 'number' && !isNaN(cents)) {
-                            payLabelEl.textContent = 'Pay $' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
-                        } else {
-                            payLabelEl.textContent = 'Pay';
-                        }
-                    }
+                    const cents = session && session.total && session.total.total
+                        ? session.total.total.amount
+                        : null;
+                    const formatted = (typeof cents === 'number' && !isNaN(cents))
+                        ? '$' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
+                        : '';
+                    if (payLabelEl) payLabelEl.textContent = formatted ? 'Pay ' + formatted : 'Pay';
+                    if (payAmountEl) payAmountEl.textContent = formatted || ' ';
+                    if (paySublabelEl) paySublabelEl.textContent = pendingLabel || ' ';
                 });
 
                 paymentElement = customCheckout.createPaymentElement();
