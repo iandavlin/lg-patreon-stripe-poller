@@ -196,6 +196,12 @@ final class Shortcodes
                     <div class="lg-co-modal__card">
                         <button type="button" class="lg-co-modal__close" data-lg-checkout-close aria-label="Close checkout">&times;</button>
 
+                        <!-- In-modal processing overlay: shown while confirm() runs. -->
+                        <div class="lg-modal-processing" data-lg-gift-modal-processing hidden aria-hidden="true">
+                            <div class="lg-modal-processing__spinner" aria-hidden="true"></div>
+                            <p class="lg-modal-processing__label">Processing payment&hellip;</p>
+                        </div>
+
                         <!-- Embedded path: kept for fallback if server returns ui_mode=embedded. -->
                         <div class="lg-co-modal__body" data-lg-gift-checkout></div>
 
@@ -204,7 +210,6 @@ final class Shortcodes
                             <div class="lg-co-modal__pe" data-lg-gift-payment-element></div>
                             <div class="lg-co-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
                             <button type="button" class="lg-co-modal__pay" data-lg-gift-checkout-pay disabled>
-                                <span class="lg-co-modal__pay-spinner" data-lg-gift-pay-spinner aria-hidden="true" hidden></span>
                                 <span data-lg-gift-pay-label>Pay</span>
                             </button>
                             <p class="lg-co-modal__secured">
@@ -465,10 +470,6 @@ final class Shortcodes
             .lg-co-modal__pay:hover:not(:disabled) { opacity: .92 !important; }
             .lg-co-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
             .lg-co-modal__pay:disabled { opacity: .55 !important; cursor: not-allowed !important; box-shadow: none !important; }
-            .lg-co-modal__pay { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: .55em !important; }
-            .lg-co-modal__pay-spinner { width: 1.05em !important; height: 1.05em !important; border: 2.5px solid rgba(31,29,26,0.25) !important; border-top-color: #1f1d1a !important; border-radius: 50% !important; animation: lg-pay-spin 0.7s linear infinite !important; display: inline-block !important; }
-            .lg-co-modal__pay-spinner[hidden] { display: none !important; }
-            @keyframes lg-pay-spin { to { transform: rotate(360deg); } }
             .lg-co-modal__secured { margin: .4em 0 0 !important; text-align: center !important; font-size: .78em !important; color: #6b6b6b !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: .4em !important; }
             .lg-co-modal__secured-lock { color: #6b6b6b !important; flex-shrink: 0 !important; }
             .lg-co-modal__secured-mark { display: block !important; }
@@ -587,7 +588,7 @@ final class Shortcodes
             const giftPayBt      = document.querySelector('[data-lg-gift-checkout-pay]');
             const giftPayLabelEl = document.querySelector('[data-lg-gift-pay-label]');
             const giftCustomErrorEl = document.querySelector('[data-lg-gift-checkout-error]');
-            const giftPaySpinnerEl  = document.querySelector('[data-lg-gift-pay-spinner]');
+            const giftModalProcessingEl = document.querySelector('[data-lg-gift-modal-processing]');
             const qtyInput    = document.querySelector('input[name="quantity"]');
             const emailInput  = document.querySelector('input[name="email"]');
 
@@ -900,17 +901,16 @@ final class Shortcodes
                 if (checkoutModal) checkoutModal.dataset.lgLocked = '1';
 
                 const origLabel = giftPayLabelEl ? giftPayLabelEl.textContent : '';
-                if (giftPayLabelEl) giftPayLabelEl.textContent = 'Processing…';
-                if (giftPaySpinnerEl) giftPaySpinnerEl.hidden = false;
                 giftPayBt.disabled = true;
+                if (giftModalProcessingEl) giftModalProcessingEl.hidden = false;
 
                 try {
                     const result = await giftCustomCheckout.confirm();
                     if (result && result.error) {
                         if (checkoutModal) delete checkoutModal.dataset.lgLocked;
+                        if (giftModalProcessingEl) giftModalProcessingEl.hidden = true;
                         showGiftCheckoutError(result.error.message || 'Payment failed. Please try again.');
                         if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
-                        if (giftPaySpinnerEl) giftPaySpinnerEl.hidden = true;
                         giftPayBt.disabled = false;
                         return;
                     }
@@ -934,9 +934,9 @@ final class Shortcodes
                     window.location.href = returnUrl;
                 } catch (err) {
                     if (checkoutModal) delete checkoutModal.dataset.lgLocked;
+                    if (giftModalProcessingEl) giftModalProcessingEl.hidden = true;
                     showGiftCheckoutError('Network error: ' + (err && err.message ? err.message : err));
                     if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
-                    if (giftPaySpinnerEl) giftPaySpinnerEl.hidden = true;
                     giftPayBt.disabled = false;
                 }
             }
@@ -1945,12 +1945,19 @@ final class Shortcodes
                     <!-- Embedded path (one-time + regional setup): Stripe owns the iframe + Pay button. -->
                     <div class="lg-join-co-modal__body" data-lg-join-checkout></div>
 
+                    <!-- In-modal processing overlay: covers the whole card while
+                         confirm() runs so the user sees an unmistakable "we're
+                         working on it" state instead of a frozen-looking form. -->
+                    <div class="lg-modal-processing" data-lg-join-modal-processing hidden aria-hidden="true">
+                        <div class="lg-modal-processing__spinner" aria-hidden="true"></div>
+                        <p class="lg-modal-processing__label">Processing payment&hellip;</p>
+                    </div>
+
                     <!-- Custom path (subscription): we mount Stripe Elements ourselves and render our own Pay button. -->
                     <div class="lg-join-co-modal__custom" data-lg-join-checkout-custom hidden>
                         <div class="lg-join-co-modal__pe" data-lg-join-payment-element></div>
                         <div class="lg-join-co-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
                         <button type="button" class="lg-join-co-modal__pay" data-lg-join-checkout-pay disabled>
-                            <span class="lg-co-modal__pay-spinner" data-lg-pay-spinner aria-hidden="true" hidden></span>
                             <span data-lg-pay-label>Pay</span>
                         </button>
                         <p class="lg-join-co-modal__secured">
@@ -2050,9 +2057,11 @@ final class Shortcodes
                 .lg-join-co-modal__pay:hover:not(:disabled) { opacity: .92; }
                 .lg-join-co-modal__pay:active:not(:disabled) { transform: translateY(1px); }
                 .lg-join-co-modal__pay:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
-                .lg-join-co-modal__pay { display: inline-flex; align-items: center; justify-content: center; gap: .55em; }
-                .lg-co-modal__pay-spinner { width: 1.05em; height: 1.05em; border: 2.5px solid rgba(31,29,26,0.25); border-top-color: #1f1d1a; border-radius: 50%; animation: lg-pay-spin 0.7s linear infinite; display: inline-block; }
-                .lg-co-modal__pay-spinner[hidden] { display: none; }
+                /* Shared in-modal processing overlay (also used by gift modal). */
+                .lg-modal-processing { position: absolute; inset: 0; z-index: 5; background: rgba(255,255,255,0.96); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1em; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+                .lg-modal-processing[hidden] { display: none; }
+                .lg-modal-processing__spinner { width: 64px; height: 64px; border: 5px solid rgba(0,0,0,0.08); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-pay-spin 0.85s linear infinite; }
+                .lg-modal-processing__label { margin: 0; font-size: 1em; font-weight: 600; color: #1f1d1a; }
                 @keyframes lg-pay-spin { to { transform: rotate(360deg); } }
                 .lg-join-co-modal__secured { margin: .4em 0 0; text-align: center; font-size: .78em; color: #6b6b6b; display: flex; align-items: center; justify-content: center; gap: .4em; }
                 .lg-join-co-modal__secured-lock { color: #6b6b6b; flex-shrink: 0; }
@@ -2223,7 +2232,7 @@ final class Shortcodes
             const payBt      = document.querySelector('[data-lg-join-checkout-pay]');
             const payLabelEl = document.querySelector('[data-lg-pay-label]');
             const customErrorEl = document.querySelector('[data-lg-join-checkout-error]');
-            const paySpinnerEl  = document.querySelector('[data-lg-pay-spinner]');
+            const modalProcessingEl = document.querySelector('[data-lg-join-modal-processing]');
             const errorEl    = document.querySelector('[data-lg-join-error]');
             // Existing-account modal — fired when /gift-auth says incorrect
             // password for an email that already has a WP user. Push the
@@ -2714,9 +2723,8 @@ final class Shortcodes
                 if (joinCheckoutModal) joinCheckoutModal.dataset.lgLocked = '1';
 
                 const origLabel = payLabelEl ? payLabelEl.textContent : '';
-                if (payLabelEl) payLabelEl.textContent = 'Processing…';
-                if (paySpinnerEl) paySpinnerEl.hidden = false;
                 payBt.disabled = true;
+                if (modalProcessingEl) modalProcessingEl.hidden = false;
 
                 try {
                     const result = await customCheckout.confirm();
@@ -2724,9 +2732,9 @@ final class Shortcodes
                         // Re-open the escape hatches so the customer can fix
                         // the error and retry, or back out cleanly.
                         if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
+                        if (modalProcessingEl) modalProcessingEl.hidden = true;
                         showCheckoutError(result.error.message || 'Payment failed. Please try again.');
                         if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
-                        if (paySpinnerEl) paySpinnerEl.hidden = true;
                         payBt.disabled = false;
                         return;
                     }
@@ -2754,9 +2762,9 @@ final class Shortcodes
                     window.location.href = returnUrl;
                 } catch (err) {
                     if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
+                    if (modalProcessingEl) modalProcessingEl.hidden = true;
                     showCheckoutError('Network error: ' + (err && err.message ? err.message : err));
                     if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
-                    if (paySpinnerEl) paySpinnerEl.hidden = true;
                     payBt.disabled = false;
                 }
             }
