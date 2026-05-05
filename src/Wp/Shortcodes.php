@@ -479,10 +479,12 @@ final class Shortcodes
             /* ─── Stripe-flavored Pay modal (shared with join) ──────────────
                Hardened against Elementor button-color overrides. */
             .lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
-            .lg-stripe-modal__header { padding: 0 0 1em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1.2em !important; text-align: center !important; }
-            .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin-bottom: .35em !important; }
-            .lg-stripe-modal__amount { font-size: 2em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.1 !important; letter-spacing: -.01em !important; }
-            .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .3em !important; }
+            .lg-stripe-modal__header { padding: 0 0 .85em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1em !important; text-align: center !important; }
+            .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin: 0 !important; }
+            .lg-stripe-modal__amount { font-size: 1.8em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.15 !important; letter-spacing: -.01em !important; margin-top: .35em !important; }
+            .lg-stripe-modal__amount[hidden],
+            .lg-stripe-modal__sublabel[hidden] { display: none !important; }
+            .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .15em !important; }
             .lg-stripe-modal__pe { background: #fff !important; }
             .lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
             .lg-stripe-modal__error[hidden] { display: none !important; }
@@ -2127,10 +2129,12 @@ final class Shortcodes
                 /* ─── Stripe-flavored Pay modal (shared with gift) ──────────────
                    Heavy !important to beat Elementor's button color overrides. */
                 .lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
-                .lg-stripe-modal__header { padding: 0 0 1em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1.2em !important; text-align: center !important; }
-                .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin-bottom: .35em !important; }
-                .lg-stripe-modal__amount { font-size: 2em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.1 !important; letter-spacing: -.01em !important; }
-                .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .3em !important; }
+                .lg-stripe-modal__header { padding: 0 0 .85em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1em !important; text-align: center !important; }
+                .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin: 0 !important; }
+                .lg-stripe-modal__amount { font-size: 1.8em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.15 !important; letter-spacing: -.01em !important; margin-top: .35em !important; }
+                .lg-stripe-modal__amount[hidden],
+                .lg-stripe-modal__sublabel[hidden] { display: none !important; }
+                .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .15em !important; }
                 .lg-stripe-modal__pe { background: #fff !important; }
                 .lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
                 .lg-stripe-modal__error[hidden] { display: none !important; }

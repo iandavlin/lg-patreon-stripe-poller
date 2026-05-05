@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'LGPO_VERSION', '2.3.1' );
+define( 'LGPO_VERSION', '2.3.2' );
 define( 'LGPO_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'LGPO_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
