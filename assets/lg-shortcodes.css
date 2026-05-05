@@ -685,18 +685,17 @@ button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; backgroun
 
 /* "We accept" badge row — trust signal under the checkout CTA. */
 .lg-pay-methods { margin: 1.2em auto 0; max-width: 640px; text-align: center; }
-.lg-pay-methods__label { display: block; font-size: .8em; font-weight: 500; color: #6b7280; letter-spacing: .04em; text-transform: uppercase; margin-bottom: .55em; }
-.lg-pay-methods__list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .45em; justify-content: center; align-items: center; }
-.lg-pm { display: inline-flex; align-items: center; justify-content: center; height: 28px; min-width: 44px; padding: 0 .5em; border-radius: 5px; background: #fff; border: 1px solid rgba(0,0,0,0.10); box-shadow: 0 1px 2px rgba(0,0,0,0.05); box-sizing: border-box; }
-.lg-pm svg { display: block; height: 16px; width: auto; }
+.lg-pay-methods__label { display: block; font-size: .85em; font-weight: 500; color: #6b7280; letter-spacing: .04em; text-transform: uppercase; margin-bottom: .7em; }
+.lg-pay-methods__list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .65em; justify-content: stretch; align-items: stretch; }
+.lg-pm { flex: 1 1 0; min-width: 90px; display: inline-flex; align-items: center; justify-content: center; height: 50px; padding: 0 .9em; border-radius: 8px; background: #fff; border: 1px solid rgba(0,0,0,0.10); box-shadow: 0 1px 3px rgba(0,0,0,0.06); box-sizing: border-box; }
+.lg-pm svg { display: block; height: 28px; width: auto; max-width: 100%; }
 .lg-pm--visa { background: #1A1F71; border-color: #1A1F71; }
 .lg-pm--mc { background: #fff; }
 .lg-pm--amex { background: #006FCF; border-color: #006FCF; }
 .lg-pm--apple { background: #000; border-color: #000; }
 .lg-pm--google { background: #fff; }
-.lg-pm--paypal { background: #fff; }
-.lg-pm--link { background: #00D66F; border-color: #00D66F; }
-@media (max-width: 480px) {
-    .lg-pm { height: 24px; min-width: 38px; }
-    .lg-pm svg { height: 13px; }
+@media (max-width: 600px) {
+    .lg-pay-methods__list { gap: .45em; }
+    .lg-pm { height: 42px; min-width: 60px; padding: 0 .55em; }
+    .lg-pm svg { height: 22px; }
 }
