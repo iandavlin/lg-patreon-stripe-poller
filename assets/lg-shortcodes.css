@@ -697,110 +697,84 @@ button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; backgroun
     margin: 0 0 1em;
     color: var(--lg-ink);
 }
-.lg-pm-wallet__list {
-    display: flex;
-    flex-direction: column;
-}
-.lg-pm-wallet__item {
-    display: flex;
-    align-items: center;
-    gap: 1em;
-    padding: 1em 1.2em;
-    border: 1px solid #e0e0e0;
-    border-bottom: none;
-    background: #fff;
-    transition: background 0.1s;
-}
-.lg-pm-wallet__item:first-child { border-radius: 8px 8px 0 0; }
-.lg-pm-wallet__item:last-child  { border-bottom: 1px solid #e0e0e0; border-radius: 0 0 8px 8px; }
-.lg-pm-wallet__item:only-child  { border-bottom: 1px solid #e0e0e0; border-radius: 8px; }
-.lg-pm-wallet__item--default    { background: #fafff6; }
+/* Layout uses inline styles in JS to beat theme overrides; CSS classes
+   provide the color/typography layer only. */
+.lg-pm-wallet__brand--visa       { color: #1a1f71!important; font-style: italic; }
+.lg-pm-wallet__brand--mastercard { color: #eb001b!important; }
+.lg-pm-wallet__brand--amex       { color: #006fcf!important; }
+.lg-pm-wallet__brand--discover   { color: #e65c00!important; }
+.lg-pm-wallet__brand--unionpay   { color: #c0392b!important; }
+.lg-pm-wallet__brand--jcb        { color: #0072bc!important; }
+.lg-pm-wallet__brand--unknown    { color: #888!important; }
 
-.lg-pm-wallet__brand {
-    flex-shrink: 0;
-    width: 54px;
-    height: 36px;
-    border: 1px solid #e4e4e4;
-    border-radius: 5px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.68em;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    background: #fff;
-    user-select: none;
-}
-.lg-pm-wallet__brand--visa        { color: #1a1f71; font-style: italic; }
-.lg-pm-wallet__brand--mastercard  { color: #eb001b; }
-.lg-pm-wallet__brand--amex        { color: #006fcf; }
-.lg-pm-wallet__brand--discover    { color: #e65c00; }
-.lg-pm-wallet__brand--unionpay    { color: #c0392b; }
-.lg-pm-wallet__brand--jcb         { color: #0072bc; }
-.lg-pm-wallet__brand--unknown     { color: #888; }
-
-.lg-pm-wallet__info   { flex: 1; min-width: 0; }
-.lg-pm-wallet__name   {
-    font-weight: 600;
-    font-size: 0.95em;
-    color: var(--lg-ink);
-    display: flex;
-    align-items: center;
-    gap: 0.5em;
-    flex-wrap: wrap;
-}
 .lg-pm-wallet__default-badge {
-    font-size: 0.72em;
-    font-weight: 600;
-    padding: 0.15em 0.6em;
-    border-radius: 999px;
-    background: #e8f7ec;
-    color: #1a5d2c;
-    border: 1px solid #c1e6cc;
+    display: inline-block;
+    font-size: 0.72em !important;
+    font-weight: 600 !important;
+    padding: 0.15em 0.6em !important;
+    border-radius: 999px !important;
+    background: #e8f7ec !important;
+    color: #1a5d2c !important;
+    border: 1px solid #c1e6cc !important;
     white-space: nowrap;
+    vertical-align: middle;
+    line-height: 1.6;
 }
-.lg-pm-wallet__expiry         { font-size: 0.83em; color: var(--lg-muted); margin-top: 0.2em; }
-.lg-pm-wallet__expiry--soon   { color: #b45309; }
-.lg-pm-wallet__expiry--expired{ color: #8a1c1c; }
+.lg-pm-wallet__expiry         { font-size: 0.83em; color: var(--lg-muted); margin-top: 0.25em; }
+.lg-pm-wallet__expiry--soon   { color: #b45309 !important; }
+.lg-pm-wallet__expiry--expired{ color: #8a1c1c !important; }
 
-.lg-pm-wallet__actions {
-    display: flex;
-    align-items: center;
-    gap: 0.35em;
-    flex-shrink: 0;
-    white-space: nowrap;
+/* Override theme button styles aggressively */
+button.lg-pm-wallet__action {
+    background: none !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 0.88em !important;
+    font-weight: 400 !important;
+    color: #0066c0 !important;
+    cursor: pointer !important;
+    font-family: inherit !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    line-height: inherit !important;
+    display: inline !important;
+    width: auto !important;
+    min-width: 0 !important;
+    text-shadow: none !important;
 }
-.lg-pm-wallet__action {
-    background: none;
-    border: none;
-    padding: 0.25em 0.3em;
-    font-size: 0.88em;
-    color: #0066c0;
-    cursor: pointer;
-    font-family: inherit;
-}
-.lg-pm-wallet__action:hover:not(:disabled) { text-decoration: underline; color: #c45500; }
-.lg-pm-wallet__action:disabled { color: #bbb; cursor: not-allowed; }
-.lg-pm-wallet__action--danger  { color: #c0392b; }
-.lg-pm-wallet__action--danger:hover:not(:disabled) { color: #7b241c; }
-.lg-pm-wallet__sep { color: #ccc; font-size: 0.75em; pointer-events: none; }
+button.lg-pm-wallet__action:hover:not(:disabled) { text-decoration: underline !important; color: #c45500 !important; background: none !important; }
+button.lg-pm-wallet__action:disabled             { color: #bbb !important; cursor: not-allowed !important; }
+button.lg-pm-wallet__action--danger              { color: #c0392b !important; }
+button.lg-pm-wallet__action--danger:hover:not(:disabled) { color: #7b241c !important; }
 
-.lg-pm-wallet__add {
-    margin-top: 1em;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45em;
-    padding: 0.6em 1.1em;
-    border: 1px dashed #b0b8c1;
-    border-radius: 6px;
-    background: #fff;
-    color: #0066c0;
-    font-size: 0.92em;
-    font-family: inherit;
-    cursor: pointer;
+button.lg-pm-wallet__add {
+    background: #fff !important;
+    background-color: #fff !important;
+    color: #0066c0 !important;
+    border: 1px dashed #b0b8c1 !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    text-transform: none !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+    text-shadow: none !important;
+    padding: 0.55em 1.1em !important;
+    font-size: 0.92em !important;
+    font-family: inherit !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.4em !important;
+    margin-top: 1em !important;
     transition: border-color 0.15s, background 0.15s;
+    width: auto !important;
+    min-width: 0 !important;
 }
-.lg-pm-wallet__add:hover { border-color: #0066c0; background: #f0f6ff; }
+button.lg-pm-wallet__add:hover { border-color: #0066c0 !important; background: #f0f6ff !important; }
 
 .lg-pm-wallet__empty, .lg-pm-wallet__loading {
     padding: 1.2em;

@@ -1808,22 +1808,31 @@ final class Shortcodes
                     pmWalletList.innerHTML = '<p class="lg-pm-wallet__empty">No payment methods saved yet.</p>';
                     return;
                 }
+                // Inline styles on layout-critical elements so BuddyBoss theme
+                // class selectors can't override them (CSS !important only wins
+                // when specificity ties; inline always wins specificity).
+                const itemStyle    = 'display:flex;align-items:center;gap:1em;padding:0.85em 0;border-bottom:1px solid #f0f0f0;';
+                const brandStyle   = 'flex-shrink:0;width:3.6em;text-align:center;font-weight:700;font-size:0.85em;padding:0.2em 0.45em;border:1px solid #ddd;border-radius:4px;background:#f8f9fa;font-style:normal;';
+                const infoStyle    = 'flex:1;min-width:0;';
+                const actionsStyle = 'display:flex;align-items:center;gap:0.65em;flex-shrink:0;';
+                const sepStyle     = 'color:#ccc;user-select:none;';
+
                 pmWalletList.innerHTML = pms.map(pm => {
                     const exp = expiryMeta(pm.exp_month, pm.exp_year);
                     const isOnly = pms.length === 1;
-                    return `<div class="lg-pm-wallet__item${pm.is_default ? ' lg-pm-wallet__item--default' : ''}" data-pm-id="${pm.id}">
-                        <div class="lg-pm-wallet__brand lg-pm-wallet__brand--${pm.brand}">${brandDisplay(pm.brand)}</div>
-                        <div class="lg-pm-wallet__info">
-                            <div class="lg-pm-wallet__name">
-                                ${capitalize(pm.brand)} ending in ${pm.last4}
+                    return `<div class="lg-pm-wallet__item${pm.is_default ? ' lg-pm-wallet__item--default' : ''}" data-pm-id="${pm.id}" style="${itemStyle}">
+                        <div class="lg-pm-wallet__brand lg-pm-wallet__brand--${pm.brand}" style="${brandStyle}">${brandDisplay(pm.brand)}</div>
+                        <div class="lg-pm-wallet__info" style="${infoStyle}">
+                            <div class="lg-pm-wallet__name" style="font-weight:500;">
+                                ${capitalize(pm.brand)} &bull;&bull;&bull;&bull; ${pm.last4}
                                 ${pm.is_default ? '<span class="lg-pm-wallet__default-badge">Default</span>' : ''}
                             </div>
                             <div class="lg-pm-wallet__expiry ${exp.cls}">${exp.label}</div>
                         </div>
-                        <div class="lg-pm-wallet__actions">
+                        <div class="lg-pm-wallet__actions" style="${actionsStyle}">
                             ${!pm.is_default
                                 ? `<button class="lg-pm-wallet__action" data-pm-action="make-default" data-pm-id="${pm.id}">Make default</button>
-                                   <span class="lg-pm-wallet__sep">|</span>`
+                                   <span class="lg-pm-wallet__sep" style="${sepStyle}">|</span>`
                                 : ''}
                             <button class="lg-pm-wallet__action lg-pm-wallet__action--danger"
                                 data-pm-action="remove" data-pm-id="${pm.id}"
