@@ -1557,8 +1557,10 @@ final class Shortcodes
         $configUrl           = esc_url_raw( rtrim( (string) home_url( '/billing' ), '/' ) . '/v1/config' );
         $cancelEndpoint      = esc_url_raw( rest_url( 'lg-member-sync/v1/me/cancel-subscription' ) );
         $switchEndpoint      = esc_url_raw( rest_url( 'lg-member-sync/v1/me/switch-plan' ) );
-        $setupIntentEndpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/me/create-setup-intent' ) );
+        $setupIntentEndpoint  = esc_url_raw( rest_url( 'lg-member-sync/v1/me/create-setup-intent' ) );
         $setDefaultPmEndpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/me/set-default-payment-method' ) );
+        $getPmsEndpoint       = esc_url_raw( rest_url( 'lg-member-sync/v1/me/payment-methods' ) );
+        $deletePmEndpoint     = esc_url_raw( rest_url( 'lg-member-sync/v1/me/delete-payment-method' ) );
         $nonce               = wp_create_nonce( 'wp_rest' );
         $emailEsc            = esc_attr( $email );
 
@@ -1595,13 +1597,12 @@ final class Shortcodes
 
                     <?php if ( (string) $sub['status'] === 'past_due' ) : ?>
                         <div style="margin-top:0.8em;padding:0.7em 1em;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;color:#856404;font-size:0.92em;">
-                            <strong>Payment failed.</strong> Your access is still active while we retry. Please <button type="button" data-lg-action="update-card" style="background:none;border:none;padding:0;color:#856404;text-decoration:underline;cursor:pointer;font-size:inherit;">update your card</button> to avoid any interruption.
+                            <strong>Payment failed.</strong> Your access is still active while we retry. Please update your payment method in the <strong>Payment methods</strong> section below.
                         </div>
                     <?php endif; ?>
 
                     <div class="lg-manage-sub__actions" style="margin-top:1em;">
                         <button type="button" class="lg-manage-sub__btn" data-lg-action="switch" data-lg-sub="<?php echo esc_attr( $subId ); ?>" data-lg-current-price="<?php echo esc_attr( (string) $sub['stripe_price_id'] ); ?>">Change plan</button>
-                        <button type="button" class="lg-manage-sub__btn" data-lg-action="update-card">Update card</button>
                         <?php if ( ! $cape ) : ?>
                             <button type="button" class="lg-manage-sub__btn" data-lg-action="cancel" data-lg-sub="<?php echo esc_attr( $subId ); ?>">Cancel subscription</button>
                         <?php else : ?>
@@ -1633,9 +1634,20 @@ final class Shortcodes
                 <?php endforeach; ?>
             <?php endif; ?>
 
-            <p style="margin-top:1em;color:#444;">
-                Need to update your card or download invoices?
-                <a href="#" data-lg-portal>Open the Stripe billing portal &rarr;</a>
+            <div class="lg-pm-wallet">
+                <h3 class="lg-pm-wallet__heading">Payment methods</h3>
+                <div id="lg-pm-wallet-list" class="lg-pm-wallet__list">
+                    <p class="lg-pm-wallet__loading">Loading&hellip;</p>
+                </div>
+                <div id="lg-pm-wallet-feedback" hidden></div>
+                <button type="button" class="lg-pm-wallet__add" id="lg-pm-add-card">
+                    &#43; Add a payment method
+                </button>
+            </div>
+
+            <p style="margin-top:1.5em;color:#888;font-size:0.9em;">
+                Need to download invoices?
+                <a href="#" data-lg-portal>Open billing history &rarr;</a>
                 <span data-lg-portal-error style="color:#b00;margin-left:8px;"></span>
             </p>
         </div>
@@ -1646,7 +1658,7 @@ final class Shortcodes
             <div class="lg-pay-modal__card">
                 <button class="lg-pay-modal__close" id="lg-card-modal-close">&times;</button>
                 <div class="lg-pay-modal__custom">
-                    <h3 style="margin:0 0 0.5em;font-size:1.1em;">Update payment method</h3>
+                    <h3 style="margin:0 0 0.5em;font-size:1.1em;">Add a payment method</h3>
                     <div id="lg-card-pe"></div>
                     <div id="lg-card-error" class="lg-stripe-modal__error" hidden></div>
                     <button type="button" id="lg-card-save" class="lg-stripe-modal__pay" style="margin-top:1em;">Save card</button>
@@ -1657,15 +1669,17 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
-            const PORTAL       = '<?php echo esc_js( $portalEndpoint ); ?>';
-            const PROD         = '<?php echo esc_js( $productsUrl ); ?>';
-            const CONFIG       = '<?php echo esc_js( $configUrl ); ?>';
-            const CANCEL       = '<?php echo esc_js( $cancelEndpoint ); ?>';
-            const SWITCH       = '<?php echo esc_js( $switchEndpoint ); ?>';
-            const SETUP_INTENT = '<?php echo esc_js( $setupIntentEndpoint ); ?>';
+            const PORTAL         = '<?php echo esc_js( $portalEndpoint ); ?>';
+            const PROD           = '<?php echo esc_js( $productsUrl ); ?>';
+            const CONFIG         = '<?php echo esc_js( $configUrl ); ?>';
+            const CANCEL         = '<?php echo esc_js( $cancelEndpoint ); ?>';
+            const SWITCH         = '<?php echo esc_js( $switchEndpoint ); ?>';
+            const SETUP_INTENT   = '<?php echo esc_js( $setupIntentEndpoint ); ?>';
             const SET_DEFAULT_PM = '<?php echo esc_js( $setDefaultPmEndpoint ); ?>';
-            const NONCE        = <?php echo wp_json_encode( $nonce ); ?>;
-            const EMAIL        = <?php echo wp_json_encode( $email ); ?>;
+            const GET_PMS        = '<?php echo esc_js( $getPmsEndpoint ); ?>';
+            const DELETE_PM      = '<?php echo esc_js( $deletePmEndpoint ); ?>';
+            const NONCE          = <?php echo wp_json_encode( $nonce ); ?>;
+            const EMAIL          = <?php echo wp_json_encode( $email ); ?>;
 
             let stripe = null, cardElements = null;
 
@@ -1743,7 +1757,6 @@ final class Shortcodes
                     });
                     if (error) { showCardError(error.message); cardSaveBtn.disabled = false; cardSaveBtn.textContent = 'Save card'; return; }
 
-                    // Set the new PM as default on the customer.
                     const pmId = typeof setupIntent.payment_method === 'string'
                         ? setupIntent.payment_method
                         : (setupIntent.payment_method?.id || '');
@@ -1751,18 +1764,110 @@ final class Shortcodes
                     if (!body.ok) { showCardError(body.error || 'Card saved but could not set as default. Contact support.'); cardSaveBtn.disabled = false; cardSaveBtn.textContent = 'Save card'; return; }
 
                     closeCardModal();
-                    // Show a subtle success notice near the top of the manage-sub block.
-                    const notice = document.createElement('p');
-                    notice.style.cssText = 'padding:0.6em 1em;background:#e8f7ec;border:1px solid #c1e6cc;border-radius:4px;color:#1a5d2c;margin-bottom:1em;';
-                    notice.textContent = 'Payment method updated successfully.';
-                    document.querySelector('.lg-manage-sub')?.prepend(notice);
-                    setTimeout(() => notice.remove(), 6000);
+                    await loadAndRenderPms();
+                    showWalletFeedback('Payment method added and set as default.', false);
                 } catch (err) {
                     showCardError('Network error: ' + err.message);
                     cardSaveBtn.disabled = false;
                     cardSaveBtn.textContent = 'Save card';
                 }
             });
+
+            // ── Payment method wallet ────────────────────────────────────
+            const pmWalletList     = document.getElementById('lg-pm-wallet-list');
+            const pmWalletFeedback = document.getElementById('lg-pm-wallet-feedback');
+            const pmAddCardBtn     = document.getElementById('lg-pm-add-card');
+
+            if (pmAddCardBtn) pmAddCardBtn.addEventListener('click', openCardModal);
+
+            function showWalletFeedback(msg, isError) {
+                if (!pmWalletFeedback) return;
+                pmWalletFeedback.className = 'lg-pm-wallet__feedback ' + (isError ? 'lg-pm-wallet__feedback--error' : 'lg-pm-wallet__feedback--ok');
+                pmWalletFeedback.textContent = msg;
+                pmWalletFeedback.hidden = false;
+                setTimeout(() => { pmWalletFeedback.hidden = true; }, 5000);
+            }
+
+            function brandDisplay(brand) {
+                const map = { visa: 'VISA', mastercard: 'MC', amex: 'AMEX', discover: 'DISC', unionpay: 'UP', jcb: 'JCB', diners: 'DC' };
+                return map[brand] || brand.replace(/_/g,' ').toUpperCase().slice(0,5);
+            }
+
+            function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+            function expiryMeta(month, year) {
+                const now = new Date(), expMs = new Date(year, month) - now;
+                if (expMs < 0) return { label: 'Expired ' + String(month).padStart(2,'0') + '/' + year, cls: 'lg-pm-wallet__expiry--expired' };
+                if (expMs < 90 * 86400000) return { label: 'Expires soon — ' + String(month).padStart(2,'0') + '/' + year, cls: 'lg-pm-wallet__expiry--soon' };
+                return { label: 'Expires ' + String(month).padStart(2,'0') + '/' + year, cls: '' };
+            }
+
+            function renderPms(pms) {
+                if (!pmWalletList) return;
+                if (!pms.length) {
+                    pmWalletList.innerHTML = '<p class="lg-pm-wallet__empty">No payment methods saved yet.</p>';
+                    return;
+                }
+                pmWalletList.innerHTML = pms.map(pm => {
+                    const exp = expiryMeta(pm.exp_month, pm.exp_year);
+                    const isOnly = pms.length === 1;
+                    return `<div class="lg-pm-wallet__item${pm.is_default ? ' lg-pm-wallet__item--default' : ''}" data-pm-id="${pm.id}">
+                        <div class="lg-pm-wallet__brand lg-pm-wallet__brand--${pm.brand}">${brandDisplay(pm.brand)}</div>
+                        <div class="lg-pm-wallet__info">
+                            <div class="lg-pm-wallet__name">
+                                ${capitalize(pm.brand)} ending in ${pm.last4}
+                                ${pm.is_default ? '<span class="lg-pm-wallet__default-badge">Default</span>' : ''}
+                            </div>
+                            <div class="lg-pm-wallet__expiry ${exp.cls}">${exp.label}</div>
+                        </div>
+                        <div class="lg-pm-wallet__actions">
+                            ${!pm.is_default
+                                ? `<button class="lg-pm-wallet__action" data-pm-action="make-default" data-pm-id="${pm.id}">Make default</button>
+                                   <span class="lg-pm-wallet__sep">|</span>`
+                                : ''}
+                            <button class="lg-pm-wallet__action lg-pm-wallet__action--danger"
+                                data-pm-action="remove" data-pm-id="${pm.id}"
+                                ${isOnly ? 'disabled title="Cannot remove your only payment method"' : ''}>Remove</button>
+                        </div>
+                    </div>`;
+                }).join('');
+
+                pmWalletList.querySelectorAll('[data-pm-action="make-default"]').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        const pmId = this.dataset.pmId;
+                        this.disabled = true; this.textContent = 'Saving…';
+                        const { body } = await postJson(SET_DEFAULT_PM, { payment_method_id: pmId });
+                        if (body.ok) { await loadAndRenderPms(); showWalletFeedback('Default payment method updated.', false); }
+                        else { showWalletFeedback(body.error || 'Could not update.', true); this.disabled = false; this.textContent = 'Make default'; }
+                    });
+                });
+
+                pmWalletList.querySelectorAll('[data-pm-action="remove"]').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        if (!confirm('Remove this card? This cannot be undone.')) return;
+                        const pmId = this.dataset.pmId;
+                        this.disabled = true; this.textContent = 'Removing…';
+                        const { body } = await postJson(DELETE_PM, { payment_method_id: pmId });
+                        if (body.ok) { await loadAndRenderPms(); showWalletFeedback('Card removed.', false); }
+                        else { showWalletFeedback(body.error || 'Could not remove.', true); this.disabled = false; this.textContent = 'Remove'; }
+                    });
+                });
+            }
+
+            async function loadAndRenderPms() {
+                if (!pmWalletList) return;
+                pmWalletList.innerHTML = '<p class="lg-pm-wallet__loading">Loading payment methods…</p>';
+                try {
+                    const res  = await fetch(GET_PMS, { headers: { 'X-WP-Nonce': NONCE } });
+                    const data = await res.json();
+                    renderPms(data.ok ? (data.payment_methods || []) : []);
+                    if (!data.ok) showWalletFeedback(data.error || 'Could not load payment methods.', true);
+                } catch (err) {
+                    pmWalletList.innerHTML = '<p class="lg-pm-wallet__empty">Could not load payment methods.</p>';
+                }
+            }
+
+            loadAndRenderPms();
 
             let products = null;
 

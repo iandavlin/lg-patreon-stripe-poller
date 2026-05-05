@@ -122,4 +122,25 @@ final class Client
     {
         return $this->sdk->customers->update( $id, $params );
     }
+
+    public function retrieveCustomer(string $id): object
+    {
+        return $this->sdk->customers->retrieve( $id );
+    }
+
+    /** @return list<object> */
+    public function listPaymentMethods(string $customerId): array
+    {
+        $resp = $this->sdk->paymentMethods->all( [
+            'customer' => $customerId,
+            'type'     => 'card',
+            'limit'    => 20,
+        ] );
+        return iterator_to_array( $resp->data ?? [] );
+    }
+
+    public function detachPaymentMethod(string $pmId): object
+    {
+        return $this->sdk->paymentMethods->detach( $pmId );
+    }
 }

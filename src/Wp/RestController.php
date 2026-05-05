@@ -104,6 +104,18 @@ final class RestController
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
 
+        register_rest_route( self::NAMESPACE, '/me/payment-methods', [
+            'methods'             => 'GET',
+            'callback'            => [ self::class, 'meGetPaymentMethods' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
+        register_rest_route( self::NAMESPACE, '/me/delete-payment-method', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'meDeletePaymentMethod' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
+
         register_rest_route( self::NAMESPACE, '/send-gift-recipient', [
             'methods'             => 'POST',
             'callback'            => [ self::class, 'sendGiftRecipient' ],
@@ -903,6 +915,67 @@ final class RestController
             return new \WP_REST_Response( [ 'ok' => true, 'message' => 'Your payment method has been updated.' ] );
         } catch ( \Throwable $e ) {
             return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not save payment method. Please try again.' ], 500 );
+        }
+    }
+
+    public static function meGetPaymentMethods( \WP_REST_Request $req ): \WP_REST_Response
+    {
+        $user     = wp_get_current_user();
+        $customer = CustomerRepo::findByEmail( (string) $user->user_email );
+        if ( ! $customer || empty( $customer['stripe_customer_id'] ) ) {
+            return new \WP_REST_Response( [ 'ok' => true, 'payment_methods' => [], 'default_pm' => null ] );
+        }
+        try {
+            $stripe     = new StripeClient();
+            $stripeCust = $stripe->retrieveCustomer( (string) $customer['stripe_customer_id'] );
+            $defaultPm  = $stripeCust->invoice_settings->default_payment_method ?? null;
+            $defaultId  = is_string( $defaultPm ) ? $defaultPm : ( is_object( $defaultPm ) ? (string) $defaultPm->id : null );
+
+            $pms    = $stripe->listPaymentMethods( (string) $customer['stripe_customer_id'] );
+            $result = [];
+            foreach ( $pms as $pm ) {
+                $card     = $pm->card ?? null;
+                $result[] = [
+                    'id'         => (string) $pm->id,
+                    'brand'      => (string) ( $card->brand ?? 'unknown' ),
+                    'last4'      => (string) ( $card->last4 ?? '????' ),
+                    'exp_month'  => (int) ( $card->exp_month ?? 0 ),
+                    'exp_year'   => (int) ( $card->exp_year ?? 0 ),
+                    'is_default' => (string) $pm->id === $defaultId,
+                ];
+            }
+            return new \WP_REST_Response( [ 'ok' => true, 'payment_methods' => $result, 'default_pm' => $defaultId ] );
+        } catch ( \Throwable $e ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not load payment methods.' ], 500 );
+        }
+    }
+
+    public static function meDeletePaymentMethod( \WP_REST_Request $req ): \WP_REST_Response
+    {
+        $user  = wp_get_current_user();
+        $pmId  = (string) ( $req->get_json_params()['payment_method_id'] ?? '' );
+        if ( $pmId === '' ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Missing payment_method_id.' ], 400 );
+        }
+        $customer = CustomerRepo::findByEmail( (string) $user->user_email );
+        if ( ! $customer || empty( $customer['stripe_customer_id'] ) ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'No billing record found.' ], 404 );
+        }
+        try {
+            $stripe = new StripeClient();
+            $pms    = $stripe->listPaymentMethods( (string) $customer['stripe_customer_id'] );
+            $ids    = array_map( fn( $p ) => (string) $p->id, $pms );
+
+            if ( ! in_array( $pmId, $ids, true ) ) {
+                return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Payment method not found on your account.' ], 404 );
+            }
+            if ( count( $ids ) <= 1 ) {
+                return new \WP_REST_Response( [ 'ok' => false, 'error' => 'You cannot remove your only payment method while you have an active subscription.' ], 400 );
+            }
+            $stripe->detachPaymentMethod( $pmId );
+            return new \WP_REST_Response( [ 'ok' => true, 'message' => 'Payment method removed.' ] );
+        } catch ( \Throwable $e ) {
+            return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not remove payment method. Please try again.' ], 500 );
         }
     }
 
