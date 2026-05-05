@@ -1738,13 +1738,11 @@ final class Shortcodes
                 <h3 class="lg-join__form-heading" data-lg-form-heading>Almost there</h3>
                 <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
                     <div class="lg-join__field">
-                        <label>Email <input type="email" name="email" value="<?php echo $email; ?>" required></label>
+                        <label>Email <input type="email" name="email" value="<?php echo $email; ?>" autocomplete="email" required></label>
                     </div>
                     <div class="lg-join__field">
-                        <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em>
-                            <input type="text" name="name" value="<?php echo $name; ?>" required>
-                        </label>
-                        <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
+                        <label>Confirm email <input type="email" name="email_confirm" value="<?php echo $email; ?>" autocomplete="email" required></label>
+                        <small data-lg-email-mismatch class="lg-pwd-mismatch" hidden>Emails don&rsquo;t match.</small>
                     </div>
                     <?php if ( ! $isLoggedIn ) : ?>
                     <div class="lg-join__field">
@@ -1763,9 +1761,15 @@ final class Shortcodes
                                 <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password_confirm" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
                             </span>
                         </label>
-                        <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don’t match.</small>
+                        <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
                     </div>
                     <?php endif; ?>
+                    <div class="lg-join__field" style="grid-column: 1 / -1;">
+                        <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em>
+                            <input type="text" name="name" value="<?php echo $name; ?>" required>
+                        </label>
+                        <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
+                    </div>
                 </div>
                 <details class="lg-join__discount" <?php echo $promoFromUrl !== '' ? 'open' : ''; ?>>
                     <summary>Have a discount code?</summary>
@@ -1795,6 +1799,43 @@ final class Shortcodes
                     <p class="lg-processing__body">Your payment went through. We&rsquo;re finalizing your subscription &mdash; please don&rsquo;t close this tab. You&rsquo;ll be redirected in a moment.</p>
                 </div>
             </div>
+
+            <!-- Existing-account modal: fired when /gift-auth says incorrect password
+                 for an email that already has a WP user. The same markup also lives
+                 in the gift shortcode; duplicated here because pages that only host
+                 [lg_join] would otherwise have no DOM for the modal to attach to. -->
+            <div class="lg-existacct" data-lg-existacct-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-existacct-title-join">
+                <div class="lg-existacct__backdrop" data-lg-existacct-cancel></div>
+                <div class="lg-existacct__card">
+                    <button type="button" class="lg-existacct__close" data-lg-existacct-cancel aria-label="Close">&times;</button>
+                    <h3 id="lg-existacct-title-join" class="lg-existacct__title">This email already has an account</h3>
+                    <p class="lg-existacct__body" data-lg-existacct-body></p>
+                    <div class="lg-existacct__actions">
+                        <a class="lg-existacct__btn lg-existacct__btn--primary" data-lg-existacct-login href="#">Log in &amp; manage subscription</a>
+                        <a class="lg-existacct__btn lg-existacct__btn--ghost"   data-lg-existacct-forgot hidden href="#">Forgot your password?</a>
+                    </div>
+                    <p class="lg-existacct__alt"><a href="#" data-lg-existacct-cancel>Use a different email instead</a></p>
+                </div>
+            </div>
+
+            <style>
+                .lg-existacct { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
+                .lg-existacct[hidden] { display: none !important; }
+                .lg-existacct__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+                .lg-existacct__card { position: relative; background: #fff; border-radius: 12px; padding: 1.7em 1.6em; max-width: 460px; width: 100%; box-shadow: 0 16px 50px rgba(0,0,0,0.4); color: #1f1d1a; }
+                .lg-existacct__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.35em; line-height: 1; cursor: pointer; color: #444; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+                .lg-existacct__close:hover { color: #000; background: #f5f5f5; }
+                .lg-existacct__title { margin: 0 0 .55em; font-size: 1.2em; font-weight: 700; line-height: 1.3; padding-right: 2em; }
+                .lg-existacct__body { margin: 0 0 1.2em; font-size: .95em; line-height: 1.5; color: #333; }
+                .lg-existacct__actions { display: flex; gap: .65em; flex-wrap: wrap; }
+                .lg-existacct__btn { padding: .65em 1.2em; border-radius: 6px; font-weight: 600; font-size: .92em; text-decoration: none; display: inline-block; cursor: pointer; }
+                .lg-existacct__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a !important; }
+                .lg-existacct__btn--primary:hover { opacity: .88; }
+                .lg-existacct__btn--ghost { background: transparent; border: 1.5px solid rgba(0,0,0,0.2); color: #1f1d1a !important; }
+                .lg-existacct__btn--ghost:hover { background: rgba(0,0,0,0.04); }
+                .lg-existacct__alt { margin: 1em 0 0; font-size: .85em; color: #666; }
+                body.lg-modal-open { overflow: hidden !important; }
+            </style>
 
             <style>
                 .lg-giftwarn { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; }
@@ -2038,7 +2079,19 @@ final class Shortcodes
             if (pwd2El) pwd2El.addEventListener('input', checkPwdMatch);
 
             const emailInput = document.querySelector('input[name="email"]');
+            const emailConfirmInput = document.querySelector('input[name="email_confirm"]');
+            const emailMismatchEl   = document.querySelector('[data-lg-email-mismatch]');
             const nameInput  = document.querySelector('input[name="name"]');
+
+            // Live email-match check (mirror of pwd check above)
+            function checkEmailMatch() {
+                if (!emailInput || !emailConfirmInput || !emailMismatchEl) return;
+                const a = (emailInput.value || '').trim().toLowerCase();
+                const b = (emailConfirmInput.value || '').trim().toLowerCase();
+                emailMismatchEl.hidden = !(a.length > 0 && b.length > 0 && a !== b);
+            }
+            if (emailInput)        emailInput.addEventListener('input',        checkEmailMatch);
+            if (emailConfirmInput) emailConfirmInput.addEventListener('input', checkEmailMatch);
 
             let stripe         = null;
             let mountedSession = null;
@@ -2109,10 +2162,12 @@ final class Shortcodes
 
             function renderTiers(products){
                 tiersEl.innerHTML = '';
+                let defaultBtn = null, defaultPrice = null, defaultProd = null;
                 products.forEach(function(prod){
                     const card = document.createElement('div');
                     card.className = 'lg-join__tier';
-                    if (prod.ref && CONFIG.popular && prod.ref === CONFIG.popular) {
+                    const isPopular = (prod.ref && CONFIG.popular && prod.ref === CONFIG.popular);
+                    if (isPopular) {
                         card.classList.add('is-popular');
                         const badge = document.createElement('span');
                         badge.className = 'lg-join__tier-badge';
@@ -2137,21 +2192,38 @@ final class Shortcodes
                         const btn = document.createElement('button');
                         btn.type = 'button';
                         btn.className = 'lg-join__buy';
-                        // Highlight the yearly subscription as the primary CTA
-                        if (price.type === 'recurring' && price.interval === 'year') {
+                        // Highlight the yearly subscription as the suggested CTA
+                        const isYearly = (price.type === 'recurring' && price.interval === 'year');
+                        if (isYearly) {
                             btn.classList.add('is-primary');
                         }
                         btn.textContent = priceLabel(price);
                         btn.addEventListener('click', () => selectPrice(price, prod, btn));
                         list.appendChild(btn);
+                        // Stash the popular-tier yearly button so we can default-select it after render.
+                        if (isPopular && isYearly && !defaultBtn) {
+                            defaultBtn   = btn;
+                            defaultPrice = price;
+                            defaultProd  = prod;
+                        }
                     });
                     card.appendChild(list);
                     tiersEl.appendChild(card);
                 });
+
+                // Default selection: pre-pick the popular tier's yearly price + reveal
+                // the form, but stay quiet — no scroll, no focus steal — so the user can
+                // still see the tier cards above without the page jumping on load.
+                if (defaultBtn && defaultPrice && defaultProd) {
+                    selectPrice(defaultPrice, defaultProd, defaultBtn, { silent: true });
+                }
             }
 
             // Step 1: customer picks a price → highlight selected card, reveal form panel.
-            function selectPrice(price, prod, btn){
+            // `opts.silent` skips scroll-into-view + auto-focus — used when this fires
+            // on page load via the default-selection auto-pick.
+            function selectPrice(price, prod, btn, opts){
+                opts = opts || {};
                 showError('');
                 pendingPriceId = price.stripe_price_id;
                 pendingLabel   = priceLabel(price);
@@ -2161,16 +2233,24 @@ final class Shortcodes
                 const card = btn.closest('.lg-join__tier');
                 if (card) card.classList.add('is-selected');
 
+                // Highlight selected button (orange + depressed look). Clears
+                // every other .lg-join__buy across all tiers so only one
+                // price across the whole page reads as the active pick.
+                document.querySelectorAll('.lg-join__buy.is-selected').forEach(b => b.classList.remove('is-selected'));
+                btn.classList.add('is-selected');
+
                 formHeadEl.textContent = 'Continue to ' + prod.name + ' — ' + pendingLabel.replace(/^Subscribe\s*—\s*|^Pay once\s*—\s*/, '');
                 formEl.hidden = false;
                 // If checkout was already mounted (user clicked again), tear it down.
                 if (mountedSession) { try { mountedSession.destroy(); } catch (_) {} mountedSession = null; checkoutEl.innerHTML = ''; }
-                formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Auto-focus email if blank (anon user); otherwise focus continue button.
-                if (!emailInput.value.trim()) {
-                    emailInput.focus();
-                } else {
-                    continueBt.focus();
+                if (!opts.silent) {
+                    formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Auto-focus email if blank (anon user); otherwise focus continue button.
+                    if (!emailInput.value.trim()) {
+                        emailInput.focus();
+                    } else {
+                        continueBt.focus();
+                    }
                 }
             }
 
@@ -2179,6 +2259,14 @@ final class Shortcodes
                 showError('');
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
+                if (emailConfirmInput) {
+                    const emailConfirm = (emailConfirmInput.value || '').trim();
+                    if (emailConfirm.toLowerCase() !== email.toLowerCase()) {
+                        showError('The two email fields must match.');
+                        emailConfirmInput.focus();
+                        return;
+                    }
+                }
                 if (!pendingPriceId) { showError('Pick a plan first.'); return; }
 
                 const name = (nameInput.value || '').trim();
@@ -2290,9 +2378,12 @@ final class Shortcodes
 
                     mountedSession.mount(checkoutEl);
 
-                    // Stripe is mounted — lock the modal closed. See gift flow.
-                    if (joinCheckoutModal) joinCheckoutModal.dataset.lgLocked = '1';
-                    markJoinPaymentInFlight();
+                    // Mount alone no longer locks the modal — felt like a trap
+                    // (X vanished the moment Stripe rendered, even before the
+                    // user touched anything). Lockdown now triggers from
+                    // showJoinProcessingOverlay() instead, which Stripe fires
+                    // via onComplete only AFTER they hit Pay and the charge
+                    // succeeds. Until then, the X and backdrop work normally.
                 } catch (err) {
                     showError('Network error: ' + err.message);
                 } finally {
@@ -2368,6 +2459,11 @@ final class Shortcodes
             }
             function showJoinProcessingOverlay() {
                 joinPaymentCompleted = true;
+                // Lock the modal NOW (post-pay) — X gone, backdrop click-through
+                // disabled — so the user can't accidentally tear down the iframe
+                // mid-redirect. Until this runs they could still back out.
+                if (joinCheckoutModal) joinCheckoutModal.dataset.lgLocked = '1';
+                markJoinPaymentInFlight();
                 if (joinProcessingOverlay) joinProcessingOverlay.hidden = false;
                 document.body.classList.add('lg-modal-open');
                 // Stripe is about to redirect — same rationale as gift flow.
@@ -2394,6 +2490,7 @@ final class Shortcodes
                 formEl.hidden = true;
                 pendingPriceId = null;
                 document.querySelectorAll('.lg-join__tier').forEach(c => c.classList.remove('is-selected'));
+                document.querySelectorAll('.lg-join__buy.is-selected').forEach(b => b.classList.remove('is-selected'));
                 closeJoinCheckoutModal();
                 tiersEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
