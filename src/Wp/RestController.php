@@ -7,6 +7,7 @@ namespace LGMS\Wp;
 use LGMS\Db;
 use LGMS\Repos\CustomerRepo;
 use LGMS\Repos\EntitlementRepo;
+use LGMS\Repos\ProductRepo;
 use LGMS\Stripe\Client as StripeClient;
 use LGMS\Sync;
 use LGMS\Tick;
@@ -747,7 +748,6 @@ final class RestController
             $sub    = $stripe->retrieveSubscription( $subId );
 
             if ( $timing === 'now' ) {
-                // Immediate switch + invoice for prorated difference.
                 $items  = (array) ( $sub->items->data ?? [] );
                 if ( $items === [] ) {
                     throw new \RuntimeException( 'Subscription has no items.' );
@@ -756,18 +756,32 @@ final class RestController
                 if ( $itemId === '' ) {
                     throw new \RuntimeException( 'Could not determine subscription item id.' );
                 }
+
+                // Policy: downgrades must wait until period end — no immediate downgrade.
+                $currentPriceId = (string) ( $items[0]->price->id ?? '' );
+                $currentAmount  = ProductRepo::amountCentsForPrice( $currentPriceId );
+                $newAmount      = ProductRepo::amountCentsForPrice( $newPriceId );
+                if ( $currentAmount !== null && $newAmount !== null && $newAmount < $currentAmount ) {
+                    return new WP_REST_Response( [
+                        'ok'    => false,
+                        'error' => 'Downgrades take effect at the end of your billing period. Please use "Switch on renewal date" instead.',
+                    ], 400 );
+                }
+
+                // Upgrade: charge full new-tier price today, new period starts now. No proration credit.
                 $updated = $stripe->updateSubscription( $subId, [
                     'items' => [
                         [ 'id' => $itemId, 'price' => $newPriceId ],
                     ],
-                    'proration_behavior' => 'always_invoice',
+                    'proration_behavior'   => 'none',
+                    'billing_cycle_anchor' => 'now',
                 ] );
-                $msg = 'Your plan has been updated and you have been billed the prorated difference for the rest of this period.';
+                $msg = 'Your plan has been upgraded. You have been charged the full new plan price today and your access is updated immediately.';
                 self::logAdminAction( $owner['customer_id'], $action, $subId, null, null, $reason, true, null );
                 self::sendSelfActionEmail(
                     $owner['customer_id'],
-                    'Your plan has changed',
-                    '<p>Your plan was switched and you have been billed the prorated difference for the rest of this billing period.</p><p>Your <a href="' . esc_url( home_url( '/manage-subscription/' ) ) . '">subscription page</a> shows the current state.</p>'
+                    'Your plan has been upgraded',
+                    '<p>Your plan was upgraded and you have been charged the full new plan price today. Your new billing period starts now.</p><p>Your <a href="' . esc_url( home_url( '/manage-subscription/' ) ) . '">subscription page</a> shows the current state.</p>'
                 );
                 return new WP_REST_Response( [
                     'ok'      => true,

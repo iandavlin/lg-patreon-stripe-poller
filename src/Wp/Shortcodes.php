@@ -1735,30 +1735,62 @@ final class Shortcodes
                         plansEl.innerHTML = '<em>No plans available.</em>';
                         return;
                     }
+                    const currentRow = rows.find(r => r.isCurrent);
+                    const currentLabel = currentRow
+                        ? currentRow.product + ' &mdash; $' + (currentRow.amount / 100).toFixed(2) + '/' + currentRow.interval
+                        : 'your current plan';
                     const renewDate = card.querySelector('[data-lg-renew-date]')?.textContent || 'your next renewal date';
-                    plansEl.innerHTML = rows.map(r => {
-                        const dollars = (r.amount / 100).toFixed(2);
-                        const label = r.product + ' &mdash; $' + dollars + '/' + r.interval + (r.isCurrent ? ' (current)' : '');
-                        const disabled = r.isCurrent ? ' disabled' : '';
-                        return '<label style="display:block;padding:0.3em 0;">' +
-                            '<input type="radio" name="newprice-' + subId + '" value="' + r.priceId + '"' + disabled + '> ' +
-                            label + '</label>';
-                    }).join('') +
-                    '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;">' +
-                        '<legend>When should the change take effect?</legend>' +
-                        '<label style="display:block;margin:0.3em 0;">' +
-                            '<input type="radio" name="timing-' + subId + '" value="now" checked> ' +
-                            '<strong>Switch now</strong> &mdash; you will be billed the prorated difference today and your access changes immediately.' +
-                        '</label>' +
-                        '<label style="display:block;margin:0.3em 0;">' +
-                            '<input type="radio" name="timing-' + subId + '" value="period_end"> ' +
-                            '<strong>Switch on ' + renewDate + '</strong> &mdash; no charge today; the change takes effect at your next renewal.' +
-                        '</label>' +
-                    '</fieldset>' +
-                    '<div style="margin-top:1em;">' +
-                        '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-confirm" data-lg-sub="' + subId + '">Confirm change</button> ' +
-                        '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-back">Never mind</button>' +
-                    '</div>';
+
+                    function buildTimingSection(selectedRow) {
+                        if (!selectedRow) {
+                            return '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;color:#888;">' +
+                                '<legend>When should the change take effect?</legend>' +
+                                '<em>Select a plan above to see timing options.</em>' +
+                            '</fieldset>';
+                        }
+                        const isUpgrade = selectedRow.amount > (currentRow ? currentRow.amount : 0);
+                        if (isUpgrade) {
+                            return '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;">' +
+                                '<legend>When should the change take effect?</legend>' +
+                                '<label style="display:block;margin:0.3em 0;">' +
+                                    '<input type="radio" name="timing-' + subId + '" value="now" checked> ' +
+                                    '<strong>Switch now</strong> &mdash; the full $' + (selectedRow.amount / 100).toFixed(2) + '/' + selectedRow.interval + ' price is charged today and your new plan starts immediately.' +
+                                '</label>' +
+                            '</fieldset>';
+                        } else {
+                            return '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;">' +
+                                '<legend>When should the change take effect?</legend>' +
+                                '<label style="display:block;margin:0.3em 0;">' +
+                                    '<input type="radio" name="timing-' + subId + '" value="period_end" checked> ' +
+                                    '<strong>Switch on ' + renewDate + '</strong> &mdash; no charge today; your current plan continues until then.' +
+                                '</label>' +
+                            '</fieldset>';
+                        }
+                    }
+
+                    plansEl.innerHTML =
+                        '<p style="margin:0 0 0.6em;font-size:0.9em;color:#555;">Current plan: <strong>' + currentLabel + '</strong></p>' +
+                        rows.map(r => {
+                            const dollars = (r.amount / 100).toFixed(2);
+                            const label = r.product + ' &mdash; $' + dollars + '/' + r.interval + (r.isCurrent ? ' <em>(current)</em>' : '');
+                            const disabled = r.isCurrent ? ' disabled' : '';
+                            return '<label style="display:block;padding:0.3em 0;">' +
+                                '<input type="radio" name="newprice-' + subId + '" value="' + r.priceId + '" data-amount="' + r.amount + '" data-interval="' + r.interval + '" data-label="' + r.product + '"' + disabled + '> ' +
+                                label + '</label>';
+                        }).join('') +
+                        '<div data-lg-timing>' + buildTimingSection(null) + '</div>' +
+                        '<div style="margin-top:1em;">' +
+                            '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-confirm" data-lg-sub="' + subId + '">Confirm change</button> ' +
+                            '<button type="button" class="lg-manage-sub__btn" data-lg-action="switch-back">Never mind</button>' +
+                        '</div>';
+
+                    // Update timing section whenever a plan radio changes.
+                    plansEl.querySelectorAll('input[name="newprice-' + subId + '"]').forEach(function(radio) {
+                        radio.addEventListener('change', function() {
+                            const selectedRow = { amount: parseInt(this.dataset.amount, 10), interval: this.dataset.interval, product: this.dataset.label };
+                            plansEl.querySelector('[data-lg-timing]').innerHTML = buildTimingSection(selectedRow);
+                        });
+                    });
 
                     plansEl.parentElement.querySelector('[data-lg-action="switch-back"]').addEventListener('click', function(){
                         switcher.style.display = 'none';
@@ -1770,9 +1802,10 @@ final class Shortcodes
                             showResult(card, 'Pick a plan first.', true);
                             return;
                         }
+                        const pickedLabel = picked.dataset.label + ' — $' + (parseInt(picked.dataset.amount, 10) / 100).toFixed(2) + '/' + picked.dataset.interval;
                         const msg = timing === 'now'
-                            ? 'Switch to this plan now and be charged the prorated difference today?'
-                            : 'Schedule the switch for ' + renewDate + '? You will not be charged today.';
+                            ? 'Upgrade to ' + pickedLabel + '? You will be charged the full price today and your new plan starts immediately.'
+                            : 'Schedule the switch to ' + pickedLabel + ' for ' + renewDate + '? Your current plan continues until then and no charge today.';
                         if (!confirm(msg)) return;
                         ev.target.disabled = true;
                         ev.target.textContent = 'Working...';
