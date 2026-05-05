@@ -2058,7 +2058,7 @@ final class Shortcodes
                                 '<em>Select a plan above to see timing options.</em>' +
                             '</fieldset>';
                         }
-                        const isUpgrade = selectedRow.interval === 'year' || selectedRow.amount > (currentRow ? currentRow.amount : 0);
+                        const isUpgrade = selectedRow.amount > (currentRow ? currentRow.amount : 0);
                         if (isUpgrade) {
                             return '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;">' +
                                 '<legend>When should the change take effect?</legend>' +
