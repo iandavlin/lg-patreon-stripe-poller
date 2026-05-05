@@ -1567,10 +1567,11 @@ final class Shortcodes
                 <p><a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">Pick a plan to get started &rarr;</a></p>
             <?php else : ?>
                 <?php foreach ( $subs as $sub ) :
-                    $subId = (string) $sub['stripe_subscription_id'];
-                    $tier  = self::tierLabelForPrice( (string) $sub['stripe_price_id'] );
-                    $endsAt = (string) ( $sub['current_period_end'] ?? '' );
-                    $cape   = (int) ( $sub['cancel_at_period_end'] ?? 0 ) === 1;
+                    $subId   = (string) $sub['stripe_subscription_id'];
+                    $tier    = self::tierLabelForPrice( (string) $sub['stripe_price_id'] );
+                    $endsAt  = (string) ( $sub['current_period_end'] ?? '' );
+                    $cape    = (int) ( $sub['cancel_at_period_end'] ?? 0 ) === 1;
+                    $daysLeft = self::daysRemaining( $endsAt );
                 ?>
                 <div class="lg-manage-sub__card" style="border:1px solid #ddd;border-radius:6px;padding:1em 1.2em;margin-bottom:1em;max-width:640px;" data-lg-sub="<?php echo esc_attr( $subId ); ?>">
                     <h4 style="margin:0 0 0.5em;"><?php echo esc_html( $tier ?: 'Membership' ); ?></h4>
@@ -1578,8 +1579,14 @@ final class Shortcodes
                         Status: <strong><?php echo esc_html( (string) $sub['status'] ); ?></strong><br>
                         <?php if ( $cape ) : ?>
                             Ends on <strong data-lg-renew-date><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong> &mdash; will not renew.
+                            <?php if ( $daysLeft !== null ) : ?>
+                                <span style="color:#888;font-size:0.9em;">(<?php echo esc_html( (string) $daysLeft ); ?> day<?php echo $daysLeft === 1 ? '' : 's'; ?> left)</span>
+                            <?php endif; ?>
                         <?php else : ?>
                             Renews on <strong data-lg-renew-date><?php echo esc_html( self::shortDate( $endsAt ) ); ?></strong>
+                            <?php if ( $daysLeft !== null ) : ?>
+                                <span style="color:#888;font-size:0.9em;">(<?php echo esc_html( (string) $daysLeft ); ?> day<?php echo $daysLeft === 1 ? '' : 's'; ?> left)</span>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </p>
 
@@ -1748,7 +1755,7 @@ final class Shortcodes
                                 '<em>Select a plan above to see timing options.</em>' +
                             '</fieldset>';
                         }
-                        const isUpgrade = selectedRow.amount > (currentRow ? currentRow.amount : 0);
+                        const isUpgrade = selectedRow.interval === 'year' || selectedRow.amount > (currentRow ? currentRow.amount : 0);
                         if (isUpgrade) {
                             return '<fieldset style="margin-top:1em;border:1px solid #eee;padding:0.8em 1em;">' +
                                 '<legend>When should the change take effect?</legend>' +
@@ -3718,6 +3725,14 @@ final class Shortcodes
     {
         $ts = $datetime ? strtotime( $datetime ) : false;
         return $ts ? gmdate( 'M j, Y', $ts ) : 'unknown date';
+    }
+
+    private static function daysRemaining( string $datetime ): ?int
+    {
+        $ts = $datetime ? strtotime( $datetime ) : false;
+        if ( ! $ts ) return null;
+        $diff = $ts - time();
+        return $diff > 0 ? (int) ceil( $diff / DAY_IN_SECONDS ) : 0;
     }
 
     /**
