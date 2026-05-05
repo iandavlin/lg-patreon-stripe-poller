@@ -2519,7 +2519,9 @@ final class Shortcodes
                 if (joinCheckoutModal) joinCheckoutModal.hidden = false;
                 document.body.classList.add('lg-modal-open');
 
-                customCheckout = await stripe.initCheckout({ clientSecret: clientSecret });
+                customCheckout = await stripe.initCheckout({
+                    fetchClientSecret: async () => clientSecret,
+                });
 
                 // Reflect Stripe's "ready to confirm" state into the Pay button.
                 customCheckout.on('change', (session) => {
