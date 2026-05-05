@@ -892,7 +892,6 @@ final class Shortcodes
                 showGiftCheckoutError('');
 
                 if (checkoutModal) checkoutModal.dataset.lgLocked = '1';
-                markPaymentInFlight();
 
                 const origLabel = giftPayLabelEl ? giftPayLabelEl.textContent : '';
                 if (giftPayLabelEl) giftPayLabelEl.textContent = 'Processing…';
@@ -902,18 +901,31 @@ final class Shortcodes
                     const result = await giftCustomCheckout.confirm();
                     if (result && result.error) {
                         if (checkoutModal) delete checkoutModal.dataset.lgLocked;
-                        paymentInFlight = false;
-                        window.removeEventListener('beforeunload', preventNavWhileProcessing);
                         showGiftCheckoutError(result.error.message || 'Payment failed. Please try again.');
                         if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
                         giftPayBt.disabled = false;
                         return;
                     }
-                    showProcessingOverlay();
+
+                    // Success — same self-driven redirect pattern as lg_join:
+                    // hide modal, unmount Payment Element (kills Stripe's
+                    // beforeunload), navigate ourselves.
+                    let sessionId = '';
+                    try { sessionId = (giftCustomCheckout.session && giftCustomCheckout.session().id) || ''; } catch (_) {}
+                    const returnUrl = sessionId
+                        ? '<?php echo esc_js( esc_url_raw( home_url( '/billing/v1/return' ) ) ); ?>?session_id=' + encodeURIComponent(sessionId)
+                        : '<?php echo esc_js( esc_url_raw( home_url( '/activity/' ) ) ); ?>';
+
+                    if (checkoutModal) checkoutModal.hidden = true;
+                    teardownGiftMount();
+
+                    paymentCompleted = true;
+                    if (processingOverlay) processingOverlay.hidden = false;
+                    document.body.classList.add('lg-modal-open');
+
+                    window.location.href = returnUrl;
                 } catch (err) {
                     if (checkoutModal) delete checkoutModal.dataset.lgLocked;
-                    paymentInFlight = false;
-                    window.removeEventListener('beforeunload', preventNavWhileProcessing);
                     showGiftCheckoutError('Network error: ' + (err && err.message ? err.message : err));
                     if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
                     giftPayBt.disabled = false;
@@ -2681,12 +2693,9 @@ final class Shortcodes
                 if (!customCheckout || !payBt || payBt.disabled) return;
                 showCheckoutError('');
 
-                // Lock the modal BEFORE confirm: the X / backdrop become
-                // inert so a panic-click can't tear down the iframe-equivalent
-                // mid-charge. This is the whole reason we moved to custom UI
-                // mode — embedded mode hid this exact moment.
+                // Lock the modal at click time — the X / backdrop become inert
+                // so a panic-click can't tear down the form mid-charge.
                 if (joinCheckoutModal) joinCheckoutModal.dataset.lgLocked = '1';
-                markJoinPaymentInFlight();
 
                 const origLabel = payLabelEl ? payLabelEl.textContent : '';
                 if (payLabelEl) payLabelEl.textContent = 'Processing…';
@@ -2698,20 +2707,35 @@ final class Shortcodes
                         // Re-open the escape hatches so the customer can fix
                         // the error and retry, or back out cleanly.
                         if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
-                        joinPaymentInFlight = false;
-                        window.removeEventListener('beforeunload', preventJoinNavWhileProcessing);
                         showCheckoutError(result.error.message || 'Payment failed. Please try again.');
                         if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
                         payBt.disabled = false;
                         return;
                     }
-                    // Success → Stripe is redirecting to return_url. Show the
-                    // processing overlay so the page doesn't look frozen mid-redirect.
-                    showJoinProcessingOverlay();
+
+                    // Success path — drive the redirect ourselves so Stripe's
+                    // beforeunload doesn't fire on its auto-redirect:
+                    //   1) Read the session ID off the live custom-checkout
+                    //   2) Hide the modal
+                    //   3) Unmount the Payment Element (removes Stripe's beforeunload)
+                    //   4) Show processing overlay during the brief /v1/return → /activity/ hop
+                    //   5) window.location.href ourselves
+                    let sessionId = '';
+                    try { sessionId = (customCheckout.session && customCheckout.session().id) || ''; } catch (_) {}
+                    const returnUrl = sessionId
+                        ? '<?php echo esc_js( esc_url_raw( home_url( '/billing/v1/return' ) ) ); ?>?session_id=' + encodeURIComponent(sessionId)
+                        : '<?php echo esc_js( esc_url_raw( home_url( '/activity/' ) ) ); ?>';
+
+                    if (joinCheckoutModal) joinCheckoutModal.hidden = true;
+                    teardownCheckoutMount();
+
+                    joinPaymentCompleted = true;
+                    if (joinProcessingOverlay) joinProcessingOverlay.hidden = false;
+                    document.body.classList.add('lg-modal-open');
+
+                    window.location.href = returnUrl;
                 } catch (err) {
                     if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
-                    joinPaymentInFlight = false;
-                    window.removeEventListener('beforeunload', preventJoinNavWhileProcessing);
                     showCheckoutError('Network error: ' + (err && err.message ? err.message : err));
                     if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
                     payBt.disabled = false;
