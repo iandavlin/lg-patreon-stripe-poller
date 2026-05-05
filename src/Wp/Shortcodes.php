@@ -191,10 +191,10 @@ final class Shortcodes
                     </div>
                 </div>
 
-                <div class="lg-co-modal" data-lg-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
-                    <div class="lg-co-modal__backdrop" data-lg-checkout-close></div>
-                    <div class="lg-co-modal__card">
-                        <button type="button" class="lg-co-modal__close" data-lg-checkout-close aria-label="Close checkout">&times;</button>
+                <div class="lg-pay-modal" data-lg-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
+                    <div class="lg-pay-modal__backdrop" data-lg-checkout-close></div>
+                    <div class="lg-pay-modal__card">
+                        <button type="button" class="lg-pay-modal__close" data-lg-checkout-close aria-label="Close checkout">&times;</button>
 
                         <!-- In-modal processing overlay: shown while confirm() runs. -->
                         <div class="lg-modal-processing" data-lg-gift-modal-processing hidden aria-hidden="true">
@@ -203,24 +203,24 @@ final class Shortcodes
                         </div>
 
                         <!-- Embedded path: kept for fallback if server returns ui_mode=embedded. -->
-                        <div class="lg-co-modal__body" data-lg-gift-checkout></div>
+                        <div class="lg-pay-modal__body" data-lg-gift-checkout></div>
 
                         <!-- Custom path (Basil): we mount Stripe Elements + render our own Pay button. -->
-                        <div class="lg-co-modal__custom lg-stripe-modal" data-lg-gift-checkout-custom hidden>
+                        <div class="lg-pay-modal__custom lg-stripe-modal" data-lg-gift-checkout-custom hidden>
                             <div class="lg-stripe-modal__header">
                                 <div class="lg-stripe-modal__heading">Complete your purchase</div>
                                 <div class="lg-stripe-modal__amount" data-lg-gift-pay-amount>&nbsp;</div>
                                 <div class="lg-stripe-modal__sublabel" data-lg-gift-pay-sublabel>&nbsp;</div>
                             </div>
-                            <div class="lg-co-modal__pe lg-stripe-modal__pe" data-lg-gift-payment-element></div>
-                            <div class="lg-co-modal__error lg-stripe-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
-                            <button type="button" class="lg-co-modal__pay lg-stripe-modal__pay" data-lg-gift-checkout-pay disabled>
+                            <div class="lg-stripe-modal__pe" data-lg-gift-payment-element></div>
+                            <div class="lg-stripe-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
+                            <button type="button" class="lg-stripe-modal__pay" data-lg-gift-checkout-pay disabled>
                                 <span data-lg-gift-pay-label>Pay</span>
                             </button>
-                            <p class="lg-co-modal__secured">
-                                <svg class="lg-co-modal__secured-lock" xmlns="http://www.w3.org/2000/svg" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true"><path fill="currentColor" d="M5.5 0C3.567 0 2 1.567 2 3.5V5h-.5A1.5 1.5 0 0 0 0 6.5v5A1.5 1.5 0 0 0 1.5 13h8a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 9.5 5H9V3.5C9 1.567 7.433 0 5.5 0Zm0 1.5A2 2 0 0 1 7.5 3.5V5h-4V3.5a2 2 0 0 1 2-2Z"/></svg>
+                            <p class="lg-stripe-modal__secured">
+                                <svg class="lg-stripe-modal__secured-lock" xmlns="http://www.w3.org/2000/svg" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true"><path fill="currentColor" d="M5.5 0C3.567 0 2 1.567 2 3.5V5h-.5A1.5 1.5 0 0 0 0 6.5v5A1.5 1.5 0 0 0 1.5 13h8a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 9.5 5H9V3.5C9 1.567 7.433 0 5.5 0Zm0 1.5A2 2 0 0 1 7.5 3.5V5h-4V3.5a2 2 0 0 1 2-2Z"/></svg>
                                 <span>Powered by</span>
-                                <svg class="lg-co-modal__secured-mark" xmlns="http://www.w3.org/2000/svg" width="42" height="18" viewBox="0 0 60 25" aria-hidden="true" role="img" aria-label="Stripe"><path fill="#635BFF" d="M59.64 14.28h-8.06c.19 1.93 1.6 2.55 3.2 2.55 1.64 0 2.96-.37 4.05-.95v3.32a8.33 8.33 0 0 1-4.56 1.1c-4.01 0-6.83-2.5-6.83-7.48 0-4.19 2.39-7.52 6.3-7.52 3.92 0 5.96 3.28 5.96 7.5 0 .4-.04 1.26-.06 1.48zm-5.92-5.62c-1.03 0-2.17.73-2.17 2.58h4.25c0-1.85-1.07-2.58-2.08-2.58zM40.95 20.3c-1.44 0-2.32-.6-2.9-1.04l-.02 4.63-4.12.87V5.57h3.76l.08 1.02a4.7 4.7 0 0 1 3.23-1.29c2.9 0 5.62 2.6 5.62 7.4 0 5.23-2.7 7.6-5.65 7.6zM40 9.04c-.95 0-1.54.34-1.97.81l.02 6.12c.4.44.98.78 1.95.78 1.52 0 2.54-1.65 2.54-3.87 0-2.15-1.04-3.84-2.54-3.84zM28.24 5.57h4.13v14.44h-4.13V5.57zm0-4.7L32.37 0v3.36l-4.13.88V.88zm-4.32 9.35v9.79H19.8V5.57h3.7l.12 1.22c1-1.77 3.07-1.41 3.62-1.22v3.79c-.52-.17-2.29-.43-3.32.86zm-8.55 4.72c0 2.43 2.6 1.68 3.12 1.46v3.36c-.55.3-1.54.54-2.89.54a4.15 4.15 0 0 1-4.27-4.24l.01-13.17 4.02-.86v3.54h3.14V9.1h-3.14l.01 5.85zm-4.91.7c0 2.97-2.31 4.66-5.73 4.66a11.2 11.2 0 0 1-4.46-.93v-3.93c1.38.75 3.1 1.31 4.46 1.31.92 0 1.53-.24 1.53-1C6.26 13.77 0 14.51 0 9.95 0 7.04 2.28 5.3 5.62 5.3c1.36 0 2.72.2 4.09.75v3.88a9.23 9.23 0 0 0-4.1-1.06c-.86 0-1.44.25-1.44.93 0 1.85 6.29.97 6.29 5.83z"/></svg>
+                                <svg class="lg-stripe-modal__secured-mark" xmlns="http://www.w3.org/2000/svg" width="42" height="18" viewBox="0 0 60 25" aria-hidden="true" role="img" aria-label="Stripe"><path fill="#635BFF" d="M59.64 14.28h-8.06c.19 1.93 1.6 2.55 3.2 2.55 1.64 0 2.96-.37 4.05-.95v3.32a8.33 8.33 0 0 1-4.56 1.1c-4.01 0-6.83-2.5-6.83-7.48 0-4.19 2.39-7.52 6.3-7.52 3.92 0 5.96 3.28 5.96 7.5 0 .4-.04 1.26-.06 1.48zm-5.92-5.62c-1.03 0-2.17.73-2.17 2.58h4.25c0-1.85-1.07-2.58-2.08-2.58zM40.95 20.3c-1.44 0-2.32-.6-2.9-1.04l-.02 4.63-4.12.87V5.57h3.76l.08 1.02a4.7 4.7 0 0 1 3.23-1.29c2.9 0 5.62 2.6 5.62 7.4 0 5.23-2.7 7.6-5.65 7.6zM40 9.04c-.95 0-1.54.34-1.97.81l.02 6.12c.4.44.98.78 1.95.78 1.52 0 2.54-1.65 2.54-3.87 0-2.15-1.04-3.84-2.54-3.84zM28.24 5.57h4.13v14.44h-4.13V5.57zm0-4.7L32.37 0v3.36l-4.13.88V.88zm-4.32 9.35v9.79H19.8V5.57h3.7l.12 1.22c1-1.77 3.07-1.41 3.62-1.22v3.79c-.52-.17-2.29-.43-3.32.86zm-8.55 4.72c0 2.43 2.6 1.68 3.12 1.46v3.36c-.55.3-1.54.54-2.89.54a4.15 4.15 0 0 1-4.27-4.24l.01-13.17 4.02-.86v3.54h3.14V9.1h-3.14l.01 5.85zm-4.91.7c0 2.97-2.31 4.66-5.73 4.66a11.2 11.2 0 0 1-4.46-.93v-3.93c1.38.75 3.1 1.31 4.46 1.31.92 0 1.53-.24 1.53-1C6.26 13.77 0 14.51 0 9.95 0 7.04 2.28 5.3 5.62 5.3c1.36 0 2.72.2 4.09.75v3.88a9.23 9.23 0 0 0-4.1-1.06c-.86 0-1.44.25-1.44.93 0 1.85 6.29.97 6.29 5.83z"/></svg>
                             </p>
                         </div>
                     </div>
@@ -231,6 +231,28 @@ final class Shortcodes
                     <div class="lg-processing__spinner" aria-hidden="true"></div>
                     <h3 class="lg-processing__title">Still processing your payment&hellip;</h3>
                     <p class="lg-processing__body">Your payment went through. We&rsquo;re finalizing your order &mdash; please don&rsquo;t close this tab. You&rsquo;ll be redirected in a moment.</p>
+                </div>
+            </div>
+
+            <!-- Gift purchase success — gift codes are delivered by email, so
+                 instead of redirecting away we show a confirmation modal in
+                 place. Webhook + reconcile cron handle fulfillment server-side. -->
+            <div class="lg-gift-success" data-lg-gift-success hidden role="dialog" aria-modal="true" aria-labelledby="lg-gift-success-title">
+                <div class="lg-gift-success__card">
+                    <div class="lg-gift-success__icon" aria-hidden="true">&#10003;</div>
+                    <h3 id="lg-gift-success-title" class="lg-gift-success__title">Payment received &mdash; thank you!</h3>
+                    <p class="lg-gift-success__body">
+                        Your gift codes are on the way. We&rsquo;ve emailed them to <span class="lg-gift-success__email" data-lg-gift-success-email>your inbox</span>.
+                        It can take a minute or two to land.
+                    </p>
+                    <div class="lg-gift-success__actions">
+                        <?php if ( is_user_logged_in() ): ?>
+                            <a class="lg-gift-success__btn lg-gift-success__btn--primary" href="<?php echo esc_url( home_url( '/my-gifts/' ) ); ?>">View my gifts</a>
+                            <button type="button" class="lg-gift-success__btn lg-gift-success__btn--ghost" data-lg-gift-success-close>Close</button>
+                        <?php else: ?>
+                            <button type="button" class="lg-gift-success__btn lg-gift-success__btn--primary" data-lg-gift-success-close>Done</button>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
 
@@ -453,73 +475,9 @@ final class Shortcodes
             .lg-gift--checkout-locked .lg-gift__panel { pointer-events: none; opacity: .6; }
             .lg-gift--checkout-locked .lg-gift__submit { pointer-events: none; opacity: .55; cursor: not-allowed; }
 
-            /* Stripe embedded-checkout modal — !important everywhere because
-               the BuddyBoss theme injects rules that fight non-themed UI.
-               These elements get moved to <body> at runtime so ancestor
-               transforms can't break position:fixed. */
-            .lg-co-modal { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1.2em !important; margin: 0 !important; }
-            .lg-co-modal[hidden] { display: none !important; }
-            .lg-co-modal__backdrop { position: absolute !important; inset: 0 !important; background: rgba(0,0,0,0.78) !important; }
-            .lg-co-modal__card { position: relative !important; background: #fff !important; border-radius: 14px !important; width: 100% !important; max-width: 720px !important; max-height: 92vh !important; overflow: hidden !important; box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important; display: flex !important; flex-direction: column !important; margin: 0 auto !important; }
-            .lg-co-modal__close { position: absolute !important; top: .55em !important; right: .55em !important; width: 2.1em !important; height: 2.1em !important; padding: 0 !important; background: #fff !important; border: 1px solid rgba(0,0,0,0.15) !important; border-radius: 50% !important; font-size: 1.4em !important; line-height: 1 !important; cursor: pointer !important; color: #333 !important; z-index: 2 !important; box-shadow: 0 3px 8px rgba(0,0,0,0.18) !important; display: flex !important; align-items: center !important; justify-content: center !important; }
-            .lg-co-modal__close:hover { color: #000 !important; background: #f3f3f3 !important; }
-            .lg-co-modal__body { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 0 !important; }
-            .lg-co-modal__body[hidden] { display: none !important; }
-            .lg-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
-            .lg-co-modal__custom { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 1.6em 1.4em 1.4em !important; display: flex !important; flex-direction: column !important; gap: 1em !important; background: #fff !important; }
-            .lg-co-modal__custom[hidden] { display: none !important; }
-            .lg-co-modal__pe { background: #fff !important; }
-            .lg-co-modal__error { color: #b91c1c !important; font-size: .92em !important; line-height: 1.4 !important; padding: .6em .8em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 8px !important; }
-            .lg-co-modal__error[hidden] { display: none !important; }
-            .lg-co-modal__pay { width: 100% !important; padding: .9em 1em !important; font-size: 1.05em !important; font-weight: 700 !important; background: var(--lg-amber, #ECB351) !important; color: #1f1d1a !important; border: none !important; border-radius: 10px !important; cursor: pointer !important; box-shadow: 0 4px 14px rgba(236, 179, 81, 0.45) !important; transition: opacity .15s, transform .05s !important; }
-            .lg-co-modal__pay:hover:not(:disabled) { opacity: .92 !important; }
-            .lg-co-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
-            .lg-co-modal__pay:disabled { opacity: .55 !important; cursor: not-allowed !important; box-shadow: none !important; }
-
-            /* ─── Stripe-flavored Pay modal (shared with join) ──────────────
-               Hardened against Elementor button-color overrides. */
-            .lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
-            .lg-stripe-modal__header { padding: 0 0 .85em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1em !important; text-align: center !important; }
-            .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin: 0 !important; }
-            .lg-stripe-modal__amount { font-size: 1.8em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.15 !important; letter-spacing: -.01em !important; margin-top: .35em !important; }
-            .lg-stripe-modal__amount[hidden],
-            .lg-stripe-modal__sublabel[hidden] { display: none !important; }
-            .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .15em !important; }
-            .lg-stripe-modal__pe { background: #fff !important; }
-            .lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
-            .lg-stripe-modal__error[hidden] { display: none !important; }
-            .lg-stripe-modal__pay,
-            button.lg-stripe-modal__pay,
-            button[type="button"].lg-stripe-modal__pay {
-                width: 100% !important;
-                padding: .95em 1em !important;
-                font-size: 1em !important;
-                font-weight: 600 !important;
-                font-family: inherit !important;
-                background: #635BFF !important;
-                background-color: #635BFF !important;
-                color: #fff !important;
-                border: 0 !important;
-                border-radius: 6px !important;
-                cursor: pointer !important;
-                box-shadow: 0 1px 2px rgba(50,50,93,0.10), 0 1px 1px rgba(0,0,0,0.07) !important;
-                transition: background-color .15s, box-shadow .15s, transform .05s !important;
-                text-shadow: none !important;
-                letter-spacing: 0 !important;
-                text-transform: none !important;
-            }
-            .lg-stripe-modal__pay:hover:not(:disabled),
-            button.lg-stripe-modal__pay:hover:not(:disabled) { background: #5851ea !important; background-color: #5851ea !important; box-shadow: 0 4px 12px rgba(99,91,255,0.35) !important; color: #fff !important; }
-            .lg-stripe-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
-            .lg-stripe-modal__pay:disabled,
-            button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; background-color: #c7c4ff !important; color: #fff !important; cursor: not-allowed !important; box-shadow: none !important; opacity: 1 !important; }
-            .lg-co-modal__secured { margin: .4em 0 0 !important; text-align: center !important; font-size: .78em !important; color: #6b6b6b !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: .4em !important; }
-            .lg-co-modal__secured-lock { color: #6b6b6b !important; flex-shrink: 0 !important; }
-            .lg-co-modal__secured-mark { display: block !important; }
-            @media (max-width: 700px) {
-                .lg-co-modal { padding: 0 !important; }
-                .lg-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
-            }
+            /* Pay modal styles (.lg-pay-modal* + .lg-stripe-modal* + .lg-modal-processing*)
+               are defined in assets/lg-shortcodes.css — single source of truth shared
+               with [lg_join]. */
 
             /* Anonymous-checkout warning modal — same pattern as the consent
                modal so it escapes BuddyBoss containing-block traps. */
@@ -595,15 +553,8 @@ final class Shortcodes
                 .lg-processing__title { margin: 0 0 .6em; font-size: 1.15em; font-weight: 700; }
                 .lg-processing__body  { margin: 0; font-size: .92em; line-height: 1.5; color: #444; }
                 @keyframes lg-processing-spin { to { transform: rotate(360deg); } }
-                /* Once Stripe iframe is mounted, lock the modal closed. The X
-                   button disappears and backdrop dismiss is disabled until
-                   Stripe completes the session (success → redirect, or expiry).
-                   This eliminates the "user closes mid-charge → paid but
-                   stranded" failure mode at the UI source. */
-                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__close { display: none !important; }
-                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__backdrop { pointer-events: none !important; }
-                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__close { display: none !important; }
-                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__backdrop { pointer-events: none !important; }
+                /* Pay-modal lock styles live in assets/lg-shortcodes.css under
+                   .lg-pay-modal[data-lg-locked="1"]. */
         </style>
         <!-- Basil release of Stripe.js — required for stripe.initCheckout()
              (custom UI mode). Must match the API-version pin on the Slim side. -->
@@ -972,23 +923,34 @@ final class Shortcodes
                         return;
                     }
 
-                    // Success — same self-driven redirect pattern as lg_join:
-                    // hide modal, unmount Payment Element (kills Stripe's
-                    // beforeunload), navigate ourselves.
+                    // Success — gift codes are delivered by email, so we don't
+                    // redirect away. Show an in-page success modal and let the
+                    // webhook + /v1/return fast-path provision asynchronously.
                     let sessionId = '';
                     try { sessionId = (giftCustomCheckout.session && giftCustomCheckout.session().id) || ''; } catch (_) {}
-                    const returnUrl = sessionId
-                        ? '<?php echo esc_js( esc_url_raw( home_url( '/billing/v1/return' ) ) ); ?>?session_id=' + encodeURIComponent(sessionId)
-                        : '<?php echo esc_js( esc_url_raw( home_url( '/activity/' ) ) ); ?>';
 
-                    if (checkoutModal) checkoutModal.hidden = true;
+                    // Fire-and-forget kick of the idempotent fast-path so emails
+                    // go out immediately rather than waiting for the webhook.
+                    if (sessionId) {
+                        try {
+                            fetch('<?php echo esc_js( esc_url_raw( home_url( '/billing/v1/return' ) ) ); ?>?session_id=' + encodeURIComponent(sessionId), {
+                                method: 'GET',
+                                credentials: 'omit',
+                                redirect: 'manual',
+                                keepalive: true,
+                            }).catch(() => {});
+                        } catch (_) {}
+                    }
+
                     teardownGiftMount();
-
+                    if (checkoutModal) {
+                        delete checkoutModal.dataset.lgLocked;
+                        checkoutModal.hidden = true;
+                    }
                     paymentCompleted = true;
-                    if (processingOverlay) processingOverlay.hidden = false;
-                    document.body.classList.add('lg-modal-open');
+                    window.removeEventListener('beforeunload', preventNavWhileProcessing);
 
-                    window.location.href = returnUrl;
+                    showGiftSuccessModal(pendingEmail || '');
                 } catch (err) {
                     if (checkoutModal) delete checkoutModal.dataset.lgLocked;
                     if (giftModalProcessingEl) giftModalProcessingEl.hidden = true;
@@ -1006,6 +968,27 @@ final class Shortcodes
                 unlockCheckout();
                 recompute();
             }
+
+            const giftSuccessModal = document.querySelector('[data-lg-gift-success]');
+            const giftSuccessEmailEl = document.querySelector('[data-lg-gift-success-email]');
+            if (giftSuccessModal && giftSuccessModal.parentNode !== document.body) {
+                document.body.appendChild(giftSuccessModal);
+            }
+            function showGiftSuccessModal(email) {
+                if (giftSuccessEmailEl && email) giftSuccessEmailEl.textContent = email;
+                if (giftSuccessModal) giftSuccessModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+            }
+            document.querySelectorAll('[data-lg-gift-success-close]').forEach(el => {
+                el.addEventListener('click', () => {
+                    if (giftSuccessModal) giftSuccessModal.hidden = true;
+                    document.body.classList.remove('lg-modal-open');
+                    paymentCompleted = false;
+                    paymentInFlight = false;
+                    unlockCheckout();
+                    recompute();
+                });
+            });
 
             // Two-stage close protection for the Stripe checkout modal:
             //
@@ -1992,15 +1975,27 @@ final class Shortcodes
                     <button type="button" class="lg-join__continue is-primary" data-lg-continue>Continue to checkout</button>
                     <button type="button" class="lg-join__back" data-lg-back>Change plan</button>
                 </div>
+                <div class="lg-pay-methods" aria-label="Accepted payment methods">
+                    <span class="lg-pay-methods__label">Secure checkout &mdash; we accept</span>
+                    <ul class="lg-pay-methods__list">
+                        <li class="lg-pm lg-pm--visa" title="Visa"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="13" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-style="italic" font-size="13" fill="#fff" letter-spacing="0.5">VISA</text></svg></li>
+                        <li class="lg-pm lg-pm--mc" title="Mastercard"><svg viewBox="0 0 32 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="13" cy="10" r="6.5" fill="#EB001B"/><circle cx="19" cy="10" r="6.5" fill="#F79E1B" fill-opacity=".95"/><path d="M16 5.2a6.5 6.5 0 0 0 0 9.6 6.5 6.5 0 0 0 0-9.6z" fill="#FF5F00"/></svg></li>
+                        <li class="lg-pm lg-pm--amex" title="American Express"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="12" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-size="9" fill="#fff" letter-spacing="0.5">AMEX</text></svg></li>
+                        <li class="lg-pm lg-pm--apple" title="Apple Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#fff" d="M11.6 6.1c-.7.8-1.7 1.5-2.8 1.4-.1-1.1.4-2.2 1-2.9.7-.8 1.9-1.4 2.8-1.4.1 1.1-.4 2.2-1 2.9zm1 1.6c-1.6-.1-2.9.9-3.7.9-.7 0-1.9-.9-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.5.8 1.1 1.7 2.4 3 2.4 1.2-.1 1.7-.8 3.2-.8 1.5 0 1.9.8 3.2.7 1.3 0 2.2-1.2 3-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.5-1-2.6-3.8 0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.8-1.8-3.7-1.9z"/><text x="22" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#fff">Pay</text></svg></li>
+                        <li class="lg-pm lg-pm--google" title="Google Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9.4 11.4v3.5h-1.1V6.3h2.9c.7 0 1.4.3 1.9.8.5.5.8 1.2.8 1.9 0 .7-.3 1.4-.8 1.9-.5.5-1.1.8-1.9.8h-1.8zm0-4.1v3.1h1.9c.4 0 .8-.2 1.1-.5.6-.6.6-1.5 0-2.1-.3-.3-.7-.5-1.1-.5h-1.9zm6.4 1.2c.8 0 1.5.2 2 .7.5.4.7 1 .7 1.8v3.6h-1.1v-.8h-.1c-.5.7-1.1 1-1.8 1-.6 0-1.1-.2-1.5-.6-.4-.3-.6-.8-.6-1.3 0-.6.2-1 .6-1.4.4-.3 1-.5 1.7-.5.6 0 1.1.1 1.5.3v-.3c0-.4-.1-.7-.4-1-.3-.3-.6-.4-1-.4-.6 0-1.1.3-1.5.8l-1-.6c.5-.8 1.3-1.3 2.5-1.3zm-1.5 4.4c0 .2.1.4.3.6.2.2.4.2.7.2.4 0 .8-.1 1.1-.4.3-.3.5-.7.5-1.1-.3-.3-.8-.4-1.4-.4-.4 0-.8.1-1 .3-.2.2-.2.5-.2.8zm10.4-4.2L21.1 17h-1.2l1.4-3-2.4-5.3h1.2l1.7 4.1 1.7-4.1h1.2z" fill="#5F6368"/><path d="M33 10.7c0-.3 0-.6-.1-.9h-4.5v1.7h2.6c-.1.6-.4 1.1-.9 1.4v1.2h1.5c.9-.8 1.4-2 1.4-3.4z" fill="#4285F4"/><path d="M28.4 15.5c1.3 0 2.4-.4 3.2-1.2l-1.5-1.2c-.4.3-1 .5-1.7.5-1.3 0-2.4-.9-2.8-2h-1.6v1.2c.8 1.6 2.5 2.7 4.4 2.7z" fill="#34A853"/><path d="M25.6 11.6c-.2-.6-.2-1.3 0-1.9V8.5H24c-.7 1.3-.7 2.9 0 4.3l1.6-1.2z" fill="#FBBC04"/><path d="M28.4 7.6c.7 0 1.4.3 1.9.7l1.4-1.4c-.9-.8-2.1-1.3-3.3-1.2-1.9 0-3.6 1.1-4.4 2.7l1.6 1.2c.4-1.1 1.4-2 2.8-2z" fill="#EA4335"/><text x="36" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#5F6368">Pay</text></svg></li>
+                        <li class="lg-pm lg-pm--paypal" title="PayPal"><svg viewBox="0 0 60 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="30" y="12" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-style="italic" font-size="11" fill="#003087">Pay<tspan fill="#009CDE">Pal</tspan></text></svg></li>
+                        <li class="lg-pm lg-pm--link" title="Stripe Link"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="12" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="10" fill="#1f1d1a">Link</text></svg></li>
+                    </ul>
+                </div>
             </div>
 
-            <div class="lg-join-co-modal" data-lg-join-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
-                <div class="lg-join-co-modal__backdrop" data-lg-join-checkout-close></div>
-                <div class="lg-join-co-modal__card">
-                    <button type="button" class="lg-join-co-modal__close" data-lg-join-checkout-close aria-label="Close checkout">&times;</button>
+            <div class="lg-pay-modal" data-lg-join-checkout-modal hidden role="dialog" aria-modal="true" aria-label="Secure checkout">
+                <div class="lg-pay-modal__backdrop" data-lg-join-checkout-close></div>
+                <div class="lg-pay-modal__card">
+                    <button type="button" class="lg-pay-modal__close" data-lg-join-checkout-close aria-label="Close checkout">&times;</button>
 
                     <!-- Embedded path (one-time + regional setup): Stripe owns the iframe + Pay button. -->
-                    <div class="lg-join-co-modal__body" data-lg-join-checkout></div>
+                    <div class="lg-pay-modal__body" data-lg-join-checkout></div>
 
                     <!-- In-modal processing overlay: covers the whole card while
                          confirm() runs so the user sees an unmistakable "we're
@@ -2011,21 +2006,21 @@ final class Shortcodes
                     </div>
 
                     <!-- Custom path (subscription): we mount Stripe Elements ourselves and render our own Pay button. -->
-                    <div class="lg-join-co-modal__custom lg-stripe-modal" data-lg-join-checkout-custom hidden>
+                    <div class="lg-pay-modal__custom lg-stripe-modal" data-lg-join-checkout-custom hidden>
                         <div class="lg-stripe-modal__header">
                             <div class="lg-stripe-modal__heading">Complete your purchase</div>
                             <div class="lg-stripe-modal__amount" data-lg-pay-amount>&nbsp;</div>
                             <div class="lg-stripe-modal__sublabel" data-lg-pay-sublabel>&nbsp;</div>
                         </div>
-                        <div class="lg-join-co-modal__pe lg-stripe-modal__pe" data-lg-join-payment-element></div>
-                        <div class="lg-join-co-modal__error lg-stripe-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
-                        <button type="button" class="lg-join-co-modal__pay lg-stripe-modal__pay" data-lg-join-checkout-pay disabled>
+                        <div class="lg-stripe-modal__pe" data-lg-join-payment-element></div>
+                        <div class="lg-stripe-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
+                        <button type="button" class="lg-stripe-modal__pay" data-lg-join-checkout-pay disabled>
                             <span data-lg-pay-label>Pay</span>
                         </button>
-                        <p class="lg-join-co-modal__secured">
-                            <svg class="lg-join-co-modal__secured-lock" xmlns="http://www.w3.org/2000/svg" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true"><path fill="currentColor" d="M5.5 0C3.567 0 2 1.567 2 3.5V5h-.5A1.5 1.5 0 0 0 0 6.5v5A1.5 1.5 0 0 0 1.5 13h8a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 9.5 5H9V3.5C9 1.567 7.433 0 5.5 0Zm0 1.5A2 2 0 0 1 7.5 3.5V5h-4V3.5a2 2 0 0 1 2-2Z"/></svg>
+                        <p class="lg-stripe-modal__secured">
+                            <svg class="lg-stripe-modal__secured-lock" xmlns="http://www.w3.org/2000/svg" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true"><path fill="currentColor" d="M5.5 0C3.567 0 2 1.567 2 3.5V5h-.5A1.5 1.5 0 0 0 0 6.5v5A1.5 1.5 0 0 0 1.5 13h8a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 9.5 5H9V3.5C9 1.567 7.433 0 5.5 0Zm0 1.5A2 2 0 0 1 7.5 3.5V5h-4V3.5a2 2 0 0 1 2-2Z"/></svg>
                             <span>Powered by</span>
-                            <svg class="lg-join-co-modal__secured-mark" xmlns="http://www.w3.org/2000/svg" width="42" height="18" viewBox="0 0 60 25" aria-hidden="true" role="img" aria-label="Stripe"><path fill="#635BFF" d="M59.64 14.28h-8.06c.19 1.93 1.6 2.55 3.2 2.55 1.64 0 2.96-.37 4.05-.95v3.32a8.33 8.33 0 0 1-4.56 1.1c-4.01 0-6.83-2.5-6.83-7.48 0-4.19 2.39-7.52 6.3-7.52 3.92 0 5.96 3.28 5.96 7.5 0 .4-.04 1.26-.06 1.48zm-5.92-5.62c-1.03 0-2.17.73-2.17 2.58h4.25c0-1.85-1.07-2.58-2.08-2.58zM40.95 20.3c-1.44 0-2.32-.6-2.9-1.04l-.02 4.63-4.12.87V5.57h3.76l.08 1.02a4.7 4.7 0 0 1 3.23-1.29c2.9 0 5.62 2.6 5.62 7.4 0 5.23-2.7 7.6-5.65 7.6zM40 9.04c-.95 0-1.54.34-1.97.81l.02 6.12c.4.44.98.78 1.95.78 1.52 0 2.54-1.65 2.54-3.87 0-2.15-1.04-3.84-2.54-3.84zM28.24 5.57h4.13v14.44h-4.13V5.57zm0-4.7L32.37 0v3.36l-4.13.88V.88zm-4.32 9.35v9.79H19.8V5.57h3.7l.12 1.22c1-1.77 3.07-1.41 3.62-1.22v3.79c-.52-.17-2.29-.43-3.32.86zm-8.55 4.72c0 2.43 2.6 1.68 3.12 1.46v3.36c-.55.3-1.54.54-2.89.54a4.15 4.15 0 0 1-4.27-4.24l.01-13.17 4.02-.86v3.54h3.14V9.1h-3.14l.01 5.85zm-4.91.7c0 2.97-2.31 4.66-5.73 4.66a11.2 11.2 0 0 1-4.46-.93v-3.93c1.38.75 3.1 1.31 4.46 1.31.92 0 1.53-.24 1.53-1C6.26 13.77 0 14.51 0 9.95 0 7.04 2.28 5.3 5.62 5.3c1.36 0 2.72.2 4.09.75v3.88a9.23 9.23 0 0 0-4.1-1.06c-.86 0-1.44.25-1.44.93 0 1.85 6.29.97 6.29 5.83z"/></svg>
+                            <svg class="lg-stripe-modal__secured-mark" xmlns="http://www.w3.org/2000/svg" width="42" height="18" viewBox="0 0 60 25" aria-hidden="true" role="img" aria-label="Stripe"><path fill="#635BFF" d="M59.64 14.28h-8.06c.19 1.93 1.6 2.55 3.2 2.55 1.64 0 2.96-.37 4.05-.95v3.32a8.33 8.33 0 0 1-4.56 1.1c-4.01 0-6.83-2.5-6.83-7.48 0-4.19 2.39-7.52 6.3-7.52 3.92 0 5.96 3.28 5.96 7.5 0 .4-.04 1.26-.06 1.48zm-5.92-5.62c-1.03 0-2.17.73-2.17 2.58h4.25c0-1.85-1.07-2.58-2.08-2.58zM40.95 20.3c-1.44 0-2.32-.6-2.9-1.04l-.02 4.63-4.12.87V5.57h3.76l.08 1.02a4.7 4.7 0 0 1 3.23-1.29c2.9 0 5.62 2.6 5.62 7.4 0 5.23-2.7 7.6-5.65 7.6zM40 9.04c-.95 0-1.54.34-1.97.81l.02 6.12c.4.44.98.78 1.95.78 1.52 0 2.54-1.65 2.54-3.87 0-2.15-1.04-3.84-2.54-3.84zM28.24 5.57h4.13v14.44h-4.13V5.57zm0-4.7L32.37 0v3.36l-4.13.88V.88zm-4.32 9.35v9.79H19.8V5.57h3.7l.12 1.22c1-1.77 3.07-1.41 3.62-1.22v3.79c-.52-.17-2.29-.43-3.32.86zm-8.55 4.72c0 2.43 2.6 1.68 3.12 1.46v3.36c-.55.3-1.54.54-2.89.54a4.15 4.15 0 0 1-4.27-4.24l.01-13.17 4.02-.86v3.54h3.14V9.1h-3.14l.01 5.85zm-4.91.7c0 2.97-2.31 4.66-5.73 4.66a11.2 11.2 0 0 1-4.46-.93v-3.93c1.38.75 3.1 1.31 4.46 1.31.92 0 1.53-.24 1.53-1C6.26 13.77 0 14.51 0 9.95 0 7.04 2.28 5.3 5.62 5.3c1.36 0 2.72.2 4.09.75v3.88a9.23 9.23 0 0 0-4.1-1.06c-.86 0-1.44.25-1.44.93 0 1.85 6.29.97 6.29 5.83z"/></svg>
                         </p>
                     </div>
                 </div>
@@ -2094,82 +2089,9 @@ final class Shortcodes
                 .lg-giftwarn__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a; }
                 .lg-giftwarn__btn--primary:hover { opacity: .88; }
                 .lg-giftwarn__btn:disabled { opacity: .45; cursor: not-allowed; }
-                .lg-join-co-modal { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1.2em !important; }
-                .lg-join-co-modal[hidden] { display: none !important; }
-                .lg-join-co-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.78); }
-                .lg-join-co-modal__card { position: relative; background: #fff; border-radius: 14px; width: 100%; max-width: 720px; max-height: 92vh; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,0.55); display: flex; flex-direction: column; }
-                .lg-join-co-modal__close { position: absolute; top: .55em; right: .55em; width: 2.1em; height: 2.1em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.4em; line-height: 1; cursor: pointer; color: #333; z-index: 2; box-shadow: 0 3px 8px rgba(0,0,0,0.18); display: flex; align-items: center; justify-content: center; }
-                .lg-join-co-modal__close:hover { color: #000; background: #f3f3f3; }
-                .lg-join-co-modal__body { flex: 1; min-height: 0; overflow: auto; padding: 0; }
-                .lg-join-co-modal__body[hidden] { display: none !important; }
-                .lg-join-co-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
-                /* Custom UI mode (subscription path): we mount Stripe Elements ourselves. */
-                .lg-join-co-modal__custom { flex: 1; min-height: 0; overflow: auto; padding: 1.6em 1.4em 1.4em; display: flex; flex-direction: column; gap: 1em; background: #fff; }
-                .lg-join-co-modal__custom[hidden] { display: none !important; }
-                .lg-join-co-modal__pe { background: #fff; }
-                .lg-join-co-modal__error { color: #b91c1c; font-size: .92em; line-height: 1.4; padding: .6em .8em; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; }
-                .lg-join-co-modal__error[hidden] { display: none !important; }
-                .lg-join-co-modal__pay {
-                    width: 100%; padding: .9em 1em; font-size: 1.05em; font-weight: 700;
-                    background: var(--lg-amber, #ECB351); color: #1f1d1a;
-                    border: none; border-radius: 10px; cursor: pointer;
-                    box-shadow: 0 4px 14px rgba(236, 179, 81, 0.45);
-                    transition: opacity .15s, transform .05s;
-                }
-                .lg-join-co-modal__pay:hover:not(:disabled) { opacity: .92; }
-                .lg-join-co-modal__pay:active:not(:disabled) { transform: translateY(1px); }
-                .lg-join-co-modal__pay:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
-                /* Shared in-modal processing overlay (also used by gift modal). */
-                .lg-modal-processing { position: absolute; inset: 0; z-index: 5; background: rgba(255,255,255,0.96); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1em; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
-                .lg-modal-processing[hidden] { display: none; }
-                .lg-modal-processing__spinner { width: 64px; height: 64px; border: 5px solid rgba(0,0,0,0.08); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-pay-spin 0.85s linear infinite; }
-                .lg-modal-processing__label { margin: 0; font-size: 1em; font-weight: 600; color: #1f1d1a; }
-                @keyframes lg-pay-spin { to { transform: rotate(360deg); } }
-
-                /* ─── Stripe-flavored Pay modal (shared with gift) ──────────────
-                   Heavy !important to beat Elementor's button color overrides. */
-                .lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
-                .lg-stripe-modal__header { padding: 0 0 .85em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1em !important; text-align: center !important; }
-                .lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin: 0 !important; }
-                .lg-stripe-modal__amount { font-size: 1.8em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.15 !important; letter-spacing: -.01em !important; margin-top: .35em !important; }
-                .lg-stripe-modal__amount[hidden],
-                .lg-stripe-modal__sublabel[hidden] { display: none !important; }
-                .lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .15em !important; }
-                .lg-stripe-modal__pe { background: #fff !important; }
-                .lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
-                .lg-stripe-modal__error[hidden] { display: none !important; }
-                .lg-stripe-modal__pay,
-                button.lg-stripe-modal__pay,
-                button[type="button"].lg-stripe-modal__pay {
-                    width: 100% !important;
-                    padding: .95em 1em !important;
-                    font-size: 1em !important;
-                    font-weight: 600 !important;
-                    font-family: inherit !important;
-                    background: #635BFF !important;
-                    background-color: #635BFF !important;
-                    color: #fff !important;
-                    border: 0 !important;
-                    border-radius: 6px !important;
-                    cursor: pointer !important;
-                    box-shadow: 0 1px 2px rgba(50,50,93,0.10), 0 1px 1px rgba(0,0,0,0.07) !important;
-                    transition: background-color .15s, box-shadow .15s, transform .05s !important;
-                    text-shadow: none !important;
-                    letter-spacing: 0 !important;
-                    text-transform: none !important;
-                }
-                .lg-stripe-modal__pay:hover:not(:disabled),
-                button.lg-stripe-modal__pay:hover:not(:disabled) { background: #5851ea !important; background-color: #5851ea !important; box-shadow: 0 4px 12px rgba(99,91,255,0.35) !important; color: #fff !important; }
-                .lg-stripe-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
-                .lg-stripe-modal__pay:disabled,
-                button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; background-color: #c7c4ff !important; color: #fff !important; cursor: not-allowed !important; box-shadow: none !important; opacity: 1 !important; }
-                .lg-join-co-modal__secured { margin: .4em 0 0; text-align: center; font-size: .78em; color: #6b6b6b; display: flex; align-items: center; justify-content: center; gap: .4em; }
-                .lg-join-co-modal__secured-lock { color: #6b6b6b; flex-shrink: 0; }
-                .lg-join-co-modal__secured-mark { display: block; }
-                @media (max-width: 700px) {
-                    .lg-join-co-modal { padding: 0 !important; }
-                    .lg-join-co-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
-                }
+                /* Pay modal styles (.lg-pay-modal* + .lg-stripe-modal* + .lg-modal-processing*)
+                   are defined in assets/lg-shortcodes.css — single source of truth shared
+                   with [lg_gift]. */
 
                 /* Fields use the form grid; inputs fill their cell so columns align. */
                 .lg-join__field label { display: block; }
@@ -2204,15 +2126,8 @@ final class Shortcodes
                 .lg-processing__title { margin: 0 0 .6em; font-size: 1.15em; font-weight: 700; }
                 .lg-processing__body  { margin: 0; font-size: .92em; line-height: 1.5; color: #444; }
                 @keyframes lg-processing-spin { to { transform: rotate(360deg); } }
-                /* Once Stripe iframe is mounted, lock the modal closed. The X
-                   button disappears and backdrop dismiss is disabled until
-                   Stripe completes the session (success → redirect, or expiry).
-                   This eliminates the "user closes mid-charge → paid but
-                   stranded" failure mode at the UI source. */
-                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__close { display: none !important; }
-                .lg-co-modal[data-lg-locked="1"] .lg-co-modal__backdrop { pointer-events: none !important; }
-                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__close { display: none !important; }
-                .lg-join-co-modal[data-lg-locked="1"] .lg-join-co-modal__backdrop { pointer-events: none !important; }
+                /* Pay-modal lock styles live in assets/lg-shortcodes.css under
+                   .lg-pay-modal[data-lg-locked="1"]. */
             </style>
             <div class="lg-giftwarn" data-lg-giftwarn-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-giftwarn-title">
                 <div class="lg-giftwarn__backdrop" data-lg-giftwarn-cancel></div>

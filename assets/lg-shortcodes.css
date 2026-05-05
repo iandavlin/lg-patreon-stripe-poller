@@ -597,3 +597,106 @@
     .lg-join__hero h2 { font-size: 1.7em; }
     .lg-join__tiers { gap: 1em; }
 }
+
+/* ─── Unified pay modal (shared by [lg_join] and [lg_gift]) ────────────
+   Single source of truth so both checkout flows look identical.
+   Class hooks are wrapper-agnostic; data-* attributes still drive JS. */
+.lg-pay-modal { position: fixed !important; inset: 0 !important; z-index: 2147483600 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1.2em !important; margin: 0 !important; }
+.lg-pay-modal[hidden] { display: none !important; }
+.lg-pay-modal__backdrop { position: absolute !important; inset: 0 !important; background: rgba(0,0,0,0.78) !important; }
+.lg-pay-modal__card { position: relative !important; background: #fff !important; border-radius: 14px !important; width: 100% !important; max-width: 720px !important; max-height: 92vh !important; overflow: hidden !important; box-shadow: 0 24px 70px rgba(0,0,0,0.55) !important; display: flex !important; flex-direction: column !important; margin: 0 auto !important; }
+.lg-pay-modal__close { position: absolute !important; top: .55em !important; right: .55em !important; width: 2.1em !important; height: 2.1em !important; padding: 0 !important; background: #fff !important; border: 1px solid rgba(0,0,0,0.15) !important; border-radius: 50% !important; font-size: 1.4em !important; line-height: 1 !important; cursor: pointer !important; color: #333 !important; z-index: 2 !important; box-shadow: 0 3px 8px rgba(0,0,0,0.18) !important; display: flex !important; align-items: center !important; justify-content: center !important; }
+.lg-pay-modal__close:hover { color: #000 !important; background: #f3f3f3 !important; }
+.lg-pay-modal__body { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 0 !important; }
+.lg-pay-modal__body[hidden] { display: none !important; }
+.lg-pay-modal__body iframe { width: 100% !important; min-height: 78vh !important; border: 0 !important; display: block !important; }
+.lg-pay-modal__custom { flex: 1 !important; min-height: 0 !important; overflow: auto !important; padding: 1.6em 1.4em 1.4em !important; display: flex !important; flex-direction: column !important; gap: 1em !important; background: #fff !important; }
+.lg-pay-modal__custom[hidden] { display: none !important; }
+.lg-pay-modal[data-lg-locked="1"] .lg-pay-modal__close { display: none !important; }
+.lg-pay-modal[data-lg-locked="1"] .lg-pay-modal__backdrop { pointer-events: none !important; }
+@media (max-width: 700px) {
+    .lg-pay-modal { padding: 0 !important; }
+    .lg-pay-modal__card { max-height: 100vh !important; height: 100vh !important; max-width: 100% !important; border-radius: 0 !important; }
+}
+
+/* In-modal processing overlay (post-Pay-click, while confirm() runs). */
+.lg-modal-processing { position: absolute; inset: 0; z-index: 5; background: rgba(255,255,255,0.96); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1em; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+.lg-modal-processing[hidden] { display: none; }
+.lg-modal-processing__spinner { width: 64px; height: 64px; border: 5px solid rgba(0,0,0,0.08); border-top-color: var(--lg-amber, #ECB351); border-radius: 50%; animation: lg-pay-spin 0.85s linear infinite; }
+.lg-modal-processing__label { margin: 0; font-size: 1em; font-weight: 600; color: #1f1d1a; }
+@keyframes lg-pay-spin { to { transform: rotate(360deg); } }
+
+/* Stripe-flavored payment card (header + amount + Pay button + Stripe wordmark). */
+.lg-stripe-modal { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important; color: #30313d !important; }
+.lg-stripe-modal__header { padding: 0 0 .85em !important; border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1em !important; text-align: center !important; }
+.lg-stripe-modal__heading { font-size: .82em !important; font-weight: 500 !important; color: #6b7280 !important; letter-spacing: .02em !important; text-transform: uppercase !important; margin: 0 !important; }
+.lg-stripe-modal__amount { font-size: 1.8em !important; font-weight: 700 !important; color: #30313d !important; line-height: 1.15 !important; letter-spacing: -.01em !important; margin-top: .35em !important; }
+.lg-stripe-modal__amount[hidden],
+.lg-stripe-modal__sublabel[hidden] { display: none !important; }
+.lg-stripe-modal__sublabel { font-size: .88em !important; color: #6b7280 !important; margin-top: .15em !important; }
+.lg-stripe-modal__pe { background: #fff !important; }
+.lg-stripe-modal__error { color: #df1b41 !important; font-size: .9em !important; line-height: 1.4 !important; padding: .65em .85em !important; background: #fef2f2 !important; border: 1px solid #fecaca !important; border-radius: 6px !important; }
+.lg-stripe-modal__error[hidden] { display: none !important; }
+.lg-stripe-modal__pay,
+button.lg-stripe-modal__pay,
+button[type="button"].lg-stripe-modal__pay {
+    width: 100% !important;
+    padding: .95em 1em !important;
+    font-size: 1em !important;
+    font-weight: 600 !important;
+    font-family: inherit !important;
+    background: #635BFF !important;
+    background-color: #635BFF !important;
+    color: #fff !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    box-shadow: 0 1px 2px rgba(50,50,93,0.10), 0 1px 1px rgba(0,0,0,0.07) !important;
+    transition: background-color .15s, box-shadow .15s, transform .05s !important;
+    text-shadow: none !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+}
+.lg-stripe-modal__pay:hover:not(:disabled),
+button.lg-stripe-modal__pay:hover:not(:disabled) { background: #5851ea !important; background-color: #5851ea !important; box-shadow: 0 4px 12px rgba(99,91,255,0.35) !important; color: #fff !important; }
+.lg-stripe-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
+.lg-stripe-modal__pay:disabled,
+button.lg-stripe-modal__pay:disabled { background: #c7c4ff !important; background-color: #c7c4ff !important; color: #fff !important; cursor: not-allowed !important; box-shadow: none !important; opacity: 1 !important; }
+.lg-stripe-modal__secured { margin: .4em 0 0 !important; text-align: center !important; font-size: .78em !important; color: #6b6b6b !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: .4em !important; }
+.lg-stripe-modal__secured-lock { color: #6b6b6b !important; flex-shrink: 0 !important; }
+.lg-stripe-modal__secured-mark { display: block !important; }
+
+/* Gift-purchase success modal — shown after a successful confirm() instead
+   of a redirect, since gift codes are delivered by email and there's no
+   meaningful per-user landing page for the anon flow. */
+.lg-gift-success { position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 1em !important; background: rgba(0,0,0,0.78) !important; }
+.lg-gift-success[hidden] { display: none !important; }
+.lg-gift-success__card { position: relative; background: #fff; border-radius: 14px; padding: 2.2em 1.9em 1.8em; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 24px 70px rgba(0,0,0,0.55); color: #1f1d1a; }
+.lg-gift-success__icon { width: 56px; height: 56px; margin: 0 auto .85em; background: var(--lg-amber, #ECB351); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.7em; font-weight: 700; line-height: 1; }
+.lg-gift-success__title { margin: 0 0 .5em; font-size: 1.35em; font-weight: 700; }
+.lg-gift-success__body { margin: 0 0 1.4em; font-size: .95em; line-height: 1.5; color: #444; }
+.lg-gift-success__email { font-weight: 600; color: #1f1d1a; }
+.lg-gift-success__actions { display: flex; gap: .65em; justify-content: center; flex-wrap: wrap; }
+.lg-gift-success__btn { padding: .7em 1.3em; border-radius: 8px; font-weight: 600; font-size: .95em; cursor: pointer; border: none; text-decoration: none; display: inline-block; transition: opacity .15s, background .15s; }
+.lg-gift-success__btn--primary { background: var(--lg-amber, #ECB351); color: #1f1d1a !important; }
+.lg-gift-success__btn--primary:hover { opacity: .88; }
+.lg-gift-success__btn--ghost { background: transparent; border: 1.5px solid rgba(0,0,0,0.2); color: #1f1d1a !important; }
+.lg-gift-success__btn--ghost:hover { background: rgba(0,0,0,0.04); }
+
+/* "We accept" badge row — trust signal under the checkout CTA. */
+.lg-pay-methods { margin: 1.2em auto 0; max-width: 640px; text-align: center; }
+.lg-pay-methods__label { display: block; font-size: .8em; font-weight: 500; color: #6b7280; letter-spacing: .04em; text-transform: uppercase; margin-bottom: .55em; }
+.lg-pay-methods__list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .45em; justify-content: center; align-items: center; }
+.lg-pm { display: inline-flex; align-items: center; justify-content: center; height: 28px; min-width: 44px; padding: 0 .5em; border-radius: 5px; background: #fff; border: 1px solid rgba(0,0,0,0.10); box-shadow: 0 1px 2px rgba(0,0,0,0.05); box-sizing: border-box; }
+.lg-pm svg { display: block; height: 16px; width: auto; }
+.lg-pm--visa { background: #1A1F71; border-color: #1A1F71; }
+.lg-pm--mc { background: #fff; }
+.lg-pm--amex { background: #006FCF; border-color: #006FCF; }
+.lg-pm--apple { background: #000; border-color: #000; }
+.lg-pm--google { background: #fff; }
+.lg-pm--paypal { background: #fff; }
+.lg-pm--link { background: #00D66F; border-color: #00D66F; }
+@media (max-width: 480px) {
+    .lg-pm { height: 24px; min-width: 38px; }
+    .lg-pm svg { height: 13px; }
+}
