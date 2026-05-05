@@ -2527,9 +2527,15 @@ final class Shortcodes
                 customCheckout.on('change', (session) => {
                     if (!payBt) return;
                     payBt.disabled = !session.canConfirm;
-                    if (payLabelEl && session.total && session.total.total) {
-                        const cents = session.total.total.amount;
-                        payLabelEl.textContent = 'Pay $' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
+                    if (payLabelEl) {
+                        const cents = session && session.total && session.total.total
+                            ? session.total.total.amount
+                            : null;
+                        if (typeof cents === 'number' && !isNaN(cents)) {
+                            payLabelEl.textContent = 'Pay $' + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
+                        } else {
+                            payLabelEl.textContent = 'Pay';
+                        }
                     }
                 });
 
