@@ -204,6 +204,7 @@ final class Shortcodes
                             <div class="lg-co-modal__pe" data-lg-gift-payment-element></div>
                             <div class="lg-co-modal__error" data-lg-gift-checkout-error role="alert" hidden></div>
                             <button type="button" class="lg-co-modal__pay" data-lg-gift-checkout-pay disabled>
+                                <span class="lg-co-modal__pay-spinner" data-lg-gift-pay-spinner aria-hidden="true" hidden></span>
                                 <span data-lg-gift-pay-label>Pay</span>
                             </button>
                             <p class="lg-co-modal__secured">
@@ -464,6 +465,10 @@ final class Shortcodes
             .lg-co-modal__pay:hover:not(:disabled) { opacity: .92 !important; }
             .lg-co-modal__pay:active:not(:disabled) { transform: translateY(1px) !important; }
             .lg-co-modal__pay:disabled { opacity: .55 !important; cursor: not-allowed !important; box-shadow: none !important; }
+            .lg-co-modal__pay { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: .55em !important; }
+            .lg-co-modal__pay-spinner { width: 1.05em !important; height: 1.05em !important; border: 2.5px solid rgba(31,29,26,0.25) !important; border-top-color: #1f1d1a !important; border-radius: 50% !important; animation: lg-pay-spin 0.7s linear infinite !important; display: inline-block !important; }
+            .lg-co-modal__pay-spinner[hidden] { display: none !important; }
+            @keyframes lg-pay-spin { to { transform: rotate(360deg); } }
             .lg-co-modal__secured { margin: .4em 0 0 !important; text-align: center !important; font-size: .78em !important; color: #6b6b6b !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: .4em !important; }
             .lg-co-modal__secured-lock { color: #6b6b6b !important; flex-shrink: 0 !important; }
             .lg-co-modal__secured-mark { display: block !important; }
@@ -582,6 +587,7 @@ final class Shortcodes
             const giftPayBt      = document.querySelector('[data-lg-gift-checkout-pay]');
             const giftPayLabelEl = document.querySelector('[data-lg-gift-pay-label]');
             const giftCustomErrorEl = document.querySelector('[data-lg-gift-checkout-error]');
+            const giftPaySpinnerEl  = document.querySelector('[data-lg-gift-pay-spinner]');
             const qtyInput    = document.querySelector('input[name="quantity"]');
             const emailInput  = document.querySelector('input[name="email"]');
 
@@ -895,6 +901,7 @@ final class Shortcodes
 
                 const origLabel = giftPayLabelEl ? giftPayLabelEl.textContent : '';
                 if (giftPayLabelEl) giftPayLabelEl.textContent = 'Processing…';
+                if (giftPaySpinnerEl) giftPaySpinnerEl.hidden = false;
                 giftPayBt.disabled = true;
 
                 try {
@@ -903,6 +910,7 @@ final class Shortcodes
                         if (checkoutModal) delete checkoutModal.dataset.lgLocked;
                         showGiftCheckoutError(result.error.message || 'Payment failed. Please try again.');
                         if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
+                        if (giftPaySpinnerEl) giftPaySpinnerEl.hidden = true;
                         giftPayBt.disabled = false;
                         return;
                     }
@@ -928,6 +936,7 @@ final class Shortcodes
                     if (checkoutModal) delete checkoutModal.dataset.lgLocked;
                     showGiftCheckoutError('Network error: ' + (err && err.message ? err.message : err));
                     if (giftPayLabelEl) giftPayLabelEl.textContent = origLabel || 'Pay';
+                    if (giftPaySpinnerEl) giftPaySpinnerEl.hidden = true;
                     giftPayBt.disabled = false;
                 }
             }
@@ -1941,11 +1950,13 @@ final class Shortcodes
                         <div class="lg-join-co-modal__pe" data-lg-join-payment-element></div>
                         <div class="lg-join-co-modal__error" data-lg-join-checkout-error role="alert" hidden></div>
                         <button type="button" class="lg-join-co-modal__pay" data-lg-join-checkout-pay disabled>
+                            <span class="lg-co-modal__pay-spinner" data-lg-pay-spinner aria-hidden="true" hidden></span>
                             <span data-lg-pay-label>Pay</span>
                         </button>
                         <p class="lg-join-co-modal__secured">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1l3 5h6l-5 4 2 7-6-4-6 4 2-7-5-4h6z"/></svg>
-                            Secured by Stripe
+                            <svg class="lg-join-co-modal__secured-lock" xmlns="http://www.w3.org/2000/svg" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true"><path fill="currentColor" d="M5.5 0C3.567 0 2 1.567 2 3.5V5h-.5A1.5 1.5 0 0 0 0 6.5v5A1.5 1.5 0 0 0 1.5 13h8a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 9.5 5H9V3.5C9 1.567 7.433 0 5.5 0Zm0 1.5A2 2 0 0 1 7.5 3.5V5h-4V3.5a2 2 0 0 1 2-2Z"/></svg>
+                            <span>Powered by</span>
+                            <svg class="lg-join-co-modal__secured-mark" xmlns="http://www.w3.org/2000/svg" width="42" height="18" viewBox="0 0 60 25" aria-hidden="true" role="img" aria-label="Stripe"><path fill="#635BFF" d="M59.64 14.28h-8.06c.19 1.93 1.6 2.55 3.2 2.55 1.64 0 2.96-.37 4.05-.95v3.32a8.33 8.33 0 0 1-4.56 1.1c-4.01 0-6.83-2.5-6.83-7.48 0-4.19 2.39-7.52 6.3-7.52 3.92 0 5.96 3.28 5.96 7.5 0 .4-.04 1.26-.06 1.48zm-5.92-5.62c-1.03 0-2.17.73-2.17 2.58h4.25c0-1.85-1.07-2.58-2.08-2.58zM40.95 20.3c-1.44 0-2.32-.6-2.9-1.04l-.02 4.63-4.12.87V5.57h3.76l.08 1.02a4.7 4.7 0 0 1 3.23-1.29c2.9 0 5.62 2.6 5.62 7.4 0 5.23-2.7 7.6-5.65 7.6zM40 9.04c-.95 0-1.54.34-1.97.81l.02 6.12c.4.44.98.78 1.95.78 1.52 0 2.54-1.65 2.54-3.87 0-2.15-1.04-3.84-2.54-3.84zM28.24 5.57h4.13v14.44h-4.13V5.57zm0-4.7L32.37 0v3.36l-4.13.88V.88zm-4.32 9.35v9.79H19.8V5.57h3.7l.12 1.22c1-1.77 3.07-1.41 3.62-1.22v3.79c-.52-.17-2.29-.43-3.32.86zm-8.55 4.72c0 2.43 2.6 1.68 3.12 1.46v3.36c-.55.3-1.54.54-2.89.54a4.15 4.15 0 0 1-4.27-4.24l.01-13.17 4.02-.86v3.54h3.14V9.1h-3.14l.01 5.85zm-4.91.7c0 2.97-2.31 4.66-5.73 4.66a11.2 11.2 0 0 1-4.46-.93v-3.93c1.38.75 3.1 1.31 4.46 1.31.92 0 1.53-.24 1.53-1C6.26 13.77 0 14.51 0 9.95 0 7.04 2.28 5.3 5.62 5.3c1.36 0 2.72.2 4.09.75v3.88a9.23 9.23 0 0 0-4.1-1.06c-.86 0-1.44.25-1.44.93 0 1.85 6.29.97 6.29 5.83z"/></svg>
                         </p>
                     </div>
                 </div>
@@ -2039,6 +2050,10 @@ final class Shortcodes
                 .lg-join-co-modal__pay:hover:not(:disabled) { opacity: .92; }
                 .lg-join-co-modal__pay:active:not(:disabled) { transform: translateY(1px); }
                 .lg-join-co-modal__pay:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+                .lg-join-co-modal__pay { display: inline-flex; align-items: center; justify-content: center; gap: .55em; }
+                .lg-co-modal__pay-spinner { width: 1.05em; height: 1.05em; border: 2.5px solid rgba(31,29,26,0.25); border-top-color: #1f1d1a; border-radius: 50%; animation: lg-pay-spin 0.7s linear infinite; display: inline-block; }
+                .lg-co-modal__pay-spinner[hidden] { display: none; }
+                @keyframes lg-pay-spin { to { transform: rotate(360deg); } }
                 .lg-join-co-modal__secured { margin: .4em 0 0; text-align: center; font-size: .78em; color: #6b6b6b; display: flex; align-items: center; justify-content: center; gap: .4em; }
                 .lg-join-co-modal__secured-lock { color: #6b6b6b; flex-shrink: 0; }
                 .lg-join-co-modal__secured-mark { display: block; }
@@ -2208,6 +2223,7 @@ final class Shortcodes
             const payBt      = document.querySelector('[data-lg-join-checkout-pay]');
             const payLabelEl = document.querySelector('[data-lg-pay-label]');
             const customErrorEl = document.querySelector('[data-lg-join-checkout-error]');
+            const paySpinnerEl  = document.querySelector('[data-lg-pay-spinner]');
             const errorEl    = document.querySelector('[data-lg-join-error]');
             // Existing-account modal — fired when /gift-auth says incorrect
             // password for an email that already has a WP user. Push the
@@ -2699,6 +2715,7 @@ final class Shortcodes
 
                 const origLabel = payLabelEl ? payLabelEl.textContent : '';
                 if (payLabelEl) payLabelEl.textContent = 'Processing…';
+                if (paySpinnerEl) paySpinnerEl.hidden = false;
                 payBt.disabled = true;
 
                 try {
@@ -2709,6 +2726,7 @@ final class Shortcodes
                         if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
                         showCheckoutError(result.error.message || 'Payment failed. Please try again.');
                         if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
+                        if (paySpinnerEl) paySpinnerEl.hidden = true;
                         payBt.disabled = false;
                         return;
                     }
@@ -2738,6 +2756,7 @@ final class Shortcodes
                     if (joinCheckoutModal) delete joinCheckoutModal.dataset.lgLocked;
                     showCheckoutError('Network error: ' + (err && err.message ? err.message : err));
                     if (payLabelEl) payLabelEl.textContent = origLabel || 'Pay';
+                    if (paySpinnerEl) paySpinnerEl.hidden = true;
                     payBt.disabled = false;
                 }
             }
