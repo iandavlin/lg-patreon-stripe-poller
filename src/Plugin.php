@@ -431,10 +431,6 @@ final class Plugin
         if ( wp_doing_ajax() ) {
             return; // do not corrupt XHR responses
         }
-        if ( function_exists( 'is_page' ) && is_page( 'welcome' ) ) {
-            return; // /welcome/ has its own confirmation UI; don't double-celebrate
-        }
-
         $userId = get_current_user_id();
         $tier   = (string) get_user_meta( $userId, '_lg_pending_welcome', true );
         if ( $tier === '' ) {
@@ -447,24 +443,19 @@ final class Plugin
             'looth4' => 'Looth Premium Plus',
         ][ $tier ] ?? 'Looth';
 
-        $endpoint = esc_url_raw( rest_url( self::class === 'LGMS\Plugin' ? 'lg-member-sync/v1/dismiss-welcome' : 'lg-member-sync/v1/dismiss-welcome' ) );
+        $endpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/dismiss-welcome' ) );
         $nonce    = wp_create_nonce( 'wp_rest' );
-        $manage   = esc_url( home_url( '/manage-subscription/' ) );
         $titleEsc = esc_html( "🎉 Welcome to {$tierLabel}!" );
         $bodyEsc  = esc_html( 'Your membership is active. You now have full access to forums, archives, member events, and more.' );
-        $manageEsc = esc_html( 'Manage subscription' );
-        $gotitEsc  = esc_html( 'Got it →' );
+        $closeEsc = esc_attr__( 'Close', 'lg-patreon-stripe-poller' );
 
         ?>
         <div id="lg-welcome-modal" class="lg-welcome-modal" role="dialog" aria-modal="true" aria-labelledby="lg-welcome-title">
             <div class="lg-welcome-modal__backdrop" data-lg-welcome-dismiss></div>
             <div class="lg-welcome-modal__card">
+                <button type="button" class="lg-welcome-modal__close" data-lg-welcome-dismiss aria-label="<?php echo $closeEsc; ?>">&times;</button>
                 <h3 id="lg-welcome-title" class="lg-welcome-modal__title"><?php echo $titleEsc; ?></h3>
                 <p class="lg-welcome-modal__body"><?php echo $bodyEsc; ?></p>
-                <div class="lg-welcome-modal__actions">
-                    <a class="lg-welcome-modal__manage" href="<?php echo $manage; ?>"><?php echo $manageEsc; ?></a>
-                    <button type="button" class="lg-welcome-modal__btn" data-lg-welcome-dismiss><?php echo $gotitEsc; ?></button>
-                </div>
             </div>
         </div>
         <style>
@@ -473,13 +464,10 @@ final class Plugin
             .lg-welcome-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
             .lg-welcome-modal__card { position: relative; background: #fff; color: #1f1d1a; border: 2px solid var(--lg-amber, #ECB351); border-radius: 12px; padding: 1.8em 1.6em; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.45); transform: translateY(16px); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
             .lg-welcome-modal.is-visible .lg-welcome-modal__card { transform: translateY(0); }
+            .lg-welcome-modal__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.3em; line-height: 1; cursor: pointer; color: #333; display: flex; align-items: center; justify-content: center; transition: background .15s, color .15s; }
+            .lg-welcome-modal__close:hover { color: #000; background: #f3f3f3; }
             .lg-welcome-modal__title { margin: 0 0 .55em; font-size: 1.25em; font-weight: 700; line-height: 1.3; }
-            .lg-welcome-modal__body { margin: 0 0 1.3em; font-size: .95em; line-height: 1.5; color: #444; }
-            .lg-welcome-modal__actions { display: flex; gap: .6em; justify-content: center; flex-wrap: wrap; }
-            .lg-welcome-modal__btn { padding: .65em 1.3em; background: var(--lg-amber, #ECB351); color: #1f1d1a !important; border: none; border-radius: 8px; font-weight: 700; font-size: .95em; cursor: pointer; transition: opacity .15s; }
-            .lg-welcome-modal__btn:hover { opacity: .88; }
-            .lg-welcome-modal__manage { padding: .65em 1.3em; background: transparent; color: #1f1d1a !important; border: 1.5px solid rgba(0,0,0,0.2); border-radius: 8px; font-weight: 600; font-size: .92em; text-decoration: none; transition: background .15s; }
-            .lg-welcome-modal__manage:hover { background: rgba(0,0,0,0.04); }
+            .lg-welcome-modal__body { margin: 0; font-size: .95em; line-height: 1.5; color: #444; }
         </style>
         <script>
         (function(){
