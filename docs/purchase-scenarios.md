@@ -1,6 +1,6 @@
 # Purchase scenario matrix
 
-*Last updated: 2026-05-05 (session 14)*
+*Last updated: 2026-05-05 (session 15)*
 
 Map of every buyer state × purchase intent the Looth Group billing
 stack faces, with current handling status and known gaps. Mirrored in
@@ -55,14 +55,16 @@ Legend: ✅ handled · ⚠️ partial / fragile · ❌ not handled
 | Intent | Behavior | Status |
 |---|---|---|
 | Subscribe to **same** tier/interval | 409 `has_active_sub` | ✅ but no "you already have this" hint |
-| Subscribe to **higher** tier (LITE → PRO) | 409 — blocked | ⚠️ no upgrade flow — see gaps |
-| Subscribe to **lower** tier (PRO → LITE) | 409 — blocked | ⚠️ no downgrade flow — see gaps |
-| Switch billing interval (monthly → yearly) | 409 — blocked | ⚠️ no interval-switch flow — see gaps |
+| **Upgrade** (LITE → PRO, or monthly → yearly) | `[lg_manage_subscription]` plan picker → Switch now → full new price charged today, new period starts, no proration credit | ✅ |
+| **Downgrade** (PRO → LITE, any interval combo) | Plan picker → only shows "Switch on renewal date" → Subscription Schedule defers change to period end, no refund, no charge today | ✅ |
+| **Interval switch, same tier** (monthly → yearly = upgrade by amount; yearly → monthly = downgrade by amount) | Handled by the same upgrade/downgrade paths above based on price amount comparison | ✅ |
 | One-time annual on top of active sub | 409 (same guard hits non-gift paths) | ✅ correct |
 | Buy gift for someone else | Allowed, success modal | ✅ |
 | Buy gift for self | Allowed (anti-pattern but not blocked) | ⚠️ probably fine but low-effort to discourage |
-| Cancel subscription | Stripe Customer Portal | ✅ via `/v1/portal` |
-| Manage payment method | Stripe Customer Portal | ✅ |
+| Cancel subscription | On-site: cancel-at-period-end (default) or immediate. Confirmation email sent. | ✅ |
+| Manage payment method | On-site wallet: view all cards, add new (SetupIntent), set default, remove. No Stripe Portal redirect. | ✅ |
+| View billing history | On-site: inline invoice list with date, period, amount, status badge, PDF download link | ✅ |
+| Card declined on renewal | `invoice.payment_failed` event → email sent to customer with update-card link; access retained during Stripe retry window | ✅ |
 
 ### E. Logged-in user, has active **gift** entitlement (not paid sub)
 
@@ -85,7 +87,7 @@ Legend: ✅ handled · ⚠️ partial / fragile · ❌ not handled
 | Intent | Behavior | Status |
 |---|---|---|
 | Subscribe (new) | 409 — `past_due` is in `ACTIVE_STATUSES` | ✅ correct (Stripe is mid-retry) |
-| Pay invoice | Customer Portal handles | ✅ |
+| Update payment method | On-site wallet — add/set default card without leaving the page | ✅ |
 | Stripe gives up and cancels | Webhook flips to `canceled` → entitlement revoked | ✅ |
 
 ---
@@ -105,6 +107,9 @@ Legend: ✅ handled · ⚠️ partial / fragile · ❌ not handled
 | Two browser tabs, same buyer, simultaneous checkouts | Each gets separate session; first to complete provisions; second hits `has_active_sub` 409 | ✅ |
 | Promo code makes price $0 | Stripe handles via $0 invoice; sub created with `trial`-like behavior | ⚠️ untested |
 | Promo code expired/invalid | Stripe rejects with error from `confirm()` | ✅ |
+| Renewal card declined | `invoice.payment_failed` → customer email with update-card link; `past_due` retains access during retry window | ✅ |
+| Charge refunded (subscription) | `charge.refunded` event → revoke entitlement immediately | ✅ |
+| Charge refunded (gift purchase) | Unredeemed codes voided; already-redeemed codes flagged in error log for admin review — recipient access NOT auto-revoked | ✅ |
 
 ---
 
@@ -112,84 +117,63 @@ Legend: ✅ handled · ⚠️ partial / fragile · ❌ not handled
 
 ### Real product holes (worth fixing)
 
-1. **No upgrade / downgrade / interval-switch path.** Active LITE
-   subscriber who wants PRO has to cancel, wait for period end, then
-   re-subscribe — and the 409 error message tells them "manage your
-   plan" but there's no actual UI to swap tiers. The Stripe Customer
-   Portal can be configured to allow plan switches; that's the easy
-   fix, but it needs to be enabled in Dashboard portal config and the
-   link surfaced more prominently in the 409 response handler.
+1. **`charge.dispute.created` (chargeback) not handled.** A chargeback
+   should at minimum email-alert and probably revoke access pending
+   dispute resolution. Today: nothing happens.
 
-2. **`charge.refunded` webhook not registered on dev.** Handler isn't
-   in the `WebhookController::handle` match block. If you issue a
-   refund from Stripe Dashboard right now, the entitlement stays
-   granted until the linked subscription is canceled. **Real bug.**
-   Code says "refunded → revoke immediately, all cases" but nothing
-   fires.
-
-3. **`charge.dispute.created` (chargeback) not handled at all.** A
-   chargeback should at minimum email-alert and probably revoke access
-   pending dispute resolution. Today: nothing happens.
-
-4. **`invoice.payment_failed` not handled.** When a renewal fails,
-   Stripe keeps the sub at `active` until it transitions to `past_due`
-   after retries. We don't surface "your card failed, update it" to
-   the user proactively. Today: silent until they come back to manage
-   subscription.
-
-5. **`customer.subscription.created` not in webhook match.** Most
+2. **`customer.subscription.created` not in webhook match.** Most
    flows hit `/v1/return` first so it's fine, but a sub created
    out-of-band (Dashboard, recovery, future API integration) wouldn't
    provision until the cron sweep runs.
 
-6. **Server doesn't enforce `quantity >= 2` on gift purchases.**
+3. **Server doesn't enforce `quantity >= 2` on gift purchases.**
    UI-side only. A crafted POST to `/v1/checkout` with `gift=true,
    quantity=1` would create a session at base price with no bulk-
    discount logic and ship a single code. Not exploitable for free
    stuff (Stripe still charges) but the bulk-tier pricing assumes ≥ 2.
 
-7. **No idempotency key on `/v1/checkout`.** Double-click on Continue
+4. **No idempotency key on `/v1/checkout`.** Double-click on Continue
    could fire two requests on flaky networks → two `pending_sessions`
    rows + two Stripe sessions. The second orphans when only one is
    completed.
 
 ### Edge cases that probably "work" but haven't been tested deliberately
 
-8. **Gift recipient redeems a code while logged in as a different
+5. **Gift recipient redeems a code while logged in as a different
    email.** The code attaches to *which* customer? Need to verify
    `RedeemController` matches on the redeemer's email or the
    logged-in user's email — these can disagree.
 
-9. **Same gift code redeemed twice in a race.** `gift_codes.redeemed_by`
+6. **Same gift code redeemed twice in a race.** `gift_codes.redeemed_by`
    should be guarded by a unique constraint or row-level lock;
    otherwise two simultaneous redeems could both succeed.
 
-10. **Anon buyer enters an email that already has a subscription
-    canceled-but-not-deleted in Stripe with a stored PM.** The flow
-    creates a fresh customer record on our side or matches the
-    existing one? `findByEmail` returns existing → but the active-sub
-    guard sees `canceled` is not active → checkout proceeds → Stripe
-    creates a new customer or attaches to the existing one based on
-    email match. Probably fine but worth a deliberate test.
+7. **Anon buyer enters an email that already has a subscription
+   canceled-but-not-deleted in Stripe with a stored PM.** The flow
+   creates a fresh customer record on our side or matches the
+   existing one? `findByEmail` returns existing → but the active-sub
+   guard sees `canceled` is not active → checkout proceeds → Stripe
+   creates a new customer or attaches to the existing one based on
+   email match. Probably fine but worth a deliberate test.
 
-11. **Anon gift purchase where buyer email later signs up.** Two
-    separate customer rows for the same email, one with gift purchase
-    history, one with a sub. The `customers.email` UNIQUE constraint
-    (if present) would have blocked it; if not, you have a split-
-    history bug.
+8. **Anon gift purchase where buyer email later signs up.** Two
+   separate customer rows for the same email, one with gift purchase
+   history, one with a sub. The `customers.email` UNIQUE constraint
+   (if present) would have blocked it; if not, you have a split-
+   history bug.
 
-12. **Currency / non-US buyer using non-USD card.** Memory says
-    USD-only. Stripe auto-FX charges at the card's native currency
-    with conversion. Confirmed in regional test matrix as $40 for IN
-    card; broader country coverage untested.
+9. **Currency / non-US buyer using non-USD card.** Memory says
+   USD-only. Stripe auto-FX charges at the card's native currency
+   with conversion. Confirmed in regional test matrix as $40 for IN
+   card; broader country coverage untested.
 
-13. **Subscription renewal that hits the regional verify boundary
+10. **Subscription renewal that hits the regional verify boundary
     later.** A user verified as eligible at signup who later changes
     billing country in the Customer Portal — does that affect their
     renewals? Today nothing re-checks. Probably acceptable but worth
     knowing.
 
-14. **Buyer with active sub clicks "buy gift" and self-mode is
+11. **Buyer with active sub clicks "buy gift" and self-mode is
     pre-selected.** Gift purchase is allowed for active subs
     (correct), but the gift codes go to the buyer's email by default
     in self-mode. If they redeem one, gift redemption stacks on their
@@ -200,21 +184,21 @@ Legend: ✅ handled · ⚠️ partial / fragile · ❌ not handled
 
 ### Smaller polish gaps
 
-15. **409 `has_active_sub` response from `/v1/checkout`** — UI
+12. **409 `has_active_sub` response from `/v1/checkout`** — UI
     surfaces a generic "Could not start checkout" message rather than
     parsing the structured response and routing to "manage
     subscription" CTA.
 
-16. **Blocked-customer 403** — same; no specific UI for "contact
+13. **Blocked-customer 403** — same; no specific UI for "contact
     support."
 
-17. **Welcome email after gift redemption** — currently fires only
+14. **Welcome email after gift redemption** — currently fires only
     on subscription tier upgrade transitions per `Arbiter::sync`. If a
     user redeems a gift to go from `looth1 → looth2`, that *should*
     trigger the welcome path; verify the upgrade detection covers that
     source.
 
-18. **Failed regional verify** redirects to `[lg_regional_fail]` but
+15. **Failed regional verify** redirects to `[lg_regional_fail]` but
     the page does not pre-emptively offer the standard product price
     card. User has to click through to `?country=US` override or
     contact support. Likely hurts conversion in the failure state.
@@ -223,8 +207,8 @@ Legend: ✅ handled · ⚠️ partial / fragile · ❌ not handled
 
 ## Recommended priorities
 
-1. Register `charge.refunded` (real bug, real money).
-2. Add a portal-link CTA for tier-swap (real product hole).
-3. Server-enforce `quantity >= 2` on gift checkout (defensive).
+1. Handle `charge.dispute.created` (chargeback) — email alert at minimum.
+2. Server-enforce `quantity >= 2` on gift checkout (defensive).
+3. Improve 409 `has_active_sub` UI — route to manage-subscription CTA instead of generic error.
 
 Everything else is backlog-acceptable.
