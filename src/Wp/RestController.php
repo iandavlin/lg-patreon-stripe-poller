@@ -1182,6 +1182,9 @@ final class RestController
         $extra = [ 'recipient_email' => (string) ( $body['recipient_email'] ?? '' ),
                    'recipient_name'  => (string) ( $body['recipient_name']  ?? '' ),
                    'message'         => (string) ( $body['message']         ?? '' ) ];
+        if ( ! empty( $body['acknowledged_recipient_warning'] ) ) {
+            $extra['acknowledged_recipient_warning'] = true;
+        }
         return self::proxyToSlim( 'gift-send', (int) ( $body['code_id'] ?? 0 ), $extra );
     }
 
@@ -1205,6 +1208,9 @@ final class RestController
         $extra = [ 'recipient_email' => (string) ( $body['recipient_email'] ?? '' ),
                    'recipient_name'  => (string) ( $body['recipient_name']  ?? '' ),
                    'message'         => (string) ( $body['message']         ?? '' ) ];
+        if ( ! empty( $body['acknowledged_recipient_warning'] ) ) {
+            $extra['acknowledged_recipient_warning'] = true;
+        }
         return self::proxyToSlim( 'gift-reassign', (int) ( $body['code_id'] ?? 0 ), $extra );
     }
 

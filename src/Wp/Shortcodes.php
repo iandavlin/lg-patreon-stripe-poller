@@ -5202,6 +5202,33 @@ final class Shortcodes
                 });
             }
 
+            // For send + reassign: if the server flags the recipient as
+            // already having an active sub or gift, prompt the buyer to
+            // confirm. On confirm, retry with acknowledged_recipient_warning.
+            function sendGiftWithRecipientCheck(endpoint, payload) {
+                return apiCall(endpoint, payload).then(function(d) {
+                    if (!d || !d.needs_recipient_confirmation) return d;
+                    var w = d.recipient_warning || {};
+                    var msg;
+                    if (w.kind === 'subscription') {
+                        msg = payload.recipient_email + ' already has an active Looth subscription. ' +
+                              'Sending a gift to this address will sit unredeemed unless they cancel their sub first ' +
+                              '(redemption blocks if a sub is active). Send anyway?';
+                    } else if (w.kind === 'gift') {
+                        var days = parseInt(w.days_remaining, 10) || 0;
+                        msg = payload.recipient_email + ' already has ' + days + ' day' + (days === 1 ? '' : 's') +
+                              ' of an active Looth gift. Stacking a second gift just queues the time after the current one expires. Send anyway?';
+                    } else {
+                        msg = payload.recipient_email + ' already has a Looth account. Send the gift anyway?';
+                    }
+                    if (!window.confirm(msg)) {
+                        return { ok: false, error: 'Cancelled — gift not sent.', __cancelled: true };
+                    }
+                    payload.acknowledged_recipient_warning = true;
+                    return apiCall(endpoint, payload);
+                });
+            }
+
             var toastTimer;
             function toast(msg, isError) {
                 var el = document.getElementById('lg-gift-toast');
@@ -5256,7 +5283,7 @@ final class Shortcodes
                     var sub    = form.querySelector('[type=submit]');
                     sub.disabled = true; sub.textContent = 'Sending…';
 
-                    apiCall('gift-send', {
+                    sendGiftWithRecipientCheck('gift-send', {
                         code_id:         codeId,
                         recipient_email: form.recipient_email.value.trim(),
                         recipient_name:  form.recipient_name.value.trim(),
@@ -5267,7 +5294,7 @@ final class Shortcodes
                             removeRow(row, 400);
                             setTimeout(function() { window.location.reload(); }, 1200);
                         } else {
-                            toast('Error: ' + (d.error || 'unknown error'), true);
+                            if (!d.__cancelled) toast('Error: ' + (d.error || 'unknown error'), true);
                             sub.disabled = false; sub.textContent = 'Send gift';
                         }
                     }).catch(function() {
@@ -5316,7 +5343,7 @@ final class Shortcodes
                     var sub    = form.querySelector('[type=submit]');
                     sub.disabled = true; sub.textContent = 'Reassigning…';
 
-                    apiCall('gift-reassign', {
+                    sendGiftWithRecipientCheck('gift-reassign', {
                         code_id:         codeId,
                         recipient_email: form.recipient_email.value.trim(),
                         recipient_name:  form.recipient_name.value.trim(),
@@ -5326,7 +5353,7 @@ final class Shortcodes
                             toast('Reassigned and emailed!');
                             setTimeout(function() { window.location.reload(); }, 900);
                         } else {
-                            toast('Error: ' + (d.error || 'unknown error'), true);
+                            if (!d.__cancelled) toast('Error: ' + (d.error || 'unknown error'), true);
                             sub.disabled = false; sub.textContent = 'Reassign & email';
                         }
                     }).catch(function() {
@@ -5466,7 +5493,7 @@ final class Shortcodes
                         var name   = rowEl.querySelector('.lg-batch-name').value.trim();
                         var msg    = rowEl.querySelector('.lg-batch-msg-row').value.trim();
 
-                        apiCall('gift-send', { code_id: codeId, recipient_email: email, recipient_name: name, message: msg })
+                        apiCall('gift-send', { code_id: codeId, recipient_email: email, recipient_name: name, message: msg, acknowledged_recipient_warning: true })
                             .then(function(d) {
                                 done++;
                                 if (!d.ok) errors++;
