@@ -106,8 +106,17 @@ final class MemberTools
         $received = [];
         $roleSrc = [];
 
+        $bannedEmail = null;
         try {
             $pdo = Db::pdo();
+
+            try {
+                $stmt = $pdo->prepare( 'SELECT email, reason, created_at, banned_by_wp FROM banned_emails WHERE email = ? LIMIT 1' );
+                $stmt->execute( [ strtolower( $email ) ] );
+                $bannedEmail = $stmt->fetch( \PDO::FETCH_ASSOC ) ?: null;
+            } catch ( Throwable $_ ) {
+                // banned_emails table may not exist yet (migration 012 not run).
+            }
 
             $stmt = $pdo->prepare( 'SELECT * FROM customers WHERE email = ? LIMIT 1' );
             $stmt->execute( [ $email ] );
@@ -157,6 +166,7 @@ final class MemberTools
             'email'           => $email,
             'wp_user'         => $wpUser,
             'customer'        => $customer,
+            'banned_email'    => $bannedEmail,
             'subscriptions'   => $subs,
             'entitlements'    => $ents,
             'gifts_purchased' => $bought,
@@ -185,6 +195,15 @@ final class MemberTools
                     registered <?php echo esc_html( $wpUser->user_registered ); ?>
                 <?php else : ?>
                     <em>none</em>
+                <?php endif; ?>
+            </td></tr>
+            <tr><th>Email ban (independent)</th><td>
+                <?php if ( ! empty( $p['banned_email'] ) ) : ?>
+                    <span style="color:#b91c1c;font-weight:600;">EMAIL BANNED</span>
+                    since <?php echo esc_html( (string) $p['banned_email']['created_at'] ); ?>
+                    · reason: <?php echo esc_html( (string) ( $p['banned_email']['reason'] ?? '' ) ); ?>
+                <?php else : ?>
+                    <em>not banned</em>
                 <?php endif; ?>
             </td></tr>
             <tr><th>lg_membership customer</th><td>
@@ -255,8 +274,29 @@ final class MemberTools
             </form>
         <?php endif; ?>
 
-        <h3>Ban / Unban</h3>
-        <p class="description">Sets <code>customers.blocked_at</code>. CheckoutController refuses new subs for blocked customers. Existing subs keep billing — cancel separately or use Nuke.</p>
+        <h3>Ban / unban email (permanent, survives nuke)</h3>
+        <p class="description">Adds the address to <code>banned_emails</code>. CheckoutController refuses any new sub or gift checkout from a banned email — independent of whether a customer record exists, so it survives a Nuke and prevents the same email from coming back.</p>
+        <?php if ( ! empty( $p['banned_email'] ) ) : ?>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:2em;">
+                <?php wp_nonce_field( self::NONCE ); ?>
+                <input type="hidden" name="action" value="lgms_member_action">
+                <input type="hidden" name="op"     value="unban_email">
+                <input type="hidden" name="email"  value="<?php echo esc_attr( $email ); ?>">
+                <button type="submit" class="button">Unban email</button>
+            </form>
+        <?php else : ?>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:2em;">
+                <?php wp_nonce_field( self::NONCE ); ?>
+                <input type="hidden" name="action" value="lgms_member_action">
+                <input type="hidden" name="op"     value="ban_email">
+                <input type="hidden" name="email"  value="<?php echo esc_attr( $email ); ?>">
+                <input type="text" name="reason" placeholder="reason (shown in audit)" class="regular-text">
+                <button type="submit" class="button">Ban email permanently</button>
+            </form>
+        <?php endif; ?>
+
+        <h3>Ban / unban customer record</h3>
+        <p class="description">Sets <code>customers.blocked_at</code>. Soft block on this specific customer row — wiped if you Nuke. Use email-ban above for a permanent block that survives nuke.</p>
         <?php if ( $cust === null ) : ?>
             <p><em>No lg_membership customer — nothing to ban.</em></p>
         <?php elseif ( $blocked ) : ?>
@@ -286,7 +326,12 @@ final class MemberTools
             <input type="hidden" name="action" value="lgms_member_action">
             <input type="hidden" name="op"     value="nuke">
             <input type="hidden" name="email"  value="<?php echo esc_attr( $email ); ?>">
-            <input type="email" name="email_confirm" placeholder="re-type email to confirm" class="regular-text" required>
+            <p>
+                <input type="email" name="email_confirm" placeholder="re-type email to confirm" class="regular-text" required>
+            </p>
+            <p>
+                <label><input type="checkbox" name="ban_email_too" value="1"> Also ban this email permanently (so it can't come back)</label>
+            </p>
             <button type="submit" class="button button-link-delete" style="color:#b91c1c;">Nuke</button>
         </form>
         <?php
@@ -321,12 +366,20 @@ final class MemberTools
                 case 'unban':
                     $notice = self::doUnban( $email );
                     break;
+                case 'ban_email':
+                    $reason = sanitize_text_field( (string) ( $_POST['reason'] ?? '' ) );
+                    $notice = self::doBanEmail( $email, $reason );
+                    break;
+                case 'unban_email':
+                    $notice = self::doUnbanEmail( $email );
+                    break;
                 case 'nuke':
                     $confirm = sanitize_email( (string) ( $_POST['email_confirm'] ?? '' ) );
                     if ( strtolower( $confirm ) !== strtolower( $email ) ) {
                         throw new \RuntimeException( 'Confirm email did not match.' );
                     }
-                    $notice = self::doNuke( $email );
+                    $banAfter = ! empty( $_POST['ban_email_too'] );
+                    $notice = self::doNuke( $email, $banAfter );
                     break;
                 default:
                     $err = "Unknown op: {$op}";
@@ -395,11 +448,38 @@ final class MemberTools
         return "Unbanned {$email}.";
     }
 
+    private static function doBanEmail( string $email, string $reason ): string
+    {
+        $email = strtolower( trim( $email ) );
+        if ( $email === '' || ! is_email( $email ) ) {
+            throw new \RuntimeException( 'Invalid email.' );
+        }
+        $admin = wp_get_current_user();
+        Db::pdo()->prepare(
+            'INSERT INTO banned_emails (email, reason, banned_by_wp) VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE reason = VALUES(reason), banned_by_wp = VALUES(banned_by_wp)'
+        )->execute( [
+            $email,
+            $reason !== '' ? $reason : 'banned by admin',
+            $admin && $admin->ID ? (int) $admin->ID : null,
+        ] );
+        self::audit( $email, 'ban_email', "reason={$reason}" );
+        return "Permanently banned {$email}.";
+    }
+
+    private static function doUnbanEmail( string $email ): string
+    {
+        Db::pdo()->prepare( 'DELETE FROM banned_emails WHERE email = ?' )
+            ->execute( [ strtolower( trim( $email ) ) ] );
+        self::audit( $email, 'unban_email', '' );
+        return "Lifted email ban on {$email}.";
+    }
+
     /**
      * Full obliteration. Cancel Stripe subs first (so we don't keep charging
      * after deletion), then DB cleanup in FK-safe order, then WP user.
      */
-    private static function doNuke( string $email ): string
+    private static function doNuke( string $email, bool $banEmailAfter = false ): string
     {
         $wpUser = get_user_by( 'email', $email );
         $cust   = self::loadCustomer( $email );
@@ -465,9 +545,31 @@ final class MemberTools
             $deletedWp = wp_delete_user( (int) $wpUser->ID );
         }
 
-        self::audit( $email, 'nuke', 'cancelled=' . implode( ',', $cancelled ) . ';wp_deleted=' . ( $deletedWp ? '1' : '0' ) );
+        // 4. Optional: also ban the email permanently so it can't come back.
+        //    Note: doBanEmail's audit() will no-op since the customer is gone,
+        //    but the banned_emails INSERT itself runs fine.
+        $banMsg = '';
+        if ( $banEmailAfter ) {
+            try {
+                $admin = wp_get_current_user();
+                Db::pdo()->prepare(
+                    'INSERT INTO banned_emails (email, reason, banned_by_wp) VALUES (?, ?, ?)
+                     ON DUPLICATE KEY UPDATE reason = VALUES(reason), banned_by_wp = VALUES(banned_by_wp)'
+                )->execute( [
+                    strtolower( $email ),
+                    'nuked + banned by admin',
+                    $admin && $admin->ID ? (int) $admin->ID : null,
+                ] );
+                $banMsg = ' Email permanently banned.';
+            } catch ( Throwable $e ) {
+                $banMsg = ' (email-ban failed: ' . $e->getMessage() . ')';
+            }
+        }
+
+        // self::audit() needs a customer row to attach to; that's gone now.
+        // Skip — the WP user_meta or a separate log could capture this later.
         $cancelMsg = $cancelled !== [] ? ' Cancelled Stripe subs: ' . implode( ', ', $cancelled ) . '.' : '';
-        return "Nuked {$email}.{$cancelMsg}";
+        return "Nuked {$email}.{$cancelMsg}{$banMsg}";
     }
 
     private static function loadCustomer( string $email ): ?array

@@ -154,7 +154,26 @@ final class Plugin
             Admin::boot();
             MemberTools::boot();
             Wp\UserProfile::boot();
+
+            // Quick links on the Plugins admin page row for this plugin.
+            $pluginFile = defined( 'LGPO_PLUGIN_FILE' )
+                ? plugin_basename( LGPO_PLUGIN_FILE )
+                : 'lg-patreon-stripe-poller/lg-patreon-onboard.php';
+            add_filter( "plugin_action_links_{$pluginFile}", [ self::class, 'pluginActionLinks' ] );
         }
+    }
+
+    /**
+     * Adds Settings + Member Tools links to the Plugins-page row so admins
+     * don't have to dig through Settings/Tools menus to find them.
+     */
+    public static function pluginActionLinks( array $links ): array
+    {
+        $extra = [
+            '<a href="' . esc_url( admin_url( 'options-general.php?page=lg-member-sync' ) ) . '">Settings</a>',
+            '<a href="' . esc_url( admin_url( 'tools.php?page=lg-member-tools' ) ) . '">Member tools</a>',
+        ];
+        return array_merge( $extra, $links );
     }
 
     /**
