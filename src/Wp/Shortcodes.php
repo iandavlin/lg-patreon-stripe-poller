@@ -1973,9 +1973,38 @@ final class Shortcodes
         $nonce               = wp_create_nonce( 'wp_rest' );
         $emailEsc            = esc_attr( $email );
 
+        // Build the hero summary line that /lgjoin/ renders for active
+        // subscribers, so the manage-membership page reads with the same
+        // "You're already a member" framing — single source of truth.
+        $heroSummary = '';
+        if ( $subs !== [] ) {
+            $top         = $subs[0];
+            $tierLabel   = self::tierLabelForPrice( (string) $top['stripe_price_id'] );
+            $endShort    = (string) ( $top['current_period_end'] ?? '' );
+            $endShort    = $endShort !== '' ? substr( $endShort, 0, 10 ) : '';
+            $statusLabel = (string) $top['status'];
+            $heroSummary = 'Active <strong>' . esc_html( $tierLabel ?: 'membership' ) . '</strong> subscription'
+                         . ' &middot; status ' . esc_html( $statusLabel )
+                         . ( $endShort !== '' ? ' &middot; renews ' . esc_html( $endShort ) : '' );
+        } elseif ( $giftEnts !== [] ) {
+            $top      = $giftEnts[0];
+            $giftTier = self::tierLabelForRef( (string) $top['ref'] );
+            $giftEnd  = (string) ( $top['expires_at'] ?? '' );
+            $giftEnd  = $giftEnd !== '' ? substr( $giftEnd, 0, 10 ) : '';
+            $heroSummary = '🎁 Active gifted <strong>' . esc_html( $giftTier ?: 'membership' ) . '</strong>'
+                         . ( $giftEnd !== '' ? ' &middot; expires ' . esc_html( $giftEnd ) : '' );
+        }
+
         ob_start();
         ?>
         <div class="lg-manage-sub">
+            <?php if ( $heroSummary !== '' ) : ?>
+                <div class="lg-manage-sub__hero" style="margin:0 0 1.6em;">
+                    <h3 style="margin:0 0 .35em;font-size:1.4em;">You're already a member</h3>
+                    <p style="margin:0;color:#444;"><?php echo $heroSummary; ?></p>
+                </div>
+            <?php endif; ?>
+
             <?php if ( $giftEnts !== [] ) : ?>
                 <?php foreach ( $giftEnts as $ent ) :
                     $giftTier   = self::tierLabelForRef( (string) $ent['ref'] );
@@ -4307,24 +4336,20 @@ final class Shortcodes
         ];
     }
 
+    /**
+     * Active-member variant of the join page. The full management UI lives
+     * in the lg_manage_membership shortcode (which already renders the
+     * "You're already a member" hero when there's an active sub or gift),
+     * so /lgjoin/ for an existing member just delegates to it. Single
+     * source of truth for the active-member experience.
+     *
+     * The $sub argument is kept for API compatibility but the render path
+     * re-queries through manageSubscription so it picks up gifts +
+     * payment methods + billing history too — not just the one sub row.
+     */
     private static function renderActiveSubBlock( array $sub ): string
     {
-        $tier   = esc_html( (string) ( $sub['tier'] ?? 'membership' ) );
-        $price  = esc_html( $sub['price_label'] );
-        $status = esc_html( $sub['status'] );
-        $end    = $sub['current_period_end'] !== null ? esc_html( substr( $sub['current_period_end'], 0, 10 ) ) : '';
-
-        ob_start();
-        ?>
-        <div class="lg-join lg-join--existing-sub" style="border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:20px;max-width:560px;">
-            <h3 style="margin-top:0;">You're already a member</h3>
-            <p>Active <strong><?php echo $tier; ?></strong> subscription &middot; <?php echo $price; ?> &middot; status <?php echo $status; ?><?php echo $end !== '' ? ' &middot; renews ' . $end : ''; ?></p>
-            <p style="margin-bottom:0;">
-                <?php echo do_shortcode( '[lg_manage_membership label="Manage your membership"]' ); ?>
-            </p>
-        </div>
-        <?php
-        return (string) ob_get_clean();
+        return (string) do_shortcode( '[lg_manage_membership]' );
     }
 
     public static function refundRequest( $atts = [] ): string
