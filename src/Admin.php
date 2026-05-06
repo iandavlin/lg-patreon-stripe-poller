@@ -4,13 +4,6 @@ declare(strict_types=1);
 
 namespace LGMS;
 
-/**
- * Admin settings page — DB connection + Stripe/Patreon credentials.
- *
- * Phase 1: bare-bones DB connection settings only. Cron status read-only.
- * Phase 2 will add: Stripe API key, Patreon OAuth credentials, last-tick
- *                   timestamp, manual "poll now" button.
- */
 final class Admin
 {
     private const OPT_GROUP = 'lgms_settings';
@@ -18,41 +11,12 @@ final class Admin
 
     public static function boot(): void
     {
-        add_action( 'admin_menu', [ self::class, 'menu' ] );
-        add_action( 'admin_init', [ self::class, 'registerSettings' ] );
-        add_action( 'admin_post_lgms_rerun_pages', [ self::class, 'handleRerunPages' ] );
-    }
-
-    /**
-     * Handler for the "Re-create membership pages" admin button.
-     * Re-runs Pages::ensureAll() outside of activation so admins can sync
-     * pages after editing the PAGES registry without having to
-     * deactivate-and-reactivate the whole plugin.
-     */
-    public static function handleRerunPages(): void
-    {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( 'Insufficient permissions.', 403 );
-        }
-        check_admin_referer( 'lgms_rerun_pages' );
-
-        $result = Wp\Pages::ensureAll();
-
-        $msg = sprintf(
-            'created=%d skipped=%d allowlisted=%d',
-            count( $result['created'] ),
-            count( $result['skipped'] ),
-            count( $result['allowlisted'] )
-        );
-
-        wp_safe_redirect( add_query_arg(
-            [
-                'page'        => self::OPT_PAGE,
-                'lgms_pages'  => rawurlencode( $msg ),
-            ],
-            admin_url( 'options-general.php' )
-        ) );
-        exit;
+        add_action( 'admin_menu',  [ self::class, 'menu' ] );
+        add_action( 'admin_init',  [ self::class, 'registerSettings' ] );
+        add_action( 'admin_enqueue_scripts', [ self::class, 'enqueueScripts' ] );
+        add_action( 'admin_post_lgms_rerun_pages',       [ self::class, 'handleRerunPages' ] );
+        add_action( 'admin_post_lgms_save_welcome_mosaic', [ self::class, 'handleSaveMosaic' ] );
+        add_action( 'wp_ajax_lgms_search_posts', [ self::class, 'ajaxSearchPosts' ] );
     }
 
     public static function menu(): void
@@ -69,15 +33,15 @@ final class Admin
     public static function registerSettings(): void
     {
         $fields = [
-            'lgms_db_host'           => '127.0.0.1',
-            'lgms_db_port'           => '3306',
-            'lgms_db_name'           => 'lg_membership',
-            'lgms_db_user'           => 'lg_membership',
-            'lgms_db_pass'           => '',
-            'lgms_stripe_secret_key' => '',
-            'lgms_shared_secret'     => '',
-            'lgms_refund_email'      => '',
-            'lgms_refund_window_days' => '30',
+            'lgms_db_host'                    => '127.0.0.1',
+            'lgms_db_port'                    => '3306',
+            'lgms_db_name'                    => 'lg_membership',
+            'lgms_db_user'                    => 'lg_membership',
+            'lgms_db_pass'                    => '',
+            'lgms_stripe_secret_key'          => '',
+            'lgms_shared_secret'              => '',
+            'lgms_refund_email'               => '',
+            'lgms_refund_window_days'         => '30',
             'lgms_plan_switch_cooldown_hours' => '24',
         ];
         foreach ( $fields as $key => $_default ) {
@@ -87,81 +51,345 @@ final class Admin
         }
     }
 
+    public static function enqueueScripts( string $hook ): void
+    {
+        if ( $hook !== 'settings_page_' . self::OPT_PAGE ) {
+            return;
+        }
+        $tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'settings';
+        if ( $tab !== 'welcome_email' ) {
+            return;
+        }
+        wp_enqueue_media();
+    }
+
+    // -------------------------------------------------------------------------
+    // admin-post handlers
+    // -------------------------------------------------------------------------
+
+    public static function handleRerunPages(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Insufficient permissions.', 403 );
+        }
+        check_admin_referer( 'lgms_rerun_pages' );
+
+        $result = Wp\Pages::ensureAll();
+        $msg = sprintf(
+            'created=%d skipped=%d allowlisted=%d',
+            count( $result['created'] ),
+            count( $result['skipped'] ),
+            count( $result['allowlisted'] )
+        );
+
+        wp_safe_redirect( add_query_arg(
+            [ 'page' => self::OPT_PAGE, 'lgms_pages' => rawurlencode( $msg ) ],
+            admin_url( 'options-general.php' )
+        ) );
+        exit;
+    }
+
+    public static function handleSaveMosaic(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Insufficient permissions.', 403 );
+        }
+        check_admin_referer( 'lgms_save_welcome_mosaic' );
+
+        $raw = isset( $_POST['mosaic_ids'] ) && is_array( $_POST['mosaic_ids'] )
+            ? array_map( 'absint', $_POST['mosaic_ids'] )
+            : [];
+
+        $ids = array_values( array_filter( $raw ) );
+        update_option( 'lgms_welcome_mosaic_ids', wp_json_encode( $ids ) );
+
+        wp_safe_redirect( add_query_arg(
+            [ 'page' => self::OPT_PAGE, 'tab' => 'welcome_email', 'lgms_mosaic_saved' => '1' ],
+            admin_url( 'options-general.php' )
+        ) );
+        exit;
+    }
+
+    // -------------------------------------------------------------------------
+    // AJAX: post search for mosaic picker
+    // -------------------------------------------------------------------------
+
+    public static function ajaxSearchPosts(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'forbidden', 403 );
+        }
+        check_ajax_referer( 'lgms_mosaic_search' );
+
+        $q = sanitize_text_field( (string) ( $_GET['q'] ?? '' ) );
+        if ( strlen( $q ) < 2 ) {
+            wp_send_json_success( [] );
+        }
+
+        $results = get_posts( [
+            'post_type'      => [ 'post-type-videos', 'post-imgcap', 'post-regular', 'loothprint' ],
+            'post_status'    => 'publish',
+            's'              => $q,
+            'posts_per_page' => 12,
+            'no_found_rows'  => true,
+            'fields'         => 'ids',
+        ] );
+
+        $out = [];
+        foreach ( $results as $id ) {
+            $thumb = get_the_post_thumbnail_url( $id, 'medium' );
+            $out[] = [
+                'id'    => $id,
+                'title' => get_the_title( $id ),
+                'thumb' => $thumb ?: '',
+            ];
+        }
+
+        wp_send_json_success( $out );
+    }
+
+    // -------------------------------------------------------------------------
+    // Page render
+    // -------------------------------------------------------------------------
+
     public static function render(): void
     {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
 
-        // Connectivity probe.
+        $tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'settings';
+        $tabs = [
+            'settings'      => 'Settings',
+            'member_tools'  => 'Member Tools',
+            'welcome_email' => 'Welcome Email',
+        ];
+        ?>
+        <div class="wrap">
+            <h1>LG Member Sync</h1>
+
+            <nav class="nav-tab-wrapper" style="margin-bottom:1.5em;">
+                <?php foreach ( $tabs as $slug => $label ) : ?>
+                    <a href="<?php echo esc_url( add_query_arg( [ 'page' => self::OPT_PAGE, 'tab' => $slug ], admin_url( 'options-general.php' ) ) ); ?>"
+                       class="nav-tab<?php echo $tab === $slug ? ' nav-tab-active' : ''; ?>">
+                        <?php echo esc_html( $label ); ?>
+                    </a>
+                <?php endforeach; ?>
+            </nav>
+
+            <?php
+            match ( $tab ) {
+                'member_tools'  => MemberTools::renderContent(),
+                'welcome_email' => self::renderWelcomeEmailTab(),
+                default         => self::renderSettingsTab(),
+            };
+            ?>
+        </div>
+        <?php
+    }
+
+    // -------------------------------------------------------------------------
+    // Settings tab
+    // -------------------------------------------------------------------------
+
+    private static function renderSettingsTab(): void
+    {
         $probe = '<em>not tested</em>';
         try {
-            $pdo  = Db::pdo();
-            $row  = $pdo->query( 'SELECT VERSION() AS v' )->fetch();
+            $pdo   = Db::pdo();
+            $row   = $pdo->query( 'SELECT VERSION() AS v' )->fetch();
             $probe = sprintf( '✓ connected (MySQL %s)', esc_html( (string) ( $row['v'] ?? '?' ) ) );
         } catch ( \Throwable $e ) {
             $probe = '✗ ' . esc_html( $e->getMessage() );
         }
 
-        $nextRun = wp_next_scheduled( Plugin::CRON_HOOK );
+        $nextRun        = wp_next_scheduled( Plugin::CRON_HOOK );
         $nextRunDisplay = $nextRun ? gmdate( 'c', $nextRun ) . ' UTC' : '<em>not scheduled</em>';
-
-        $pagesNotice = isset( $_GET['lgms_pages'] ) ? rawurldecode( (string) $_GET['lgms_pages'] ) : '';
-
+        $pagesNotice    = isset( $_GET['lgms_pages'] ) ? rawurldecode( (string) $_GET['lgms_pages'] ) : '';
         ?>
-        <div class="wrap">
-            <h1>LG Member Sync</h1>
+
+        <h2>DB connection</h2>
+        <p><strong>Probe:</strong> <?php echo $probe; ?></p>
+        <p><strong>Cron next run:</strong> <?php echo $nextRunDisplay; ?></p>
+
+        <h2>Membership pages</h2>
+        <p class="description">
+            Auto-creates the WP pages hosting <code>[lg_join]</code>, <code>[lg_gift]</code>, <code>[lg_redeem_gift]</code>, <code>[lg_manage_subscription]</code>, <code>[lg_refund_request]</code>, <code>[lg_regional_fail]</code>, and <code>[lg_subscription_success]</code>, and adds public-facing slugs to the BuddyBoss allowlist. Runs automatically on plugin activation; click below if you've edited the page registry and want to re-sync without deactivate/reactivate.
+        </p>
+        <?php if ( $pagesNotice !== '' ) : ?>
+            <div class="notice notice-success is-dismissible"><p>Pages re-synced: <code><?php echo esc_html( $pagesNotice ); ?></code></p></div>
+        <?php endif; ?>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <?php wp_nonce_field( 'lgms_rerun_pages' ); ?>
+            <input type="hidden" name="action" value="lgms_rerun_pages">
+            <p><button type="submit" class="button">Re-create / sync membership pages</button></p>
+        </form>
+
+        <form method="post" action="options.php">
+            <?php settings_fields( self::OPT_GROUP ); ?>
 
             <h2>DB connection</h2>
-            <p><strong>Probe:</strong> <?php echo $probe; ?></p>
-            <p><strong>Cron next run:</strong> <?php echo $nextRunDisplay; ?></p>
+            <table class="form-table">
+                <tr><th><label>Host</label></th><td><input type="text" name="lgms_db_host" value="<?php echo esc_attr( get_option( 'lgms_db_host', '127.0.0.1' ) ); ?>" class="regular-text"></td></tr>
+                <tr><th><label>Port</label></th><td><input type="text" name="lgms_db_port" value="<?php echo esc_attr( get_option( 'lgms_db_port', '3306' ) ); ?>" class="small-text"></td></tr>
+                <tr><th><label>Database</label></th><td><input type="text" name="lgms_db_name" value="<?php echo esc_attr( get_option( 'lgms_db_name', 'lg_membership' ) ); ?>" class="regular-text"></td></tr>
+                <tr><th><label>User</label></th><td><input type="text" name="lgms_db_user" value="<?php echo esc_attr( get_option( 'lgms_db_user', 'lg_membership' ) ); ?>" class="regular-text"></td></tr>
+                <tr><th><label>Password</label></th><td><input type="password" name="lgms_db_pass" value="<?php echo esc_attr( get_option( 'lgms_db_pass', '' ) ); ?>" class="regular-text" autocomplete="off"></td></tr>
+            </table>
 
-            <h2>Membership pages</h2>
-            <p class="description">
-                Auto-creates the WP pages hosting <code>[lg_join]</code>, <code>[lg_gift]</code>, <code>[lg_redeem_gift]</code>, <code>[lg_manage_subscription]</code>, <code>[lg_refund_request]</code>, <code>[lg_regional_fail]</code>, and <code>[lg_subscription_success]</code>, and adds public-facing slugs to the BuddyBoss allowlist. Runs automatically on plugin activation; click below if you've edited the page registry and want to re-sync without deactivate/reactivate.
-            </p>
-            <?php if ( $pagesNotice !== '' ) : ?>
-                <div class="notice notice-success is-dismissible"><p>Pages re-synced: <code><?php echo esc_html( $pagesNotice ); ?></code></p></div>
-            <?php endif; ?>
-            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                <?php wp_nonce_field( 'lgms_rerun_pages' ); ?>
-                <input type="hidden" name="action" value="lgms_rerun_pages">
-                <p><button type="submit" class="button">Re-create / sync membership pages</button></p>
-            </form>
+            <h2>Stripe</h2>
+            <table class="form-table">
+                <tr><th><label>Secret key</label></th><td><input type="password" name="lgms_stripe_secret_key" value="<?php echo esc_attr( get_option( 'lgms_stripe_secret_key', '' ) ); ?>" class="regular-text" autocomplete="off" placeholder="sk_test_... or sk_live_..."></td></tr>
+            </table>
 
-            <form method="post" action="options.php">
-                <?php settings_fields( self::OPT_GROUP ); ?>
-                <h2>DB connection</h2>
-                <table class="form-table">
-                    <tr><th><label>Host</label></th><td><input type="text" name="lgms_db_host" value="<?php echo esc_attr( get_option( 'lgms_db_host', '127.0.0.1' ) ); ?>" class="regular-text"></td></tr>
-                    <tr><th><label>Port</label></th><td><input type="text" name="lgms_db_port" value="<?php echo esc_attr( get_option( 'lgms_db_port', '3306' ) ); ?>" class="small-text"></td></tr>
-                    <tr><th><label>Database</label></th><td><input type="text" name="lgms_db_name" value="<?php echo esc_attr( get_option( 'lgms_db_name', 'lg_membership' ) ); ?>" class="regular-text"></td></tr>
-                    <tr><th><label>User</label></th><td><input type="text" name="lgms_db_user" value="<?php echo esc_attr( get_option( 'lgms_db_user', 'lg_membership' ) ); ?>" class="regular-text"></td></tr>
-                    <tr><th><label>Password</label></th><td><input type="password" name="lgms_db_pass" value="<?php echo esc_attr( get_option( 'lgms_db_pass', '' ) ); ?>" class="regular-text" autocomplete="off"></td></tr>
-                </table>
+            <h2>Refund requests</h2>
+            <p class="description">Settings for the <code>[lg_refund_request]</code> form.</p>
+            <table class="form-table">
+                <tr><th><label>Refund email</label></th><td><input type="email" name="lgms_refund_email" value="<?php echo esc_attr( get_option( 'lgms_refund_email', '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>"> <span class="description">Leave blank to use the WordPress admin email.</span></td></tr>
+                <tr><th><label>Refund window (days)</label></th><td><input type="number" name="lgms_refund_window_days" value="<?php echo esc_attr( get_option( 'lgms_refund_window_days', '30' ) ); ?>" class="small-text" min="1" max="365"> <span class="description">Number of days after a charge that a customer is eligible for an automated refund.</span></td></tr>
+                <tr><th><label>Plan-switch cooldown (hours)</label></th><td><input type="number" name="lgms_plan_switch_cooldown_hours" value="<?php echo esc_attr( get_option( 'lgms_plan_switch_cooldown_hours', '24' ) ); ?>" class="small-text" min="0" max="720"> <span class="description">Minimum hours between customer-initiated plan changes. Set to 0 to disable.</span></td></tr>
+            </table>
 
-                <h2>Stripe</h2>
-                <table class="form-table">
-                    <tr><th><label>Secret key</label></th><td><input type="password" name="lgms_stripe_secret_key" value="<?php echo esc_attr( get_option( 'lgms_stripe_secret_key', '' ) ); ?>" class="regular-text" autocomplete="off" placeholder="sk_test_... or sk_live_..."></td></tr>
-                </table>
+            <h2>Slim ↔ plugin shared secret</h2>
+            <p class="description">Used to authenticate Slim's calls to <code>/wp-json/lg-member-sync/v1/sync-customer</code>. Set the same value on Slim's <code>LGMS_SHARED_SECRET</code> in <code>.env</code>.</p>
+            <table class="form-table">
+                <tr><th><label>Shared secret</label></th><td><input type="password" name="lgms_shared_secret" value="<?php echo esc_attr( get_option( 'lgms_shared_secret', '' ) ); ?>" class="regular-text" autocomplete="off"></td></tr>
+            </table>
 
-                <h2>Refund requests</h2>
-                <p class="description">Settings for the <code>[lg_refund_request]</code> form.</p>
-                <table class="form-table">
-                    <tr><th><label>Refund email</label></th><td><input type="email" name="lgms_refund_email" value="<?php echo esc_attr( get_option( 'lgms_refund_email', '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>"> <span class="description">Leave blank to use the WordPress admin email.</span></td></tr>
-                    <tr><th><label>Refund window (days)</label></th><td><input type="number" name="lgms_refund_window_days" value="<?php echo esc_attr( get_option( 'lgms_refund_window_days', '30' ) ); ?>" class="small-text" min="1" max="365"> <span class="description">Number of days after a charge that a customer is eligible for an automated refund. Items outside the window are shown to the customer as "outside the refund window" but they can still submit a request.</span></td></tr>
-                    <tr><th><label>Plan-switch cooldown (hours)</label></th><td><input type="number" name="lgms_plan_switch_cooldown_hours" value="<?php echo esc_attr( get_option( 'lgms_plan_switch_cooldown_hours', '24' ) ); ?>" class="small-text" min="0" max="720"> <span class="description">Minimum hours between customer-initiated plan changes. Prevents abuse / accidental rapid switching. Set to 0 to disable.</span></td></tr>
-                </table>
+            <?php submit_button(); ?>
+        </form>
+        <?php
+    }
 
-                <h2>Slim ↔ plugin shared secret</h2>
-                <p class="description">Used to authenticate Slim's calls to <code>/wp-json/lg-member-sync/v1/sync-customer</code>. Set the same value on Slim's <code>LGMS_SHARED_SECRET</code> in <code>.env</code>.</p>
-                <table class="form-table">
-                    <tr><th><label>Shared secret</label></th><td><input type="password" name="lgms_shared_secret" value="<?php echo esc_attr( get_option( 'lgms_shared_secret', '' ) ); ?>" class="regular-text" autocomplete="off"></td></tr>
-                </table>
+    // -------------------------------------------------------------------------
+    // Welcome Email tab
+    // -------------------------------------------------------------------------
 
-                <?php submit_button(); ?>
-            </form>
-        </div>
+    private static function renderWelcomeEmailTab(): void
+    {
+        if ( isset( $_GET['lgms_mosaic_saved'] ) ) : ?>
+            <div class="notice notice-success is-dismissible"><p>Mosaic images saved.</p></div>
+        <?php endif;
+
+        $saved = json_decode( (string) get_option( 'lgms_welcome_mosaic_ids', '[]' ), true );
+        if ( ! is_array( $saved ) ) {
+            $saved = [];
+        }
+        $saved = array_pad( array_values( $saved ), 6, 0 );
+        ?>
+
+        <p class="description" style="margin-bottom:1.5em;">
+            Choose up to 6 posts (videos, articles, loothprints) whose featured images appear in the welcome email mosaic.
+            Search by title — the image preview updates as you pick.
+        </p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <?php wp_nonce_field( 'lgms_save_welcome_mosaic' ); ?>
+            <input type="hidden" name="action" value="lgms_save_welcome_mosaic">
+
+            <div id="lgms-mosaic-slots" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:760px;margin-bottom:2em;">
+                <?php for ( $i = 0; $i < 6; $i++ ) :
+                    $postId = (int) ( $saved[ $i ] ?? 0 );
+                    $title  = $postId ? get_the_title( $postId ) : '';
+                    $thumb  = $postId ? ( get_the_post_thumbnail_url( $postId, 'medium' ) ?: '' ) : '';
+                    ?>
+                    <div class="lgms-slot" style="border:1px solid #ddd;border-radius:4px;padding:12px;background:#fff;">
+                        <p style="margin:0 0 6px;font-weight:600;font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.05em;">Slot <?php echo $i + 1; ?></p>
+
+                        <div class="lgms-thumb-wrap" style="height:90px;background:#f0f0f0;border-radius:3px;margin-bottom:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+                            <?php if ( $thumb ) : ?>
+                                <img src="<?php echo esc_url( $thumb ); ?>" style="width:100%;height:100%;object-fit:cover;" alt="">
+                            <?php else : ?>
+                                <span style="color:#aaa;font-size:12px;">No image</span>
+                            <?php endif; ?>
+                        </div>
+
+                        <input type="hidden" name="mosaic_ids[]" class="lgms-post-id" value="<?php echo esc_attr( (string) $postId ); ?>">
+
+                        <div style="position:relative;">
+                            <input type="text"
+                                   class="lgms-search-input widefat"
+                                   placeholder="Search…"
+                                   value="<?php echo esc_attr( $title ); ?>"
+                                   autocomplete="off"
+                                   style="margin-bottom:4px;">
+                            <div class="lgms-results" style="display:none;position:absolute;z-index:999;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:3px;max-height:180px;overflow-y:auto;box-shadow:0 3px 8px rgba(0,0,0,.12);"></div>
+                        </div>
+
+                        <button type="button" class="lgms-clear button button-small" style="margin-top:4px;width:100%;">Clear</button>
+                    </div>
+                <?php endfor; ?>
+            </div>
+
+            <?php submit_button( 'Save mosaic' ); ?>
+        </form>
+
+        <script>
+        (function () {
+            var nonce = <?php echo wp_json_encode( wp_create_nonce( 'lgms_mosaic_search' ) ); ?>;
+            var ajaxUrl = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+
+            document.querySelectorAll('.lgms-slot').forEach(function (slot) {
+                var input   = slot.querySelector('.lgms-search-input');
+                var results = slot.querySelector('.lgms-results');
+                var idField = slot.querySelector('.lgms-post-id');
+                var thumb   = slot.querySelector('.lgms-thumb-wrap');
+                var clear   = slot.querySelector('.lgms-clear');
+                var timer   = null;
+
+                function setPost(id, title, thumbUrl) {
+                    idField.value = id;
+                    input.value   = title;
+                    results.style.display = 'none';
+                    results.innerHTML = '';
+                    thumb.innerHTML = thumbUrl
+                        ? '<img src="' + thumbUrl + '" style="width:100%;height:100%;object-fit:cover;" alt="">'
+                        : '<span style="color:#aaa;font-size:12px;">No image</span>';
+                }
+
+                input.addEventListener('input', function () {
+                    clearTimeout(timer);
+                    var q = input.value.trim();
+                    if (q.length < 2) { results.style.display = 'none'; return; }
+                    timer = setTimeout(function () {
+                        var url = ajaxUrl + '?action=lgms_search_posts&_ajax_nonce=' + nonce + '&q=' + encodeURIComponent(q);
+                        fetch(url)
+                            .then(function (r) { return r.json(); })
+                            .then(function (data) {
+                                results.innerHTML = '';
+                                if (!data.success || !data.data.length) {
+                                    results.style.display = 'none';
+                                    return;
+                                }
+                                data.data.forEach(function (post) {
+                                    var li = document.createElement('div');
+                                    li.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid #f0f0f0;';
+                                    li.innerHTML = (post.thumb
+                                        ? '<img src="' + post.thumb + '" style="width:36px;height:36px;object-fit:cover;border-radius:2px;flex-shrink:0;" alt="">'
+                                        : '<div style="width:36px;height:36px;background:#eee;border-radius:2px;flex-shrink:0;"></div>')
+                                        + '<span style="font-size:13px;line-height:1.3;">' + post.title + '</span>';
+                                    li.addEventListener('mousedown', function (e) {
+                                        e.preventDefault();
+                                        setPost(post.id, post.title, post.thumb);
+                                    });
+                                    results.appendChild(li);
+                                });
+                                results.style.display = 'block';
+                            });
+                    }, 300);
+                });
+
+                input.addEventListener('blur', function () {
+                    setTimeout(function () { results.style.display = 'none'; }, 150);
+                });
+
+                clear.addEventListener('click', function () {
+                    setPost(0, '', '');
+                    thumb.innerHTML = '<span style="color:#aaa;font-size:12px;">No image</span>';
+                });
+            });
+        }());
+        </script>
         <?php
     }
 }

@@ -44,9 +44,11 @@ final class WelcomeMailer
 
         $tierLabel = self::tierLabel( $tier );
         $name      = trim( (string) ( $user->display_name ?: $user->first_name ?: $user->user_login ) );
-        $loginUrl  = wp_login_url( home_url( '/manage-subscription/' ) );
+        $loginUrl  = wp_login_url( home_url( '/activity/' ) );
         $manageUrl = home_url( '/manage-subscription/' );
         $homeUrl   = home_url( '/' );
+
+        $mosaicImages = self::loadMosaicImages();
 
         $template = LGMS_PLUGIN_DIR . 'templates/email/welcome-membership.html.php';
         if ( ! file_exists( $template ) ) {
@@ -56,7 +58,7 @@ final class WelcomeMailer
 
         ob_start();
         // Variables in scope for the template:
-        //   $name, $tierLabel, $loginUrl, $manageUrl, $homeUrl
+        //   $name, $tierLabel, $loginUrl, $manageUrl, $homeUrl, $mosaicImages
         require $template;
         $body = (string) ob_get_clean();
 
@@ -73,6 +75,26 @@ final class WelcomeMailer
             error_log( "LGMS WelcomeMailer: wp_mail returned false for user {$wpUserId}" );
         }
         return (bool) $sent;
+    }
+
+    private static function loadMosaicImages(): array
+    {
+        $saved = json_decode( (string) get_option( 'lgms_welcome_mosaic_ids', '[]' ), true );
+        if ( ! is_array( $saved ) ) {
+            return [];
+        }
+        $urls = [];
+        foreach ( $saved as $id ) {
+            $id = (int) $id;
+            if ( $id <= 0 ) {
+                continue;
+            }
+            $url = get_the_post_thumbnail_url( $id, 'medium' );
+            if ( $url ) {
+                $urls[] = $url;
+            }
+        }
+        return $urls;
     }
 
     private static function tierLabel( string $tier ): string

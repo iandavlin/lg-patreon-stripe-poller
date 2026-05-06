@@ -1333,7 +1333,7 @@ final class RestController
         $body        = (array) $req->get_json_params();
         $email       = strtolower( trim( (string) ( $body['email']    ?? '' ) ) );
         $password    = (string) ( $body['password']          ?? '' );
-        $subWeekly   = (bool)   ( $body['subscribe_weekly']  ?? false );
+        $subWeekly   = (bool)   ( $body['subscribe_weekly']  ?? true );
         $displayName = trim( (string) ( $body['display_name'] ?? '' ) );
 
         if ( $email === '' || ! is_email( $email ) ) {
