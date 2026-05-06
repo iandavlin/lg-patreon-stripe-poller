@@ -1550,8 +1550,14 @@ final class Shortcodes
                     try {
                         const data = await doAuth({ email, password: pwd, login_only: true });
                         if (data.ok) {
-                            closeLoginModal();
-                            applyAuthSuccess(data);
+                            // Reload so the gift page renders in its canonical
+                            // logged-in state (server-rendered banner, hidden
+                            // mode/buyer-email sections, /my-gifts link, etc.).
+                            // The auth cookie was set in the response above so
+                            // the reload runs as the now-logged-in user.
+                            loginBtn.textContent = 'Logged in — refreshing…';
+                            window.location.reload();
+                            return;
                         } else {
                             if (loginErrEl) { loginErrEl.textContent = data.error || 'Login failed. Check your password.'; loginErrEl.hidden = false; }
                         }
