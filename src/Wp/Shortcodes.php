@@ -2650,8 +2650,9 @@ final class Shortcodes
             <!-- Sign-up modal — uses .lg-pay-modal which is proven to work against BuddyBoss -->
             <div class="lg-pay-modal" data-lg-signup-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-signup-modal-title">
                 <div class="lg-pay-modal__backdrop" data-lg-signup-close></div>
-                <div class="lg-join__signup-card">
+                <div class="lg-pay-modal__card lg-pay-modal__card--signup">
                     <button type="button" class="lg-pay-modal__close" data-lg-signup-close aria-label="Close">&times;</button>
+                    <div class="lg-pay-modal__body lg-pay-modal__body--signup">
                     <div class="lg-join__form" data-lg-join-form>
                         <h3 class="lg-join__form-heading" id="lg-signup-modal-title" data-lg-form-heading>Almost there</h3>
                         <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
@@ -2700,6 +2701,17 @@ final class Shortcodes
                             <button type="button" class="lg-join__continue is-primary" data-lg-continue>Continue to checkout</button>
                             <button type="button" class="lg-join__back" data-lg-back>Change plan</button>
                         </div>
+                    </div>
+                    <div class="lg-pay-methods lg-pay-modal__pay-methods" aria-label="Accepted payment methods">
+                        <span class="lg-pay-methods__label">Secure checkout &mdash; we accept</span>
+                        <ul class="lg-pay-methods__list">
+                            <li class="lg-pm lg-pm--visa" title="Visa"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="13" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-style="italic" font-size="13" fill="#fff" letter-spacing="0.5">VISA</text></svg></li>
+                            <li class="lg-pm lg-pm--mc" title="Mastercard"><svg viewBox="0 0 32 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="13" cy="10" r="6.5" fill="#EB001B"/><circle cx="19" cy="10" r="6.5" fill="#F79E1B" fill-opacity=".95"/><path d="M16 5.2a6.5 6.5 0 0 0 0 9.6 6.5 6.5 0 0 0 0-9.6z" fill="#FF5F00"/></svg></li>
+                            <li class="lg-pm lg-pm--amex" title="American Express"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="12" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-size="9" fill="#fff" letter-spacing="0.5">AMEX</text></svg></li>
+                            <li class="lg-pm lg-pm--apple" title="Apple Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#fff" d="M11.6 6.1c-.7.8-1.7 1.5-2.8 1.4-.1-1.1.4-2.2 1-2.9.7-.8 1.9-1.4 2.8-1.4.1 1.1-.4 2.2-1 2.9zm1 1.6c-1.6-.1-2.9.9-3.7.9-.7 0-1.9-.9-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.5.8 1.1 1.7 2.4 3 2.4 1.2-.1 1.7-.8 3.2-.8 1.5 0 1.9.8 3.2.7 1.3 0 2.2-1.2 3-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.5-1-2.6-3.8 0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.8-1.8-3.7-1.9z"/><text x="22" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#fff">Pay</text></svg></li>
+                            <li class="lg-pm lg-pm--google" title="Google Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9.4 11.4v3.5h-1.1V6.3h2.9c.7 0 1.4.3 1.9.8.5.5.8 1.2.8 1.9 0 .7-.3 1.4-.8 1.9-.5.5-1.1.8-1.9.8h-1.8zm0-4.1v3.1h1.9c.4 0 .8-.2 1.1-.5.6-.6.6-1.5 0-2.1-.3-.3-.7-.5-1.1-.5h-1.9zm6.4 1.2c.8 0 1.5.2 2 .7.5.4.7 1 .7 1.8v3.6h-1.1v-.8h-.1c-.5.7-1.1 1-1.8 1-.6 0-1.1-.2-1.5-.6-.4-.3-.6-.8-.6-1.3 0-.6.2-1 .6-1.4.4-.3 1-.5 1.7-.5.6 0 1.1.1 1.5.3v-.3c0-.4-.1-.7-.4-1-.3-.3-.6-.4-1-.4-.6 0-1.1.3-1.5.8l-1-.6c.5-.8 1.3-1.3 2.5-1.3zm-1.5 4.4c0 .2.1.4.3.6.2.2.4.2.7.2.4 0 .8-.1 1.1-.4.3-.3.5-.7.5-1.1-.3-.3-.8-.4-1.4-.4-.4 0-.8.1-1 .3-.2.2-.2.5-.2.8zm10.4-4.2L21.1 17h-1.2l1.4-3-2.4-5.3h1.2l1.7 4.1 1.7-4.1h1.2z" fill="#5F6368"/><path d="M33 10.7c0-.3 0-.6-.1-.9h-4.5v1.7h2.6c-.1.6-.4 1.1-.9 1.4v1.2h1.5c.9-.8 1.4-2 1.4-3.4z" fill="#4285F4"/><path d="M28.4 15.5c1.3 0 2.4-.4 3.2-1.2l-1.5-1.2c-.4.3-1 .5-1.7.5-1.3 0-2.4-.9-2.8-2h-1.6v1.2c.8 1.6 2.5 2.7 4.4 2.7z" fill="#34A853"/><path d="M25.6 11.6c-.2-.6-.2-1.3 0-1.9V8.5H24c-.7 1.3-.7 2.9 0 4.3l1.6-1.2z" fill="#FBBC04"/><path d="M28.4 7.6c.7 0 1.4.3 1.9.7l1.4-1.4c-.9-.8-2.1-1.3-3.3-1.2-1.9 0-3.6 1.1-4.4 2.7l1.6 1.2c.4-1.1 1.4-2 2.8-2z" fill="#EA4335"/><text x="36" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#5F6368">Pay</text></svg></li>
+                        </ul>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -2829,6 +2841,26 @@ final class Shortcodes
                 .lg-pwd-eye:focus-visible { outline: 2px solid var(--lg-amber, #ECB351); outline-offset: 2px; border-radius: 4px; }
                 .lg-pwd-eye__icon { width: 1.15em; height: 1.15em; display: block; }
                 .lg-pwd-mismatch { color: #b91c1c !important; font-size: .85em; margin-top: .3em; }
+
+                /* Sign-up modal — uses the unified .lg-pay-modal__card shell.
+                   Override the default 720px so the signup form stays
+                   comfortably narrow, restore inner padding (the shared
+                   __body has padding:0 because the checkout iframe paints
+                   its own padding), and make the pay-methods bar sit flush
+                   inside the card. */
+                .lg-pay-modal__card--signup { max-width: 620px !important; }
+                .lg-pay-modal__body--signup { padding: 1.8em 1.7em 1.4em !important; }
+                .lg-pay-modal__pay-methods {
+                    margin: 1.2em -1.7em -1.4em;
+                    padding: .9em 1.7em !important;
+                    border-top: 1px solid rgba(0,0,0,0.08);
+                    background: rgba(0,0,0,0.025);
+                    justify-content: center !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: .7em !important;
+                    flex-wrap: wrap !important;
+                }
 
                 /* Post-payment processing lock — shown when Stripe fires onComplete.
                    Sits above everything (max z-index) so the user cannot click into
