@@ -152,6 +152,7 @@ final class Plugin
             add_action( 'admin_notices', [ self::class, 'renderDisputeNotices' ] );
             add_action( 'admin_init',    [ self::class, 'handleDisputeDismiss' ] );
             Admin::boot();
+            MemberTools::boot();
             Wp\UserProfile::boot();
         }
     }
