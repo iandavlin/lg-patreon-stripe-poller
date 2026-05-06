@@ -3838,6 +3838,32 @@ final class Shortcodes
         $nameValue   = $isLoggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
         $endpointUrl = esc_url_raw( home_url( '/billing/v1/redeem' ) );
 
+        // Active-subscriber heads-up: RedeemController already refuses
+        // redemption for emails with an active sub. Surface that on the
+        // page so the user doesn't waste time filling the form just to
+        // get rejected — and offer a path to manage / cancel the sub.
+        $hasActiveSub = false;
+        $activeSubEnds = '';
+        if ( $isLoggedIn && $emailValue !== '' ) {
+            try {
+                $pdo  = \LGMS\Db::pdo();
+                $stmt = $pdo->prepare(
+                    "SELECT s.current_period_end
+                       FROM subscriptions s
+                       JOIN customers c ON c.id = s.customer_id
+                      WHERE c.email = ?
+                        AND s.status IN ('active','trialing','past_due')
+                      ORDER BY s.id DESC LIMIT 1"
+                );
+                $stmt->execute( [ $emailValue ] );
+                $row = $stmt->fetch( \PDO::FETCH_ASSOC );
+                if ( $row !== false ) {
+                    $hasActiveSub  = true;
+                    $activeSubEnds = $row['current_period_end'] !== null ? substr( (string) $row['current_period_end'], 0, 10 ) : '';
+                }
+            } catch ( \Throwable $_ ) {}
+        }
+
         // Pre-fill the code from ?code=... in the URL (links from gift email).
         $codeFromUrl = isset( $_GET['code'] ) ? (string) $_GET['code'] : '';
         $codeFromUrl = strtoupper( preg_replace( '/[^A-Za-z0-9]/', '', $codeFromUrl ) );
@@ -3919,6 +3945,15 @@ final class Shortcodes
         ?>
         <div class="lg-redeem-gift">
             <h3 class="lg-redeem-gift__heading"><?php echo $heading; ?></h3>
+            <?php if ( $hasActiveSub ) : ?>
+            <div class="lg-redeem-gift__active-sub-warn" style="margin:0 0 1.2em;padding:1em 1.1em;background:#fff3f0;border:1px solid #d97757;border-radius:8px;font-size:.95em;line-height:1.5;color:#1f1d1a;">
+                <strong style="font-size:1.05em;">Heads up — your account already has an active subscription<?php echo $activeSubEnds !== '' ? ' (renews ' . esc_html( $activeSubEnds ) . ')' : ''; ?>.</strong><br>
+                Gift codes are for accounts <em>without</em> an active subscription, so we can&rsquo;t redeem this code while your sub is running &mdash; redemption will be refused. To use the gift, cancel your subscription first; once it expires you can come back and redeem here, and your gifted time picks up where the paid time ended.
+                <div style="margin-top:.7em;display:flex;gap:.5em;flex-wrap:wrap;">
+                    <a href="<?php echo esc_url( home_url( '/manage-subscription/' ) ); ?>" style="display:inline-block;padding:.5em 1em;background:#1f1d1a;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:.92em;">Manage subscription</a>
+                </div>
+            </div>
+            <?php endif; ?>
             <?php if ( $renderSigninVariant ) : ?>
             <div class="lg-redeem-gift__intro" style="margin:0 0 1.1em;padding:.85em 1em;background:rgba(135,152,106,0.10);border:1px solid rgba(135,152,106,0.35);border-radius:8px;font-size:.93em;line-height:1.45;color:#1f1d1a;">
                 <strong>This email already has an account.</strong>
