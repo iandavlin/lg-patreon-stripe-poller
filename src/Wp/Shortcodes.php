@@ -1999,8 +1999,14 @@ final class Shortcodes
                         <?php endif; ?>
                     </p>
                     <p style="margin:.4em 0 0;font-size:.88em;color:#666;">
-                        Gifted memberships don't auto-renew. When this expires you can <a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">pick up a subscription</a> to keep your access uninterrupted.
+                        Gifted memberships don't auto-renew. Set up a subscription now and we won't charge you until your gift ends &mdash;
+                        you stay covered without interruption.
                     </p>
+                    <div style="margin-top:.9em;">
+                        <a class="lg-manage-sub__btn lg-manage-sub__btn--primary" href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>" style="display:inline-block;background:#ECB351;color:#1f1d1a;padding:.6em 1.15em;border-radius:6px;font-weight:600;text-decoration:none;">
+                            Set up subscription &mdash; <?php echo $giftDays !== null && $giftDays > 0 ? 'first charge in ' . esc_html( (string) $giftDays ) . ' day' . ( $giftDays === 1 ? '' : 's' ) : 'no charge today'; ?> &rarr;
+                        </a>
+                    </div>
                 </div>
                 <?php endforeach; ?>
             <?php endif; ?>
@@ -2982,15 +2988,11 @@ final class Shortcodes
                 <div class="lg-giftwarn__backdrop" data-lg-giftwarn-cancel></div>
                 <div class="lg-giftwarn__card">
                     <button type="button" class="lg-giftwarn__close" data-lg-giftwarn-cancel aria-label="Close">&times;</button>
-                    <h3 id="lg-giftwarn-title" class="lg-giftwarn__title">You already have an active gift</h3>
+                    <h3 id="lg-giftwarn-title" class="lg-giftwarn__title">You're already covered by a gift</h3>
                     <p class="lg-giftwarn__body" data-lg-giftwarn-body></p>
-                    <label class="lg-giftwarn__check">
-                        <input type="checkbox" data-lg-giftwarn-confirm-check>
-                        <span>I understand &mdash; charge me today and stack the subscription on top of my gift time.</span>
-                    </label>
                     <div class="lg-giftwarn__actions">
-                        <button type="button" class="lg-giftwarn__btn lg-giftwarn__btn--ghost" data-lg-giftwarn-cancel>Wait until gift expires</button>
-                        <button type="button" class="lg-giftwarn__btn lg-giftwarn__btn--primary" data-lg-giftwarn-confirm disabled>Subscribe anyway</button>
+                        <button type="button" class="lg-giftwarn__btn lg-giftwarn__btn--ghost" data-lg-giftwarn-cancel>Maybe later</button>
+                        <button type="button" class="lg-giftwarn__btn lg-giftwarn__btn--primary" data-lg-giftwarn-confirm>Set up subscription</button>
                     </div>
                 </div>
             </div>
@@ -3536,14 +3538,16 @@ final class Shortcodes
                 const days  = parseInt(active.days_remaining, 10) || 0;
                 const exp   = active.expires_at || '';
                 if (giftWarnBody) {
+                    const expNice = exp ? new Date(exp + 'T00:00:00').toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }) : '';
                     giftWarnBody.innerHTML =
-                        'Your account already has <strong>' + days + ' day' + (days === 1 ? '' : 's') + ' of ' + tier + '</strong> ' +
-                        'from a redeemed gift' + (exp ? ', good through <strong>' + exp + '</strong>' : '') + '. ' +
-                        'If you start a subscription now, Stripe will charge you today and the subscription will run on top of your gift time &mdash; ' +
-                        'so you\'ll be paying for coverage you already have. Most folks wait until the gift expires before subscribing.';
+                        'You have <strong>' + days + ' day' + (days === 1 ? '' : 's') + ' of ' + tier + '</strong> left from a redeemed gift' +
+                        (expNice ? ' (through <strong>' + expNice + '</strong>)' : '') + '. ' +
+                        '<br><br>' +
+                        'No problem &mdash; if you set up a subscription now, ' +
+                        '<strong>we won&rsquo;t charge you until your gift ends' + (expNice ? ' on ' + expNice : '') + '</strong>. ' +
+                        'You stay covered without interruption and you only pay once your gift time is up.';
                 }
-                if (giftWarnCheck)   giftWarnCheck.checked = false;
-                if (giftWarnConfirm) giftWarnConfirm.disabled = true;
+                if (giftWarnConfirm) giftWarnConfirm.disabled = false;
                 if (giftWarnModal)   giftWarnModal.hidden = false;
                 document.body.classList.add('lg-modal-open');
             }
@@ -3551,9 +3555,9 @@ final class Shortcodes
                 if (giftWarnModal) giftWarnModal.hidden = true;
                 document.body.classList.remove('lg-modal-open');
             }
-            if (giftWarnCheck && giftWarnConfirm) {
-                giftWarnCheck.addEventListener('change', () => { giftWarnConfirm.disabled = !giftWarnCheck.checked; });
-            }
+            // Confirm-checkbox is gone — confirm is enabled the moment the
+            // modal opens (since first charge is now deferred to gift expiry,
+            // there's nothing to second-guess).
             document.querySelectorAll('[data-lg-giftwarn-cancel]').forEach(el => {
                 el.addEventListener('click', hideGiftWarnModal);
             });
