@@ -582,6 +582,14 @@
     transform: none;
 }
 
+.lg-join__trial-note {
+    margin: 0.75em 0 0;
+    font-size: 0.82em;
+    color: var(--lg-green-dark, #2d5a27);
+    text-align: center;
+    font-weight: 500;
+}
+
 .lg-join__checkout:not(:empty) {
     margin: 2em auto 0;
     max-width: 720px;

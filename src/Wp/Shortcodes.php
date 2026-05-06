@@ -2954,6 +2954,16 @@ final class Shortcodes
                         }
                     });
                     card.appendChild(list);
+
+                    // Trial badge — show when any recurring price on this tier has trial_days > 0
+                    const trialDays = prod.prices.reduce((max, p) => p.type === 'recurring' && (p.trial_days || 0) > max ? (p.trial_days || 0) : max, 0);
+                    if (trialDays > 0) {
+                        const trialBadge = document.createElement('p');
+                        trialBadge.className = 'lg-join__trial-note';
+                        trialBadge.textContent = trialDays + '-day free trial — cancel any time';
+                        card.appendChild(trialBadge);
+                    }
+
                     tiersEl.appendChild(card);
                 });
 
