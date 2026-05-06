@@ -2452,7 +2452,7 @@ final class Shortcodes
             </header>
 
             <div class="lg-join__trial-banner" data-lg-trial-banner hidden>
-                &#10003; 7-day free trial on all plans &mdash; no charge until day 8
+                <span class="lg-join__trial-banner-inner">&#10003; 7-day free trial on all plans &mdash; no charge until day 8</span>
             </div>
 
             <?php if ( $previewSingle ) : ?>
@@ -2472,63 +2472,71 @@ final class Shortcodes
                 <p class="lg-join__loading">Loading plans&hellip;</p>
             </div>
 
-            <div class="lg-join__form" data-lg-join-form hidden>
-                <h3 class="lg-join__form-heading" data-lg-form-heading>Almost there</h3>
-                <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
-                    <div class="lg-join__field">
-                        <label>Email <input type="email" name="email" value="<?php echo $email; ?>" autocomplete="email" required></label>
+            <div class="lg-pay-methods lg-join__pay-methods-bar" aria-label="Accepted payment methods">
+                <span class="lg-pay-methods__label">Secure checkout &mdash; we accept</span>
+                <ul class="lg-pay-methods__list">
+                    <li class="lg-pm lg-pm--visa" title="Visa"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="13" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-style="italic" font-size="13" fill="#fff" letter-spacing="0.5">VISA</text></svg></li>
+                    <li class="lg-pm lg-pm--mc" title="Mastercard"><svg viewBox="0 0 32 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="13" cy="10" r="6.5" fill="#EB001B"/><circle cx="19" cy="10" r="6.5" fill="#F79E1B" fill-opacity=".95"/><path d="M16 5.2a6.5 6.5 0 0 0 0 9.6 6.5 6.5 0 0 0 0-9.6z" fill="#FF5F00"/></svg></li>
+                    <li class="lg-pm lg-pm--amex" title="American Express"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="12" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-size="9" fill="#fff" letter-spacing="0.5">AMEX</text></svg></li>
+                    <li class="lg-pm lg-pm--apple" title="Apple Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#fff" d="M11.6 6.1c-.7.8-1.7 1.5-2.8 1.4-.1-1.1.4-2.2 1-2.9.7-.8 1.9-1.4 2.8-1.4.1 1.1-.4 2.2-1 2.9zm1 1.6c-1.6-.1-2.9.9-3.7.9-.7 0-1.9-.9-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.5.8 1.1 1.7 2.4 3 2.4 1.2-.1 1.7-.8 3.2-.8 1.5 0 1.9.8 3.2.7 1.3 0 2.2-1.2 3-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.5-1-2.6-3.8 0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.8-1.8-3.7-1.9z"/><text x="22" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#fff">Pay</text></svg></li>
+                    <li class="lg-pm lg-pm--google" title="Google Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9.4 11.4v3.5h-1.1V6.3h2.9c.7 0 1.4.3 1.9.8.5.5.8 1.2.8 1.9 0 .7-.3 1.4-.8 1.9-.5.5-1.1.8-1.9.8h-1.8zm0-4.1v3.1h1.9c.4 0 .8-.2 1.1-.5.6-.6.6-1.5 0-2.1-.3-.3-.7-.5-1.1-.5h-1.9zm6.4 1.2c.8 0 1.5.2 2 .7.5.4.7 1 .7 1.8v3.6h-1.1v-.8h-.1c-.5.7-1.1 1-1.8 1-.6 0-1.1-.2-1.5-.6-.4-.3-.6-.8-.6-1.3 0-.6.2-1 .6-1.4.4-.3 1-.5 1.7-.5.6 0 1.1.1 1.5.3v-.3c0-.4-.1-.7-.4-1-.3-.3-.6-.4-1-.4-.6 0-1.1.3-1.5.8l-1-.6c.5-.8 1.3-1.3 2.5-1.3zm-1.5 4.4c0 .2.1.4.3.6.2.2.4.2.7.2.4 0 .8-.1 1.1-.4.3-.3.5-.7.5-1.1-.3-.3-.8-.4-1.4-.4-.4 0-.8.1-1 .3-.2.2-.2.5-.2.8zm10.4-4.2L21.1 17h-1.2l1.4-3-2.4-5.3h1.2l1.7 4.1 1.7-4.1h1.2z" fill="#5F6368"/><path d="M33 10.7c0-.3 0-.6-.1-.9h-4.5v1.7h2.6c-.1.6-.4 1.1-.9 1.4v1.2h1.5c.9-.8 1.4-2 1.4-3.4z" fill="#4285F4"/><path d="M28.4 15.5c1.3 0 2.4-.4 3.2-1.2l-1.5-1.2c-.4.3-1 .5-1.7.5-1.3 0-2.4-.9-2.8-2h-1.6v1.2c.8 1.6 2.5 2.7 4.4 2.7z" fill="#34A853"/><path d="M25.6 11.6c-.2-.6-.2-1.3 0-1.9V8.5H24c-.7 1.3-.7 2.9 0 4.3l1.6-1.2z" fill="#FBBC04"/><path d="M28.4 7.6c.7 0 1.4.3 1.9.7l1.4-1.4c-.9-.8-2.1-1.3-3.3-1.2-1.9 0-3.6 1.1-4.4 2.7l1.6 1.2c.4-1.1 1.4-2 2.8-2z" fill="#EA4335"/><text x="36" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#5F6368">Pay</text></svg></li>
+                </ul>
+            </div>
+
+            <!-- Sign-up modal — opens when a plan is selected -->
+            <div class="lg-join__signup-modal" data-lg-signup-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-signup-modal-title">
+                <div class="lg-join__signup-backdrop" data-lg-signup-close></div>
+                <div class="lg-join__signup-card">
+                    <button type="button" class="lg-join__signup-close" data-lg-signup-close aria-label="Close">&times;</button>
+                    <div class="lg-join__form" data-lg-join-form>
+                        <h3 class="lg-join__form-heading" id="lg-signup-modal-title" data-lg-form-heading>Almost there</h3>
+                        <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
+                            <div class="lg-join__field">
+                                <label>Email <input type="email" name="email" value="<?php echo $email; ?>" autocomplete="email" required></label>
+                            </div>
+                            <div class="lg-join__field">
+                                <label>Confirm email <input type="email" name="email_confirm" value="<?php echo $email; ?>" autocomplete="email" required></label>
+                                <small data-lg-email-mismatch class="lg-pwd-mismatch" hidden>Emails don&rsquo;t match.</small>
+                            </div>
+                            <?php if ( ! $isLoggedIn ) : ?>
+                            <div class="lg-join__field">
+                                <label>Password
+                                    <span class="lg-pwd-wrap">
+                                        <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick a password (8+ characters)">
+                                        <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                                    </span>
+                                </label>
+                                <small>This becomes your account password so you can log in any time to manage your subscription.</small>
+                            </div>
+                            <div class="lg-join__field">
+                                <label>Confirm password
+                                    <span class="lg-pwd-wrap">
+                                        <input type="password" name="password_confirm" minlength="8" required autocomplete="new-password" placeholder="Re-enter your password">
+                                        <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password_confirm" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                                    </span>
+                                </label>
+                                <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
+                            </div>
+                            <?php endif; ?>
+                            <div class="lg-join__field" style="grid-column: 1 / -1;">
+                                <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em>
+                                    <input type="text" name="name" value="<?php echo $name; ?>" required>
+                                </label>
+                                <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
+                            </div>
+                        </div>
+                        <details class="lg-join__discount" <?php echo $promoFromUrl !== '' ? 'open' : ''; ?>>
+                            <summary>Have a discount code?</summary>
+                            <div class="lg-join__discount-row">
+                                <input type="text" name="promo_code" placeholder="e.g. PATREON5" value="<?php echo $promoEsc; ?>" autocomplete="off" maxlength="64">
+                                <small data-lg-promo-status></small>
+                            </div>
+                        </details>
+                        <div class="lg-join__form-actions">
+                            <button type="button" class="lg-join__continue is-primary" data-lg-continue>Continue to checkout</button>
+                            <button type="button" class="lg-join__back" data-lg-back>Change plan</button>
+                        </div>
                     </div>
-                    <div class="lg-join__field">
-                        <label>Confirm email <input type="email" name="email_confirm" value="<?php echo $email; ?>" autocomplete="email" required></label>
-                        <small data-lg-email-mismatch class="lg-pwd-mismatch" hidden>Emails don&rsquo;t match.</small>
-                    </div>
-                    <?php if ( ! $isLoggedIn ) : ?>
-                    <div class="lg-join__field">
-                        <label>Password
-                            <span class="lg-pwd-wrap">
-                                <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Pick a password (8+ characters)">
-                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
-                            </span>
-                        </label>
-                        <small>This becomes your account password so you can log in any time to manage your subscription.</small>
-                    </div>
-                    <div class="lg-join__field">
-                        <label>Confirm password
-                            <span class="lg-pwd-wrap">
-                                <input type="password" name="password_confirm" minlength="8" required autocomplete="new-password" placeholder="Re-enter your password">
-                                <button type="button" class="lg-pwd-eye" data-lg-pwd-eye-for="password_confirm" aria-label="Show password"><svg class="lg-pwd-eye__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
-                            </span>
-                        </label>
-                        <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
-                    </div>
-                    <?php endif; ?>
-                    <div class="lg-join__field" style="grid-column: 1 / -1;">
-                        <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em>
-                            <input type="text" name="name" value="<?php echo $name; ?>" required>
-                        </label>
-                        <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
-                    </div>
-                </div>
-                <details class="lg-join__discount" <?php echo $promoFromUrl !== '' ? 'open' : ''; ?>>
-                    <summary>Have a discount code?</summary>
-                    <div class="lg-join__discount-row">
-                        <input type="text" name="promo_code" placeholder="e.g. PATREON5" value="<?php echo $promoEsc; ?>" autocomplete="off" maxlength="64">
-                        <small data-lg-promo-status></small>
-                    </div>
-                </details>
-                <div class="lg-join__form-actions">
-                    <button type="button" class="lg-join__continue is-primary" data-lg-continue>Continue to checkout</button>
-                    <button type="button" class="lg-join__back" data-lg-back>Change plan</button>
-                </div>
-                <div class="lg-pay-methods" aria-label="Accepted payment methods">
-                    <span class="lg-pay-methods__label">Secure checkout &mdash; we accept</span>
-                    <ul class="lg-pay-methods__list">
-                        <li class="lg-pm lg-pm--visa" title="Visa"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="13" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-style="italic" font-size="13" fill="#fff" letter-spacing="0.5">VISA</text></svg></li>
-                        <li class="lg-pm lg-pm--mc" title="Mastercard"><svg viewBox="0 0 32 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="13" cy="10" r="6.5" fill="#EB001B"/><circle cx="19" cy="10" r="6.5" fill="#F79E1B" fill-opacity=".95"/><path d="M16 5.2a6.5 6.5 0 0 0 0 9.6 6.5 6.5 0 0 0 0-9.6z" fill="#FF5F00"/></svg></li>
-                        <li class="lg-pm lg-pm--amex" title="American Express"><svg viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><text x="24" y="12" text-anchor="middle" font-family="Arial Black, Helvetica, sans-serif" font-weight="900" font-size="9" fill="#fff" letter-spacing="0.5">AMEX</text></svg></li>
-                        <li class="lg-pm lg-pm--apple" title="Apple Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#fff" d="M11.6 6.1c-.7.8-1.7 1.5-2.8 1.4-.1-1.1.4-2.2 1-2.9.7-.8 1.9-1.4 2.8-1.4.1 1.1-.4 2.2-1 2.9zm1 1.6c-1.6-.1-2.9.9-3.7.9-.7 0-1.9-.9-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.5.8 1.1 1.7 2.4 3 2.4 1.2-.1 1.7-.8 3.2-.8 1.5 0 1.9.8 3.2.7 1.3 0 2.2-1.2 3-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.5-1-2.6-3.8 0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.8-1.8-3.7-1.9z"/><text x="22" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#fff">Pay</text></svg></li>
-                        <li class="lg-pm lg-pm--google" title="Google Pay"><svg viewBox="0 0 60 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9.4 11.4v3.5h-1.1V6.3h2.9c.7 0 1.4.3 1.9.8.5.5.8 1.2.8 1.9 0 .7-.3 1.4-.8 1.9-.5.5-1.1.8-1.9.8h-1.8zm0-4.1v3.1h1.9c.4 0 .8-.2 1.1-.5.6-.6.6-1.5 0-2.1-.3-.3-.7-.5-1.1-.5h-1.9zm6.4 1.2c.8 0 1.5.2 2 .7.5.4.7 1 .7 1.8v3.6h-1.1v-.8h-.1c-.5.7-1.1 1-1.8 1-.6 0-1.1-.2-1.5-.6-.4-.3-.6-.8-.6-1.3 0-.6.2-1 .6-1.4.4-.3 1-.5 1.7-.5.6 0 1.1.1 1.5.3v-.3c0-.4-.1-.7-.4-1-.3-.3-.6-.4-1-.4-.6 0-1.1.3-1.5.8l-1-.6c.5-.8 1.3-1.3 2.5-1.3zm-1.5 4.4c0 .2.1.4.3.6.2.2.4.2.7.2.4 0 .8-.1 1.1-.4.3-.3.5-.7.5-1.1-.3-.3-.8-.4-1.4-.4-.4 0-.8.1-1 .3-.2.2-.2.5-.2.8zm10.4-4.2L21.1 17h-1.2l1.4-3-2.4-5.3h1.2l1.7 4.1 1.7-4.1h1.2z" fill="#5F6368"/><path d="M33 10.7c0-.3 0-.6-.1-.9h-4.5v1.7h2.6c-.1.6-.4 1.1-.9 1.4v1.2h1.5c.9-.8 1.4-2 1.4-3.4z" fill="#4285F4"/><path d="M28.4 15.5c1.3 0 2.4-.4 3.2-1.2l-1.5-1.2c-.4.3-1 .5-1.7.5-1.3 0-2.4-.9-2.8-2h-1.6v1.2c.8 1.6 2.5 2.7 4.4 2.7z" fill="#34A853"/><path d="M25.6 11.6c-.2-.6-.2-1.3 0-1.9V8.5H24c-.7 1.3-.7 2.9 0 4.3l1.6-1.2z" fill="#FBBC04"/><path d="M28.4 7.6c.7 0 1.4.3 1.9.7l1.4-1.4c-.9-.8-2.1-1.3-3.3-1.2-1.9 0-3.6 1.1-4.4 2.7l1.6 1.2c.4-1.1 1.4-2 2.8-2z" fill="#EA4335"/><text x="36" y="14.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="9" fill="#5F6368">Pay</text></svg></li>
-                    </ul>
                 </div>
             </div>
 
@@ -2779,9 +2787,20 @@ final class Shortcodes
                 return ' (≈ ' + fx.s + local.toLocaleString() + ')';
             }
 
-            const tiersEl    = document.querySelector('[data-lg-join-tiers]');
-            const formEl     = document.querySelector('[data-lg-join-form]');
-            const formHeadEl = document.querySelector('[data-lg-form-heading]');
+            const tiersEl      = document.querySelector('[data-lg-join-tiers]');
+            const signupModal  = document.querySelector('[data-lg-signup-modal]');
+            const formEl       = document.querySelector('[data-lg-join-form]');
+            const formHeadEl   = document.querySelector('[data-lg-form-heading]');
+
+            function openSignupModal() {
+                if (signupModal) { signupModal.hidden = false; document.body.classList.add('lg-modal-open'); }
+            }
+            function closeSignupModal() {
+                if (signupModal) { signupModal.hidden = true; document.body.classList.remove('lg-modal-open'); }
+            }
+            document.querySelectorAll('[data-lg-signup-close]').forEach(el => {
+                el.addEventListener('click', () => { teardownCheckoutMount(); closeSignupModal(); pendingPriceId = null; document.querySelectorAll('.lg-join__tier.is-selected, .lg-join__buy.is-selected, .lg-join__trial-btn.is-selected').forEach(e => e.classList.remove('is-selected')); });
+            });
             const continueBt = document.querySelector('[data-lg-continue]');
             const backBt     = document.querySelector('[data-lg-back]');
             const checkoutEl = document.querySelector('[data-lg-join-checkout]');
@@ -3005,6 +3024,7 @@ final class Shortcodes
                         card.appendChild(trialBtn);
                     }
                 }
+                // Note: isMock trial buttons intentionally omitted
 
                 return card;
             }
@@ -3022,23 +3042,21 @@ final class Shortcodes
                     return;
                 }
 
-                let defaultBtn = null, defaultPrice = null, defaultProd = null;
                 products.forEach(function(prod){
-                    const sorted   = sortPrices(prod.prices);
+                    const sorted    = sortPrices(prod.prices);
                     const isPopular = (prod.ref && CONFIG.popular && prod.ref === CONFIG.popular);
-                    const card     = buildTierCard(prod, sorted, isPopular, false);
+                    const card      = buildTierCard(prod, sorted, isPopular, false);
                     tiersEl.appendChild(card);
 
-                    const yearlyBtn = card.querySelector('.lg-join__buy.is-primary');
-                    const yearlyP   = sorted.find(p => p.type === 'recurring' && p.interval === 'year');
-                    if (isPopular && yearlyBtn && yearlyP && !defaultBtn) {
-                        defaultBtn = yearlyBtn; defaultPrice = yearlyP; defaultProd = prod;
+                    // Pulse the popular tier's yearly button once on load to draw the eye.
+                    if (isPopular) {
+                        const yearlyBtn = card.querySelector('.lg-join__buy.is-primary');
+                        if (yearlyBtn) {
+                            setTimeout(() => yearlyBtn.classList.add('is-pulsing'), 600);
+                            yearlyBtn.addEventListener('click', () => yearlyBtn.classList.remove('is-pulsing'), { once: true });
+                        }
                     }
                 });
-
-                if (defaultBtn && defaultPrice && defaultProd) {
-                    selectPrice(defaultPrice, defaultProd, defaultBtn, { silent: true });
-                }
             }
 
             function renderSingleTierPreview(){
@@ -3079,17 +3097,14 @@ final class Shortcodes
 
                 const displayLabel = pendingLabel.replace(/^Subscribe\s*—\s*|^Pay once\s*—\s*/, '');
                 formHeadEl.textContent = 'Continue to ' + prod.name + ' — ' + displayLabel;
-                formEl.hidden = false;
                 // If checkout was already mounted (user clicked again), tear it down.
                 teardownCheckoutMount();
                 if (!opts.silent) {
-                    formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    // Auto-focus email if blank (anon user); otherwise focus continue button.
-                    if (!emailInput.value.trim()) {
-                        emailInput.focus();
-                    } else {
-                        continueBt.focus();
-                    }
+                    openSignupModal();
+                    setTimeout(function(){
+                        if (!emailInput.value.trim()) emailInput.focus();
+                        else continueBt.focus();
+                    }, 80);
                 }
             }
 
@@ -3451,12 +3466,11 @@ final class Shortcodes
             // Wire step 2 buttons
             continueBt.addEventListener('click', startCheckout);
             backBt.addEventListener('click', function(){
-                formEl.hidden = true;
                 pendingPriceId = null;
                 document.querySelectorAll('.lg-join__tier').forEach(c => c.classList.remove('is-selected'));
-                document.querySelectorAll('.lg-join__buy.is-selected').forEach(b => b.classList.remove('is-selected'));
+                document.querySelectorAll('.lg-join__buy.is-selected, .lg-join__trial-btn.is-selected').forEach(b => b.classList.remove('is-selected'));
                 closeJoinCheckoutModal();
-                tiersEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                closeSignupModal();
             });
 
             loadProducts();
