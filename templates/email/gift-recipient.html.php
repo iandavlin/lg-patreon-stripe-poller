@@ -27,12 +27,14 @@ $codeEs = esc_html( $code );
 $urlEs  = esc_url( $redeemUrl );
 $supEs  = esc_attr( $supportEmail );
 
+$durEs   = esc_html( $durationPhrase ?? '1-year' );
+$perksEs = esc_html( $durationPerks  ?? 'next 12 months' );
 if ( $hasGiver ) {
     $heroLine  = "You've been gifted a {$tierEs} membership";
-    $greetLine = "Hi <strong>{$rName}</strong>, <strong>{$gName}</strong> picked up a 1-year {$tierEs} membership for you. Welcome.";
+    $greetLine = "Hi <strong>{$rName}</strong>, <strong>{$gName}</strong> picked up a {$durEs} {$tierEs} membership for you. Welcome.";
 } else {
     $heroLine  = "Someone gifted you a {$tierEs} membership";
-    $greetLine = "Hi <strong>{$rName}</strong> &mdash; someone picked up a 1-year {$tierEs} membership for you. Lucky you.";
+    $greetLine = "Hi <strong>{$rName}</strong> &mdash; someone picked up a {$durEs} {$tierEs} membership for you. Lucky you.";
 }
 ?>
 <!doctype html>
@@ -86,7 +88,7 @@ if ( $hasGiver ) {
       <tr><td style="padding:0 28px 28px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f7f5ee;border-radius:8px;">
           <tr><td style="padding:18px 22px;">
-            <p style="margin:0 0 10px;font-size:14px;font-weight:600;">What you get for the next 12 months</p>
+            <p style="margin:0 0 10px;font-size:14px;font-weight:600;">What you get for the <?php echo $perksEs; ?></p>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr><td style="padding:3px 0;font-size:14px;line-height:1.55;color:#444;">&#10003; Members-only forums and full historical archive</td></tr>
               <?php if ( $isPro ) : ?>

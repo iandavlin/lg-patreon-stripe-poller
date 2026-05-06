@@ -146,6 +146,39 @@ final class GiftMailer
         };
     }
 
+    /**
+     * Format gift duration for the recipient hero copy.
+     * 365 → "1-year"; multiples of 30 → "N-month"; else "N-day".
+     */
+    private static function durationPhrase( int $days ): string
+    {
+        if ( $days >= 365 && $days % 365 === 0 ) {
+            $yrs = (int) ( $days / 365 );
+            return $yrs === 1 ? '1-year' : "{$yrs}-year";
+        }
+        if ( $days % 30 === 0 ) {
+            $months = (int) ( $days / 30 );
+            return $months === 1 ? '1-month' : "{$months}-month";
+        }
+        return $days === 1 ? '1-day' : "{$days}-day";
+    }
+
+    /**
+     * Label for the "What you get for the next ..." perks block.
+     */
+    private static function durationPerksLabel( int $days ): string
+    {
+        if ( $days >= 365 && $days % 365 === 0 ) {
+            $yrs = (int) ( $days / 365 );
+            return $yrs === 1 ? 'next 12 months' : 'next ' . ( $yrs * 12 ) . ' months';
+        }
+        if ( $days % 30 === 0 ) {
+            $months = (int) ( $days / 30 );
+            return $months === 1 ? 'next month' : "next {$months} months";
+        }
+        return $days === 1 ? 'next day' : "next {$days} days";
+    }
+
     private function redeemBaseUrl(): string
     {
         $opt = (string) get_option( 'lgms_redeem_url', '' );
@@ -174,22 +207,27 @@ final class GiftMailer
         $renderedGiver = $hasGiver ? $giverName : 'Someone';
         $redeemUrl     = add_query_arg( 'code', $code, $this->redeemBaseUrl() );
         $supportEmail  = $this->supportEmail();
+        $durationDays  = max( 1, (int) ( $c['duration_days'] ?? 365 ) );
+        $durationPhrase = self::durationPhrase( $durationDays );          // "1-year" | "5-month" | "10-day"
+        $durationPerks  = self::durationPerksLabel( $durationDays );      // "next 12 months" | "next 5 months" | "next 10 days"
 
         $subject = $hasGiver
             ? sprintf( '%s has gifted you a %s membership 🎁', $renderedGiver, $tierLabel )
             : sprintf( 'A gift %s membership — for you 🎁', $tierLabel );
 
         $body = $this->renderTemplate( 'gift-recipient', [
-            'recipientName' => $recipientName,
-            'giverName'     => $renderedGiver,
-            'hasGiver'      => $hasGiver,
-            'code'          => $code,
-            'tierSlug'      => $tierSlug,
-            'tierLabel'     => $tierLabel,
-            'giftMessage'   => $giftMessage,
-            'redeemUrl'     => $redeemUrl,
-            'isPro'         => $isPro,
-            'supportEmail'  => $supportEmail,
+            'recipientName'  => $recipientName,
+            'giverName'      => $renderedGiver,
+            'hasGiver'       => $hasGiver,
+            'code'           => $code,
+            'tierSlug'       => $tierSlug,
+            'tierLabel'      => $tierLabel,
+            'giftMessage'    => $giftMessage,
+            'redeemUrl'      => $redeemUrl,
+            'isPro'          => $isPro,
+            'supportEmail'   => $supportEmail,
+            'durationPhrase' => $durationPhrase,
+            'durationPerks'  => $durationPerks,
         ] );
 
         $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
