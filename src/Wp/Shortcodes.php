@@ -755,12 +755,12 @@ final class Shortcodes
 
                 // 1-year row (uses yearly price directly)
                 if (yp) {
-                    durationsEl.appendChild(makeRow('year', '1 year', dollars(yp.unit_amount_cents) + ' / code'));
+                    durationsEl.appendChild(makeRow('year', '1 year', dollars(yp.unit_amount_cents) + ' / gift'));
                 }
 
                 // 1-month row
                 if (mp) {
-                    durationsEl.appendChild(makeRow('month', '1 month', dollars(mp.unit_amount_cents) + ' / code'));
+                    durationsEl.appendChild(makeRow('month', '1 month', dollars(mp.unit_amount_cents) + ' / gift'));
                 }
 
                 // Custom months row — stepper (− N +), price updates live
@@ -785,7 +785,7 @@ final class Shortcodes
                         customMonthsVal = Math.max(2, Math.min(36, val));
                         numInput.value = String(customMonthsVal);
                         const pr = durationsEl.querySelector('[data-dur-price-key="custom"]');
-                        if (pr) pr.textContent = dollars(mp.unit_amount_cents * customMonthsVal) + ' / code';
+                        if (pr) pr.textContent = dollars(mp.unit_amount_cents * customMonthsVal) + ' / gift';
                         if (selectedDuration && selectedDuration.key === 'custom') {
                             selectedDuration.months = customMonthsVal;
                             selectedDuration.baseUnitCents = mp.unit_amount_cents * customMonthsVal;
@@ -801,7 +801,7 @@ final class Shortcodes
                     stepper.appendChild(numInput);
                     stepper.appendChild(incBtn);
 
-                    const customRow = makeRow('custom', 'Custom months', dollars(mp.unit_amount_cents * customMonthsVal) + ' / code', stepper);
+                    const customRow = makeRow('custom', 'Custom months', dollars(mp.unit_amount_cents * customMonthsVal) + ' / gift', stepper);
                     durationsEl.appendChild(customRow);
                 }
             }
