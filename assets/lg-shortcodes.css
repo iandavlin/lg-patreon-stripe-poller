@@ -606,14 +606,14 @@
  * but no orange fill. Pulls the eye without claiming the spotlight; selected
  * state below uses the orange treatment so the chosen option is unmistakable. */
 .lg-join__buy.is-primary {
-    border-color: var(--lg-orange);
+    border: 2px solid var(--lg-orange, #ECB351);
     font-weight: 600;
     box-shadow: 0 2px 0 rgba(0,0,0,0.06), 0 6px 16px rgba(236,179,81,0.32);
     transform: translateY(-1px);
 }
 .lg-join__buy.is-primary:hover {
     background: var(--lg-cream);
-    border-color: var(--lg-orange-dark);
+    border-color: var(--lg-orange-dark, #c8881a);
     box-shadow: 0 3px 0 rgba(0,0,0,0.07), 0 8px 18px rgba(236,179,81,0.42);
 }
 /* Selected: full orange treatment — the chosen plan reads instantly. */
