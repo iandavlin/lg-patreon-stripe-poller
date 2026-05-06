@@ -97,16 +97,6 @@ final class Pages
             'nav_label'  => 'Manage Subscription',
             'visibility' => 'members',
         ],
-        'lg_refund_request' => [
-            'slug'       => 'request-refund',
-            'title'      => 'Request a Refund',
-            'shortcode'  => 'lg_refund_request',
-            'public'     => true,
-            'template'   => 'page-fullwidth.php',
-            'in_nav'     => true,
-            'nav_label'  => 'Request a Refund',
-            'visibility' => 'always',
-        ],
         'lg_regional_fail' => [
             'slug'       => 'regional-pricing-not-available',
             'title'      => 'Regional pricing not available',
@@ -132,6 +122,18 @@ final class Pages
             'in_nav'     => true,
             'nav_label'  => 'My Gifts',
             'visibility' => 'gift_buyers',
+        ],
+        // Refund kept at end of nav and limited to logged-in members —
+        // anonymous visitors don't have a purchase to refund.
+        'lg_refund_request' => [
+            'slug'       => 'request-refund',
+            'title'      => 'Request a Refund',
+            'shortcode'  => 'lg_refund_request',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Request a Refund',
+            'visibility' => 'members',
         ],
     ];
 
