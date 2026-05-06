@@ -613,7 +613,7 @@ final class Shortcodes
             let giftCustomCheckout = null;
             let giftPaymentElement = null;
 
-            const dollars = (cents) => '$' + (cents / 100).toFixed(2);
+            const dollars = (cents) => { const n = cents / 100; return '$' + (n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)); };
             const dollarsRound = (cents) => '$' + Math.round(cents / 100);
             function showError(msg){ errorEl.textContent = msg || ''; }
 
@@ -651,8 +651,8 @@ final class Shortcodes
                     const opt = document.createElement('option');
                     opt.value = prod.ref;
                     let label = prod.name;
-                    if (mp && yp) label += ' — ' + dollars(mp.unit_amount_cents) + '/mo · ' + dollars(yp.unit_amount_cents) + '/yr';
-                    else if (mp)  label += ' — ' + dollars(mp.unit_amount_cents) + '/mo';
+                    if (mp && yp) label += ' (' + dollars(mp.unit_amount_cents) + '/mo, ' + dollars(yp.unit_amount_cents) + '/yr)';
+                    else if (mp)  label += ' (' + dollars(mp.unit_amount_cents) + '/mo)';
                     opt.textContent = label;
                     tierSelect.appendChild(opt);
                 });
@@ -812,18 +812,7 @@ final class Shortcodes
             }
 
             function renderProgress(qty){
-                const next = nextTier(qty);
-                if (!next || qty < 1) { progressEl.hidden = true; return; }
-                progressEl.hidden = false;
-                // Find the previous milestone (last tier we've passed, or 1).
-                const passed = bulkTiers.filter(t => qty >= t.min_qty).sort((a,b) => b.min_qty - a.min_qty)[0];
-                const start  = passed ? passed.min_qty : 1;
-                const span   = next.min_qty - start;
-                const pos    = qty - start;
-                const pct    = Math.max(0, Math.min(100, (pos / span) * 100));
-                progressFill.style.width = pct.toFixed(1) + '%';
-                const need = next.min_qty - qty;
-                progressLab.textContent = 'Add ' + need + ' more code' + (need === 1 ? '' : 's') + ' to unlock ' + next.discount_pct + '% off.';
+                if (progressEl) progressEl.hidden = true;
             }
 
             function recompute(){
