@@ -21,6 +21,7 @@ final class Shortcodes
         add_shortcode( 'lg_redeem_gift',         [ self::class, 'redeemGift'         ] );
         add_shortcode( 'lg_join',                [ self::class, 'join'               ] );
         add_shortcode( 'lg_manage_subscription', [ self::class, 'manageSubscription' ] );
+        add_shortcode( 'lg_manage_membership',   [ self::class, 'manageSubscription' ] );
         add_shortcode( 'lg_gift',                [ self::class, 'gift'               ] );
         add_shortcode( 'lg_refund_request',      [ self::class, 'refundRequest'      ] );
         add_shortcode( 'lg_regional_fail',       [ self::class, 'regionalFail'       ] );
@@ -1922,7 +1923,7 @@ final class Shortcodes
 
         $user = wp_get_current_user();
         if ( $user->ID === 0 ) {
-            return '<p><em>Please sign in to manage your subscription.</em></p>';
+            return '<p><em>Please sign in to manage your membership.</em></p>';
         }
         $email = (string) $user->user_email;
         if ( $email === '' ) {
@@ -1932,6 +1933,16 @@ final class Shortcodes
         $customer = \LGMS\Repos\CustomerRepo::findByEmail( $email );
         if ( $customer === null ) {
             return '<p><em>No membership record found on this account.</em></p>';
+        }
+
+        // Active gift-sourced entitlements (gifted memberships) — separate
+        // from subscription state because gifts are time-bounded grants
+        // with no auto-renew, no payment method to manage.
+        $giftEnts = [];
+        foreach ( \LGMS\Repos\EntitlementRepo::activeForCustomer( (int) $customer['id'] ) as $ent ) {
+            if ( ( $ent['source_type'] ?? '' ) === 'gift_code' && ( $ent['kind'] ?? '' ) === \LGMS\Repos\EntitlementRepo::KIND_MEMBERSHIP_TIER ) {
+                $giftEnts[] = $ent;
+            }
         }
 
         // Active subs from our DB.
@@ -1965,9 +1976,40 @@ final class Shortcodes
         ob_start();
         ?>
         <div class="lg-manage-sub">
+            <?php if ( $giftEnts !== [] ) : ?>
+                <?php foreach ( $giftEnts as $ent ) :
+                    $giftTier   = self::tierLabelForRef( (string) $ent['ref'] );
+                    $giftEnds   = (string) ( $ent['expires_at'] ?? '' );
+                    $giftStarts = (string) ( $ent['starts_at']  ?? '' );
+                    $giftDays   = self::daysRemaining( $giftEnds );
+                ?>
+                <div class="lg-manage-sub__card lg-manage-sub__card--gift" style="border:1px solid #ECB351;border-radius:6px;padding:1em 1.2em;margin-bottom:1em;max-width:640px;background:#fbf6e8;">
+                    <h4 style="margin:0 0 0.5em;">
+                        🎁 <?php echo esc_html( $giftTier ?: 'Gifted membership' ); ?>
+                        <span style="font-size:0.85em;font-weight:400;opacity:.7;">(gift)</span>
+                    </h4>
+                    <p style="margin:0.2em 0;color:#444;">
+                        <?php if ( $giftEnds !== '' ) : ?>
+                            Expires <strong><?php echo esc_html( self::shortDate( $giftEnds ) ); ?></strong>
+                            <?php if ( $giftDays !== null ) : ?>
+                                <span style="color:#888;font-size:0.9em;">(<?php echo esc_html( (string) $giftDays ); ?> day<?php echo $giftDays === 1 ? '' : 's'; ?> left)</span>
+                            <?php endif; ?>
+                        <?php else : ?>
+                            <em>No expiration on file.</em>
+                        <?php endif; ?>
+                    </p>
+                    <p style="margin:.4em 0 0;font-size:.88em;color:#666;">
+                        Gifted memberships don't auto-renew. When this expires you can <a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">pick up a subscription</a> to keep your access uninterrupted.
+                    </p>
+                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+
             <?php if ( $subs === [] ) : ?>
-                <p>You don't have an active subscription right now.</p>
-                <p><a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">Pick a plan to get started &rarr;</a></p>
+                <?php if ( $giftEnts === [] ) : ?>
+                    <p>You don't have an active membership right now.</p>
+                    <p><a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">Pick a plan to get started &rarr;</a></p>
+                <?php endif; ?>
             <?php else : ?>
                 <?php foreach ( $subs as $sub ) :
                     $subId   = (string) $sub['stripe_subscription_id'];
@@ -4274,7 +4316,7 @@ final class Shortcodes
             <h3 style="margin-top:0;">You're already a member</h3>
             <p>Active <strong><?php echo $tier; ?></strong> subscription &middot; <?php echo $price; ?> &middot; status <?php echo $status; ?><?php echo $end !== '' ? ' &middot; renews ' . $end : ''; ?></p>
             <p style="margin-bottom:0;">
-                <?php echo do_shortcode( '[lg_manage_subscription label="Manage your subscription"]' ); ?>
+                <?php echo do_shortcode( '[lg_manage_membership label="Manage your membership"]' ); ?>
             </p>
         </div>
         <?php
@@ -4550,6 +4592,33 @@ final class Shortcodes
         } catch ( \Throwable $_ ) {
             return '';
         }
+    }
+
+    /**
+     * Friendly label from a tier ref (looth1/looth2/looth3) by joining
+     * to the products table. Used for gift-sourced entitlements where
+     * we have the tier ref but no Stripe price ID to look up by.
+     */
+    private static function tierLabelForRef( string $ref ): string
+    {
+        if ( $ref === '' ) {
+            return '';
+        }
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'SELECT name FROM products WHERE ref = ? LIMIT 1'
+            );
+            $stmt->execute( [ $ref ] );
+            $row = $stmt->fetch( \PDO::FETCH_ASSOC );
+            if ( $row && (string) $row['name'] !== '' ) {
+                return (string) $row['name'];
+            }
+        } catch ( \Throwable $_ ) {}
+        return match ( $ref ) {
+            'looth2' => 'Looth LITE',
+            'looth3' => 'Looth PRO',
+            default  => ucfirst( $ref ),
+        };
     }
 
     private static function shortDate( string $datetime ): string
