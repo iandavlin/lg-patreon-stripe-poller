@@ -99,10 +99,12 @@ final class Shortcodes
 
             <div class="lg-gift__panel">
                 <h3 class="lg-gift__panel-heading">1. Tier selection</h3>
-                <div class="lg-gift__tier-select-wrap">
-                    <select class="lg-gift__tier-select" data-lg-tier-select>
-                        <option value="" disabled selected>Loading…</option>
-                    </select>
+                <div class="lg-gift__tier-dropdown" data-lg-tier-dropdown>
+                    <button type="button" class="lg-gift__tier-trigger" data-lg-tier-trigger aria-haspopup="listbox" aria-expanded="false">
+                        <span class="lg-gift__tier-trigger-text" data-lg-tier-selected>Loading…</span>
+                        <span class="lg-gift__tier-chevron" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="lg-gift__tier-options" data-lg-tier-options role="listbox" hidden></div>
                 </div>
 
                 <h3 class="lg-gift__panel-heading">2. Membership duration</h3>
@@ -332,9 +334,17 @@ final class Shortcodes
             .lg-gift__panel-heading { margin: 1em 0 .55em; font-size: 1.05em; font-weight: 600; }
             .lg-gift__panel-heading:first-child { margin-top: 0; }
 
-            .lg-gift__tier-select-wrap { position: relative; }
-            .lg-gift__tier-select-wrap::after { content: '▾'; position: absolute; right: 1em; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: .6; font-size: .95em; }
-            .lg-gift__tier-select { width: 100%; padding: .75em 2.5em .75em 1em; font-size: 1em; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: #fff; color: inherit; cursor: pointer; appearance: none; -webkit-appearance: none; text-overflow: ellipsis; min-width: 0; }
+            .lg-gift__tier-dropdown { position: relative; }
+            .lg-gift__tier-trigger { width: 100%; display: flex; justify-content: space-between; align-items: flex-start; gap: .6em; padding: .8em 1em; font-size: 1em; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: #fff; color: inherit; cursor: pointer; text-align: left; box-sizing: border-box; }
+            .lg-gift__tier-trigger:focus { outline: 2px solid var(--lg-amber, #ECB351); outline-offset: 1px; }
+            .lg-gift__tier-trigger-text { flex: 1; white-space: normal; line-height: 1.45; word-break: break-word; }
+            .lg-gift__tier-chevron { flex-shrink: 0; opacity: .55; font-size: .85em; transition: transform .15s; padding-top: .15em; }
+            .lg-gift__tier-trigger[aria-expanded="true"] .lg-gift__tier-chevron { transform: rotate(180deg); }
+            .lg-gift__tier-options { position: absolute; z-index: 200; left: 0; right: 0; top: calc(100% + 4px); background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.13); overflow: hidden; }
+            .lg-gift__tier-options[hidden] { display: none; }
+            .lg-gift__tier-option { padding: .8em 1em; cursor: pointer; line-height: 1.45; white-space: normal; }
+            .lg-gift__tier-option:hover { background: rgba(0,0,0,0.04); }
+            .lg-gift__tier-option.is-selected { background: rgba(236,179,81,0.12); font-weight: 600; }
 
             .lg-gift__durations { display: flex; flex-direction: column; gap: 0; border: 1px solid rgba(0,0,0,0.12); border-radius: 10px; overflow: hidden; margin-top: .2em; }
             .lg-gift__dur-row { display: flex; align-items: center; gap: .85em; padding: .85em 1.1em; cursor: pointer; background: #fff; border-bottom: 1px solid rgba(0,0,0,0.08); transition: background .12s; }
@@ -575,7 +585,10 @@ final class Shortcodes
         (function(){
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const CONFIG    = <?php echo $configJs; ?>;
-            const tierSelect  = document.querySelector('[data-lg-tier-select]');
+            const tierDropdown    = document.querySelector('[data-lg-tier-dropdown]');
+            const tierTrigger    = document.querySelector('[data-lg-tier-trigger]');
+            const tierOptionsEl  = document.querySelector('[data-lg-tier-options]');
+            const tierSelectedEl = document.querySelector('[data-lg-tier-selected]');
             const durationsEl = document.querySelector('[data-lg-gift-durations]');
             const presetsEl   = document.querySelector('[data-lg-gift-presets]');
             const progressEl  = document.querySelector('[data-lg-gift-progress]');
@@ -640,33 +653,69 @@ final class Shortcodes
                 return bulkTiers.filter(t => qty < t.min_qty).sort((a,b) => a.min_qty - b.min_qty)[0] || null;
             }
 
-            // Populate the tier <select> and wire the change event.
+            // Custom dropdown: populate options and wire interactions.
             function renderTiers(){
-                if (!tierSelect) return;
-                tierSelect.innerHTML = '';
+                if (!tierOptionsEl) return;
+                tierOptionsEl.innerHTML = '';
                 const eligible = products.filter(p => monthlyPrice(p) || yearlyPrice(p));
                 eligible.forEach(function(prod){
                     const mp = monthlyPrice(prod);
                     const yp = yearlyPrice(prod);
-                    const opt = document.createElement('option');
-                    opt.value = prod.ref;
                     let label = prod.name;
-                    if (mp && yp) label += ' (' + dollars(mp.unit_amount_cents) + '/mo, ' + dollars(yp.unit_amount_cents) + '/yr)';
-                    else if (mp)  label += ' (' + dollars(mp.unit_amount_cents) + '/mo)';
+                    if (mp && yp) label += ' — ' + dollars(mp.unit_amount_cents) + '/mo · ' + dollars(yp.unit_amount_cents) + '/yr';
+                    else if (mp)  label += ' — ' + dollars(mp.unit_amount_cents) + '/mo';
+                    const opt = document.createElement('div');
+                    opt.className = 'lg-gift__tier-option';
+                    opt.setAttribute('role', 'option');
+                    opt.dataset.ref = prod.ref;
                     opt.textContent = label;
-                    tierSelect.appendChild(opt);
+                    opt.addEventListener('click', () => { selectTier(prod.ref); closeTierDropdown(); });
+                    tierOptionsEl.appendChild(opt);
+                });
+                // Toggle open/close on trigger click
+                if (tierTrigger) {
+                    tierTrigger.addEventListener('click', () => {
+                        const isOpen = tierTrigger.getAttribute('aria-expanded') === 'true';
+                        isOpen ? closeTierDropdown() : openTierDropdown();
+                    });
+                }
+                // Close on outside click
+                document.addEventListener('click', function(e){
+                    if (tierDropdown && !tierDropdown.contains(e.target)) closeTierDropdown();
                 });
                 // Default: popular tier or first
                 const def = eligible.find(p => p.ref === CONFIG.popular) || eligible[0];
-                if (def) { tierSelect.value = def.ref; selectTier(def.ref); }
-                tierSelect.addEventListener('change', () => selectTier(tierSelect.value));
+                if (def) selectTier(def.ref);
+            }
+
+            function openTierDropdown(){
+                if (tierOptionsEl) tierOptionsEl.hidden = false;
+                if (tierTrigger)   tierTrigger.setAttribute('aria-expanded', 'true');
+            }
+            function closeTierDropdown(){
+                if (tierOptionsEl) tierOptionsEl.hidden = true;
+                if (tierTrigger)   tierTrigger.setAttribute('aria-expanded', 'false');
             }
 
             function selectTier(ref){
                 selectedRef = ref;
-                if (tierSelect) tierSelect.value = ref;
-                renderDurations(selectedTier());
-                // Default to 1-year
+                // Update trigger label
+                const prod = selectedTier();
+                if (tierSelectedEl && prod) {
+                    const mp = monthlyPrice(prod);
+                    const yp = yearlyPrice(prod);
+                    let label = prod.name;
+                    if (mp && yp) label += ' — ' + dollars(mp.unit_amount_cents) + '/mo · ' + dollars(yp.unit_amount_cents) + '/yr';
+                    else if (mp)  label += ' — ' + dollars(mp.unit_amount_cents) + '/mo';
+                    tierSelectedEl.textContent = label;
+                }
+                // Highlight selected option
+                if (tierOptionsEl) {
+                    tierOptionsEl.querySelectorAll('.lg-gift__tier-option').forEach(el => {
+                        el.classList.toggle('is-selected', el.dataset.ref === ref);
+                    });
+                }
+                renderDurations(prod);
                 selectDuration('year');
             }
 
