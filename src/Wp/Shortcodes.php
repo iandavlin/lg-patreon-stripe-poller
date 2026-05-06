@@ -2792,6 +2792,11 @@ final class Shortcodes
             const formEl       = document.querySelector('[data-lg-join-form]');
             const formHeadEl   = document.querySelector('[data-lg-form-heading]');
 
+            // Portal to body so BuddyBoss containing-blocks can't trap position:fixed
+            if (signupModal && signupModal.parentNode !== document.body) {
+                document.body.appendChild(signupModal);
+            }
+
             function openSignupModal() {
                 if (signupModal) { signupModal.hidden = false; document.body.classList.add('lg-modal-open'); }
             }
@@ -3008,23 +3013,6 @@ final class Shortcodes
                 });
                 card.appendChild(list);
 
-                // Trial button (only for live cards with a monthly recurring price that has trial_days)
-                if (!isMock) {
-                    const trialDays = prices.reduce((m, p) => p.type === 'recurring' && (p.trial_days || 0) > m ? (p.trial_days || 0) : m, 0);
-                    const monthlyP  = prices.find(p => p.type === 'recurring' && p.interval === 'month');
-                    if (trialDays > 0 && monthlyP) {
-                        const trialBtn = document.createElement('button');
-                        trialBtn.type = 'button';
-                        trialBtn.className = 'lg-join__trial-btn';
-                        trialBtn.textContent = 'Try free for ' + trialDays + ' days';
-                        trialBtn.addEventListener('click', () => {
-                            document.querySelectorAll('.lg-join__buy.is-selected, .lg-join__trial-btn.is-selected').forEach(b => b.classList.remove('is-selected'));
-                            selectPrice(monthlyP, prod, trialBtn, { label: trialDays + '-day free trial — ' + dollars(monthlyP.unit_amount_cents) + '/mo after' });
-                        });
-                        card.appendChild(trialBtn);
-                    }
-                }
-                // Note: isMock trial buttons intentionally omitted
 
                 return card;
             }
@@ -3048,11 +3036,15 @@ final class Shortcodes
                     const card      = buildTierCard(prod, sorted, isPopular, false);
                     tiersEl.appendChild(card);
 
-                    // Pulse the popular tier's yearly button once on load to draw the eye.
+                    // Pulse the popular tier's yearly button on load to draw the eye.
                     if (isPopular) {
                         const yearlyBtn = card.querySelector('.lg-join__buy.is-primary');
                         if (yearlyBtn) {
-                            setTimeout(() => yearlyBtn.classList.add('is-pulsing'), 600);
+                            setTimeout(() => {
+                                yearlyBtn.classList.add('is-pulsing');
+                                // Remove class after animation ends so it can retrigger if needed
+                                yearlyBtn.addEventListener('animationend', () => yearlyBtn.classList.remove('is-pulsing'), { once: true });
+                            }, 800);
                             yearlyBtn.addEventListener('click', () => yearlyBtn.classList.remove('is-pulsing'), { once: true });
                         }
                     }
