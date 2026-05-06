@@ -2793,6 +2793,17 @@ final class Shortcodes
                     <div class="lg-join__form" data-lg-join-form>
                         <h3 class="lg-join__form-heading" id="lg-signup-modal-title" data-lg-form-heading>Almost there</h3>
                         <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
+                            <?php if ( $isLoggedIn ) : ?>
+                            <div class="lg-join__field" style="grid-column: 1 / -1;">
+                                <label>Email</label>
+                                <div class="lg-join__static" style="padding:.55em .75em;background:#f4f4f0;border:1px solid rgba(0,0,0,0.1);border-radius:6px;color:#333;font-size:.95em;">
+                                    <strong><?php echo $email; ?></strong>
+                                    <span style="float:right;font-size:.82em;color:#888;">signed in</span>
+                                </div>
+                                <input type="hidden" name="email" value="<?php echo $email; ?>">
+                                <input type="hidden" name="email_confirm" value="<?php echo $email; ?>">
+                            </div>
+                            <?php else : ?>
                             <div class="lg-join__field">
                                 <label>Email <input type="email" name="email" value="<?php echo $email; ?>" autocomplete="email" required></label>
                             </div>
@@ -2800,6 +2811,7 @@ final class Shortcodes
                                 <label>Confirm email <input type="email" name="email_confirm" value="<?php echo $email; ?>" autocomplete="email" required></label>
                                 <small data-lg-email-mismatch class="lg-pwd-mismatch" hidden>Emails don&rsquo;t match.</small>
                             </div>
+                            <?php endif; ?>
                             <?php if ( ! $isLoggedIn ) : ?>
                             <div class="lg-join__field">
                                 <label>Password
@@ -2820,12 +2832,23 @@ final class Shortcodes
                                 <small data-lg-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
                             </div>
                             <?php endif; ?>
+                            <?php if ( $isLoggedIn ) : ?>
+                            <div class="lg-join__field" style="grid-column: 1 / -1;">
+                                <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em></label>
+                                <div class="lg-join__static" style="padding:.55em .75em;background:#f4f4f0;border:1px solid rgba(0,0,0,0.1);border-radius:6px;color:#333;font-size:.95em;">
+                                    <strong><?php echo $name; ?></strong>
+                                </div>
+                                <input type="hidden" name="name" value="<?php echo $name; ?>">
+                                <small>Edit your profile name from your <a href="<?php echo esc_url( home_url( '/manage-subscription/' ) ); ?>">membership page</a>.</small>
+                            </div>
+                            <?php else : ?>
                             <div class="lg-join__field" style="grid-column: 1 / -1;">
                                 <label>Profile name <em style="opacity:.6;font-weight:400;">(what other members will see)</em>
                                     <input type="text" name="name" value="<?php echo $name; ?>" required>
                                 </label>
                                 <small>This is the name other members see in forums, comments, and the activity feed &mdash; not optional.</small>
                             </div>
+                            <?php endif; ?>
                         </div>
                         <details class="lg-join__discount" <?php echo $promoFromUrl !== '' ? 'open' : ''; ?>>
                             <summary>Have a discount code?</summary>
