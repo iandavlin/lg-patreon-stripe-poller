@@ -2955,13 +2955,21 @@ final class Shortcodes
                     });
                     card.appendChild(list);
 
-                    // Trial badge — show when any recurring price on this tier has trial_days > 0
+                    // Trial button — shown when any recurring price has trial_days > 0
                     const trialDays = prod.prices.reduce((max, p) => p.type === 'recurring' && (p.trial_days || 0) > max ? (p.trial_days || 0) : max, 0);
                     if (trialDays > 0) {
-                        const trialBadge = document.createElement('p');
-                        trialBadge.className = 'lg-join__trial-note';
-                        trialBadge.textContent = trialDays + '-day free trial — cancel any time';
-                        card.appendChild(trialBadge);
+                        const monthlyP = sorted.find(p => p.type === 'recurring' && p.interval === 'month');
+                        if (monthlyP) {
+                            const trialBtn = document.createElement('button');
+                            trialBtn.type = 'button';
+                            trialBtn.className = 'lg-join__trial-btn';
+                            trialBtn.textContent = 'Try free for ' + trialDays + ' days';
+                            trialBtn.addEventListener('click', () => {
+                                document.querySelectorAll('.lg-join__buy.is-selected').forEach(b => b.classList.remove('is-selected'));
+                                selectPrice(monthlyP, prod, trialBtn, { label: trialDays + '-day free trial — ' + dollars(monthlyP.unit_amount_cents) + '/mo after' });
+                            });
+                            card.appendChild(trialBtn);
+                        }
                     }
 
                     tiersEl.appendChild(card);
@@ -2982,20 +2990,20 @@ final class Shortcodes
                 opts = opts || {};
                 showError('');
                 pendingPriceId = price.stripe_price_id;
-                pendingLabel   = priceLabel(price);
+                pendingLabel   = opts.label || priceLabel(price);
 
                 // Highlight selected card
                 document.querySelectorAll('.lg-join__tier').forEach(c => c.classList.remove('is-selected'));
                 const card = btn.closest('.lg-join__tier');
                 if (card) card.classList.add('is-selected');
 
-                // Highlight selected button (orange + depressed look). Clears
-                // every other .lg-join__buy across all tiers so only one
-                // price across the whole page reads as the active pick.
-                document.querySelectorAll('.lg-join__buy.is-selected').forEach(b => b.classList.remove('is-selected'));
+                // Highlight selected button. Clears every other price and trial
+                // button across all tiers so only one reads as the active pick.
+                document.querySelectorAll('.lg-join__buy.is-selected, .lg-join__trial-btn.is-selected').forEach(b => b.classList.remove('is-selected'));
                 btn.classList.add('is-selected');
 
-                formHeadEl.textContent = 'Continue to ' + prod.name + ' — ' + pendingLabel.replace(/^Subscribe\s*—\s*|^Pay once\s*—\s*/, '');
+                const displayLabel = pendingLabel.replace(/^Subscribe\s*—\s*|^Pay once\s*—\s*/, '');
+                formHeadEl.textContent = 'Continue to ' + prod.name + ' — ' + displayLabel;
                 formEl.hidden = false;
                 // If checkout was already mounted (user clicked again), tear it down.
                 teardownCheckoutMount();
