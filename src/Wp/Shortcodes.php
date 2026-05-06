@@ -149,16 +149,44 @@ final class Shortcodes
                     </div>
 
                     <div class="lg-auth" data-lg-auth-block hidden>
-                        <div class="lg-auth__fields">
-                            <input type="email"    class="lg-auth__input" data-lg-auth-email    placeholder="your@email.com"                       autocomplete="email">
-                            <input type="password" class="lg-auth__input" data-lg-auth-password placeholder="Password — or pick one if you're new" autocomplete="current-password">
-                        </div>
-                        <p class="lg-auth__hint">Existing members: enter your password. New here? Pick one (8+ characters) and we'll set up your account.</p>
-                        <button type="button" class="lg-auth__btn" data-lg-auth-btn>Log in or create account</button>
-                        <p class="lg-auth__error" data-lg-auth-error hidden></p>
-                        <p class="lg-auth__forgot" data-lg-auth-forgot hidden>
-                            <a href="<?php echo esc_url( wp_lostpassword_url( get_permalink() ) ); ?>">Forgot your password?</a>
+                        <p class="lg-auth__login-prompt">
+                            Have you logged on before?
+                            <a href="#" data-lg-auth-open-login>Log in instead &rarr;</a>
                         </p>
+                        <div class="lg-auth__fields">
+                            <input type="email"    class="lg-auth__input" data-lg-auth-email          placeholder="your@email.com"                  autocomplete="email">
+                            <input type="email"    class="lg-auth__input" data-lg-auth-email-confirm  placeholder="Confirm email"                   autocomplete="email">
+                            <small data-lg-auth-email-mismatch class="lg-pwd-mismatch" hidden>Emails don&rsquo;t match.</small>
+                            <input type="password" class="lg-auth__input" data-lg-auth-password         placeholder="Pick a password (8+ characters)" autocomplete="new-password">
+                            <input type="password" class="lg-auth__input" data-lg-auth-password-confirm placeholder="Confirm password"               autocomplete="new-password">
+                            <small data-lg-auth-pwd-mismatch class="lg-pwd-mismatch" hidden>Passwords don&rsquo;t match.</small>
+                        </div>
+                        <p class="lg-auth__hint">We&rsquo;ll set up your account so your gift codes attach to your dashboard.</p>
+                        <button type="button" class="lg-auth__btn" data-lg-auth-btn>Create account</button>
+                        <p class="lg-auth__error" data-lg-auth-error hidden></p>
+                    </div>
+
+                    <!-- Inline login modal — opened when an existing member clicks
+                         "Log in" or when the create-account submit detects an
+                         existing email. Same-page so gift form state survives. -->
+                    <div class="lg-pay-modal" data-lg-login-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-login-modal-title">
+                        <div class="lg-pay-modal__backdrop" data-lg-login-close></div>
+                        <div class="lg-pay-modal__card lg-login-card">
+                            <button type="button" class="lg-pay-modal__close" data-lg-login-close aria-label="Close">&times;</button>
+                            <div class="lg-login-card__body">
+                                <h3 id="lg-login-modal-title" class="lg-login-card__title">Log in to continue</h3>
+                                <p class="lg-login-card__sub" data-lg-login-sub>Your gift selections will stay right here.</p>
+                                <div class="lg-login-card__fields">
+                                    <input type="email"    class="lg-auth__input" data-lg-login-email    placeholder="your@email.com" autocomplete="email">
+                                    <input type="password" class="lg-auth__input" data-lg-login-password placeholder="Password"       autocomplete="current-password">
+                                </div>
+                                <p class="lg-auth__error" data-lg-login-error hidden></p>
+                                <button type="button" class="lg-auth__btn" data-lg-login-btn>Log in</button>
+                                <p class="lg-login-card__forgot">
+                                    <a href="<?php echo esc_url( wp_lostpassword_url( get_permalink() ) ); ?>">Forgot your password?</a>
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="lg-auth__success" data-lg-auth-success hidden>
@@ -287,6 +315,8 @@ final class Shortcodes
                     <h3 class="lg-gift__panel-heading">5. Your email <span style="font-weight:400;font-size:.85em;color:rgba(0,0,0,0.5);" data-lg-mode-label>(codes will be sent here)</span></h3>
                     <div class="lg-gift__field">
                         <input type="email" name="email" value="<?php echo $email; ?>" placeholder="you@example.com">
+                        <input type="email" name="email_confirm" value="<?php echo $email; ?>" placeholder="Confirm email" style="margin-top:.5em;">
+                        <small data-lg-buyer-email-mismatch class="lg-pwd-mismatch" hidden>Emails don&rsquo;t match.</small>
                         <small data-lg-mode-help>We send all codes to this address. You forward / share them yourself.</small>
                     </div>
                 </div>
@@ -423,6 +453,17 @@ final class Shortcodes
             .lg-auth__btn:disabled { opacity: .55; cursor: default; }
             .lg-auth__error { font-size: .88em; color: #b91c1c; margin-top: .6em; }
             .lg-auth__forgot { font-size: .85em; margin-top: .35em; }
+            .lg-auth__login-prompt { font-size: .92em; margin: 0 0 .8em; color: #444; }
+            .lg-auth__login-prompt a { font-weight: 600; }
+
+            /* Inline login modal card — sits inside the shared .lg-pay-modal
+               overlay, but smaller than the checkout card. */
+            .lg-login-card { max-width: 420px !important; }
+            .lg-login-card__body { padding: 1.8em 1.5em 1.4em; }
+            .lg-login-card__title { margin: 0 0 .35em; font-size: 1.2em; font-weight: 700; }
+            .lg-login-card__sub { margin: 0 0 1.1em; font-size: .92em; color: #555; }
+            .lg-login-card__fields { display: flex; flex-direction: column; gap: .6em; margin-bottom: .8em; }
+            .lg-login-card__forgot { margin: .8em 0 0; font-size: .85em; text-align: center; }
             .lg-auth__success { display: flex; align-items: center; gap: .55em; margin-top: .85em; padding: .7em 1em; background: rgba(135,152,106,0.12); border: 1px solid rgba(135,152,106,0.3); border-radius: 8px; font-size: .92em; color: #2d4f2a; }
             .lg-auth__check-icon { font-weight: 700; font-size: 1.15em; }
 
@@ -1265,6 +1306,17 @@ final class Shortcodes
                 const qty   = Math.max(1, parseInt(qtyInput.value, 10) || 1);
                 const email = (emailInput.value || '').trim();
                 if (!email) { showError('Email is required.'); emailInput.focus(); return; }
+                // Confirm-email match (only enforced when buyer-email section is
+                // visible — i.e. self mode, anonymous buyer). Logged-in or
+                // managed-mode buyers don't see the confirm field.
+                if (buyerEmailConfEl && !document.querySelector('.lg-gift--logged-in') && sendMode !== 'managed') {
+                    const confirmVal = (buyerEmailConfEl.value || '').trim().toLowerCase();
+                    if (email.toLowerCase() !== confirmVal) {
+                        showError('Emails don’t match — please re-enter your confirmation email.');
+                        buyerEmailConfEl.focus();
+                        return;
+                    }
+                }
 
                 pendingPrice = price; pendingQty = qty; pendingEmail = email;
 
@@ -1435,16 +1487,110 @@ final class Shortcodes
                 });
             }
 
-            const authBlock   = document.querySelector('[data-lg-auth-block]');
-            const authSuccess = document.querySelector('[data-lg-auth-success]');
-            const authEmailEl = document.querySelector('[data-lg-auth-email]');
-            const authPassEl  = document.querySelector('[data-lg-auth-password]');
-            const authSubEl   = document.querySelector('[data-lg-auth-subscribe]');
-            const authBtn     = document.querySelector('[data-lg-auth-btn]');
-            const authErrEl   = document.querySelector('[data-lg-auth-error]');
-            const authForgot  = document.querySelector('[data-lg-auth-forgot]');
-            const authWelcome = document.querySelector('[data-lg-auth-welcome]');
-            let   isAuthed    = CONFIG.loggedIn;
+            const authBlock      = document.querySelector('[data-lg-auth-block]');
+            const authSuccess    = document.querySelector('[data-lg-auth-success]');
+            const authEmailEl    = document.querySelector('[data-lg-auth-email]');
+            const authEmailConfEl= document.querySelector('[data-lg-auth-email-confirm]');
+            const authEmailMisEl = document.querySelector('[data-lg-auth-email-mismatch]');
+            const authPassEl     = document.querySelector('[data-lg-auth-password]');
+            const authPassConfEl = document.querySelector('[data-lg-auth-password-confirm]');
+            const authPwdMisEl   = document.querySelector('[data-lg-auth-pwd-mismatch]');
+            const authSubEl      = document.querySelector('[data-lg-auth-subscribe]');
+            const authBtn        = document.querySelector('[data-lg-auth-btn]');
+            const authErrEl      = document.querySelector('[data-lg-auth-error]');
+            const authForgot     = document.querySelector('[data-lg-auth-forgot]');
+            const authWelcome    = document.querySelector('[data-lg-auth-welcome]');
+            let   isAuthed       = CONFIG.loggedIn;
+
+            // Login-modal refs (returning-member fast path on the same page)
+            const loginModal     = document.querySelector('[data-lg-login-modal]');
+            const loginEmailEl   = document.querySelector('[data-lg-login-email]');
+            const loginPassEl    = document.querySelector('[data-lg-login-password]');
+            const loginBtn       = document.querySelector('[data-lg-login-btn]');
+            const loginErrEl     = document.querySelector('[data-lg-login-error]');
+            const loginSubEl     = document.querySelector('[data-lg-login-sub]');
+
+            // Portal login modal to body so BuddyBoss containing-blocks can't trap it.
+            if (loginModal && loginModal.parentNode !== document.body) {
+                document.body.appendChild(loginModal);
+            }
+            function openLoginModal(prefillEmail, subMsg) {
+                if (!loginModal) return;
+                if (loginEmailEl) loginEmailEl.value = prefillEmail || (authEmailEl ? authEmailEl.value : '') || '';
+                if (loginPassEl)  loginPassEl.value  = '';
+                if (loginErrEl)   { loginErrEl.hidden = true; loginErrEl.textContent = ''; }
+                if (loginSubEl && subMsg) loginSubEl.textContent = subMsg;
+                loginModal.hidden = false;
+                document.body.classList.add('lg-modal-open');
+                setTimeout(() => { (loginEmailEl && !loginEmailEl.value ? loginEmailEl : loginPassEl)?.focus(); }, 30);
+            }
+            function closeLoginModal() {
+                if (loginModal) loginModal.hidden = true;
+                if (!checkoutModal || checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
+            }
+            document.querySelectorAll('[data-lg-login-close]').forEach(el => {
+                el.addEventListener('click', (e) => { e.preventDefault(); closeLoginModal(); });
+            });
+            document.querySelectorAll('[data-lg-auth-open-login]').forEach(el => {
+                el.addEventListener('click', (e) => { e.preventDefault(); openLoginModal(authEmailEl ? authEmailEl.value : ''); });
+            });
+            if (loginBtn) {
+                loginBtn.addEventListener('click', async () => {
+                    const email = (loginEmailEl ? loginEmailEl.value.trim() : '');
+                    const pwd   = (loginPassEl  ? loginPassEl.value         : '');
+                    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                        if (loginErrEl) { loginErrEl.textContent = 'Please enter a valid email address.'; loginErrEl.hidden = false; }
+                        return;
+                    }
+                    if (!pwd) {
+                        if (loginErrEl) { loginErrEl.textContent = 'Please enter your password.'; loginErrEl.hidden = false; }
+                        return;
+                    }
+                    loginBtn.disabled = true; loginBtn.textContent = 'Logging in…';
+                    try {
+                        const data = await doAuth({ email, password: pwd, login_only: true });
+                        if (data.ok) {
+                            closeLoginModal();
+                            applyAuthSuccess(data);
+                        } else {
+                            if (loginErrEl) { loginErrEl.textContent = data.error || 'Login failed. Check your password.'; loginErrEl.hidden = false; }
+                        }
+                    } catch (e) {
+                        if (loginErrEl) { loginErrEl.textContent = 'Network error. Please try again.'; loginErrEl.hidden = false; }
+                    }
+                    loginBtn.disabled = false; loginBtn.textContent = 'Log in';
+                });
+            }
+
+            // Live email/password match for create-account form
+            function checkAuthEmailMatch() {
+                if (!authEmailEl || !authEmailConfEl || !authEmailMisEl) return;
+                const a = (authEmailEl.value || '').trim().toLowerCase();
+                const b = (authEmailConfEl.value || '').trim().toLowerCase();
+                authEmailMisEl.hidden = !(a.length > 0 && b.length > 0 && a !== b);
+            }
+            function checkAuthPwdMatch() {
+                if (!authPassEl || !authPassConfEl || !authPwdMisEl) return;
+                const a = authPassEl.value, b = authPassConfEl.value;
+                authPwdMisEl.hidden = !(a.length > 0 && b.length > 0 && a !== b);
+            }
+            if (authEmailEl)     authEmailEl.addEventListener('input', checkAuthEmailMatch);
+            if (authEmailConfEl) authEmailConfEl.addEventListener('input', checkAuthEmailMatch);
+            if (authPassEl)      authPassEl.addEventListener('input', checkAuthPwdMatch);
+            if (authPassConfEl)  authPassConfEl.addEventListener('input', checkAuthPwdMatch);
+
+            // Buyer-email confirm match (self mode at step 5)
+            const buyerEmailEl     = document.querySelector('input[name="email"]');
+            const buyerEmailConfEl = document.querySelector('input[name="email_confirm"]');
+            const buyerEmailMisEl  = document.querySelector('[data-lg-buyer-email-mismatch]');
+            function checkBuyerEmailMatch() {
+                if (!buyerEmailEl || !buyerEmailConfEl || !buyerEmailMisEl) return;
+                const a = (buyerEmailEl.value || '').trim().toLowerCase();
+                const b = (buyerEmailConfEl.value || '').trim().toLowerCase();
+                buyerEmailMisEl.hidden = !(a.length > 0 && b.length > 0 && a !== b);
+            }
+            if (buyerEmailEl)     buyerEmailEl.addEventListener('input', checkBuyerEmailMatch);
+            if (buyerEmailConfEl) buyerEmailConfEl.addEventListener('input', checkBuyerEmailMatch);
 
             const giftRoot = document.querySelector('.lg-gift');
 
@@ -1476,6 +1622,8 @@ final class Shortcodes
                 if (authWelcome)  authWelcome.textContent = 'You' + String.fromCharCode(39) + 're logged in as ' + data.name + '.';
                 const buyerInput = document.querySelector('[name="email"]');
                 if (buyerInput && data.email) buyerInput.value = data.email;
+                const buyerInputConf = document.querySelector('[name="email_confirm"]');
+                if (buyerInputConf && data.email) buyerInputConf.value = data.email;
                 if (consentModal) consentModal.hidden = true;
                 if (!checkoutModal || checkoutModal.hidden) document.body.classList.remove('lg-modal-open');
 
@@ -1508,15 +1656,25 @@ final class Shortcodes
 
             if (authBtn) {
                 authBtn.addEventListener('click', async () => {
-                    const email    = (authEmailEl ? authEmailEl.value.trim() : '');
-                    const password = (authPassEl  ? authPassEl.value         : '');
+                    const email         = (authEmailEl     ? authEmailEl.value.trim()     : '');
+                    const emailConfirm  = (authEmailConfEl ? authEmailConfEl.value.trim() : '');
+                    const password      = (authPassEl      ? authPassEl.value             : '');
+                    const passwordConf  = (authPassConfEl  ? authPassConfEl.value         : '');
 
                     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
                         if (authErrEl) { authErrEl.textContent = 'Please enter a valid email address.'; authErrEl.hidden = false; }
                         return;
                     }
+                    if (authEmailConfEl && email.toLowerCase() !== emailConfirm.toLowerCase()) {
+                        if (authErrEl) { authErrEl.textContent = 'Emails don’t match.'; authErrEl.hidden = false; }
+                        return;
+                    }
                     if (password.length < 8) {
                         if (authErrEl) { authErrEl.textContent = 'Password must be at least 8 characters.'; authErrEl.hidden = false; }
+                        return;
+                    }
+                    if (authPassConfEl && password !== passwordConf) {
+                        if (authErrEl) { authErrEl.textContent = 'Passwords don’t match.'; authErrEl.hidden = false; }
                         return;
                     }
 
@@ -1529,6 +1687,12 @@ final class Shortcodes
                         const data = await doAuth({ email, password });
                         if (data.ok) {
                             applyAuthSuccess(data);
+                        } else if (data.forgot) {
+                            // Email already has an account — don't burn them with
+                            // a generic error. Pop the inline login modal with
+                            // the email pre-filled so they can finish on this
+                            // same page (gift selections survive intact).
+                            openLoginModal(email, 'Looks like you already have an account. Log in to keep your gift selections.');
                         } else if (data.needs_consent) {
                             // New email — show consent modal before creating account.
                             // Defensive: if for any reason the local email is
@@ -1550,7 +1714,7 @@ final class Shortcodes
                     }
 
                     authBtn.disabled    = false;
-                    authBtn.textContent = 'Log in or create account';
+                    authBtn.textContent = 'Create account';
                 });
             }
 
@@ -2483,11 +2647,11 @@ final class Shortcodes
                 </ul>
             </div>
 
-            <!-- Sign-up modal — opens when a plan is selected -->
-            <div class="lg-join__signup-modal" data-lg-signup-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-signup-modal-title">
-                <div class="lg-join__signup-backdrop" data-lg-signup-close></div>
+            <!-- Sign-up modal — uses .lg-pay-modal which is proven to work against BuddyBoss -->
+            <div class="lg-pay-modal" data-lg-signup-modal hidden role="dialog" aria-modal="true" aria-labelledby="lg-signup-modal-title">
+                <div class="lg-pay-modal__backdrop" data-lg-signup-close></div>
                 <div class="lg-join__signup-card">
-                    <button type="button" class="lg-join__signup-close" data-lg-signup-close aria-label="Close">&times;</button>
+                    <button type="button" class="lg-pay-modal__close" data-lg-signup-close aria-label="Close">&times;</button>
                     <div class="lg-join__form" data-lg-join-form>
                         <h3 class="lg-join__form-heading" id="lg-signup-modal-title" data-lg-form-heading>Almost there</h3>
                         <div class="lg-join__form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1em 1.2em;">
