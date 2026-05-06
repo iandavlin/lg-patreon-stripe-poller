@@ -3946,12 +3946,12 @@ final class Shortcodes
         <div class="lg-redeem-gift">
             <h3 class="lg-redeem-gift__heading"><?php echo $heading; ?></h3>
             <?php if ( $hasActiveSub ) : ?>
-            <div class="lg-redeem-gift__active-sub-warn" style="margin:0 0 1.2em;padding:1em 1.1em;background:#fff3f0;border:1px solid #d97757;border-radius:8px;font-size:.95em;line-height:1.5;color:#1f1d1a;">
-                <strong style="font-size:1.05em;">Heads up — your account already has an active subscription<?php echo $activeSubEnds !== '' ? ' (renews ' . esc_html( $activeSubEnds ) . ')' : ''; ?>.</strong><br>
-                Gift codes are for accounts <em>without</em> an active subscription, so we can&rsquo;t redeem this code while your sub is running &mdash; redemption will be refused. To use the gift, cancel your subscription first; once it expires you can come back and redeem here, and your gifted time picks up where the paid time ended.
-                <div style="margin-top:.7em;display:flex;gap:.5em;flex-wrap:wrap;">
-                    <a href="<?php echo esc_url( home_url( '/manage-subscription/' ) ); ?>" style="display:inline-block;padding:.5em 1em;background:#1f1d1a;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:.92em;">Manage subscription</a>
-                </div>
+            <div class="lg-redeem-gift__active-sub-park" style="margin:0 0 1.2em;padding:1em 1.1em;background:#fbf6e8;border:1px solid #ECB351;border-radius:8px;font-size:.95em;line-height:1.5;color:#1f1d1a;">
+                <strong style="font-size:1.05em;">You already have an active subscription<?php echo $activeSubEnds !== '' ? ' &mdash; renews ' . esc_html( $activeSubEnds ) : ''; ?>.</strong><br>
+                No problem. Park this gift and it&rsquo;ll activate the day your subscription ends, so you&rsquo;re covered without a gap and without paying for overlap. Nothing to manage in between.
+                <p style="margin:.6em 0 0;font-size:.85em;color:#666;">
+                    Prefer to redeem right now? <a href="<?php echo esc_url( home_url( '/manage-subscription/' ) ); ?>">Cancel your subscription</a> first, then come back here once it expires.
+                </p>
             </div>
             <?php endif; ?>
             <?php if ( $renderSigninVariant ) : ?>
@@ -4333,8 +4333,30 @@ final class Shortcodes
                             // can authenticate without leaving the page.
                             renderConflictLogin(payload);
                         }
+                    } else if (json.ok && json.queued) {
+                        // Queued redemption — gift will activate when sub ends.
+                        const startDate = json.starts_at ? new Date(json.starts_at).toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' }) : 'when your subscription ends';
+                        resultEl.innerHTML = '<div style="margin:1em 0;padding:1.1em 1.2em;background:#fbf6e8;border:1px solid #ECB351;border-radius:8px;line-height:1.5;color:#1f1d1a;">' +
+                            '<strong style="font-size:1.05em;">🎁 Gift parked!</strong><br>' +
+                            'Your gift will activate on <strong>' + startDate + '</strong>, the day your current subscription ends. ' +
+                            'Nothing else to do — when the time comes, your membership rolls right over.' +
+                            '</div>';
                     } else if (json.ok) {
                         renderSuccess(json);
+                    } else if (json.requires_queue) {
+                        // Server says: you have an active sub, retry with queue flag.
+                        // Auto-retry once with queue_until_sub_ends so the user
+                        // gets the parked-state UI without a second click.
+                        const retry = await postRedeem(Object.assign({}, payload, { queue_until_sub_ends: true }));
+                        if (retry.ok && retry.queued) {
+                            const startDate = retry.starts_at ? new Date(retry.starts_at).toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' }) : 'when your subscription ends';
+                            resultEl.innerHTML = '<div style="margin:1em 0;padding:1.1em 1.2em;background:#fbf6e8;border:1px solid #ECB351;border-radius:8px;line-height:1.5;color:#1f1d1a;">' +
+                                '<strong style="font-size:1.05em;">🎁 Gift parked!</strong><br>' +
+                                'Your gift will activate on <strong>' + startDate + '</strong>, the day your current subscription ends.' +
+                                '</div>';
+                        } else {
+                            renderError(retry.error || 'Could not park gift.', retry.portal_url);
+                        }
                     } else {
                         renderError(json.error || 'Unable to redeem code.', json.portal_url);
                     }
