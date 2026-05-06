@@ -2354,11 +2354,13 @@ final class Shortcodes
     public static function join( $atts = [] ): string
     {
         $atts = shortcode_atts( [
-            'heading'    => 'Choose your membership',
-            'subheading' => '',
-            'bullets'    => '',           // pipe-separated, e.g. "Forums|Archive|Sponsor benefits"
-            'popular'    => 'looth3',     // product ref to mark "Most popular"
-            'taglines'   => '',           // ref:tagline pipe-separated, e.g. "looth2:Members-only forum access|looth3:Everything in LITE plus exclusive content"
+            'heading'          => 'Choose your membership',
+            'subheading'       => '',
+            'bullets'          => '',        // pipe-separated
+            'popular'          => 'looth3',  // product ref to mark "Most popular"
+            'taglines'         => '',        // ref:tagline pipe-separated
+            'features_looth2'  => 'Member forums & community|Interviews with guests|AMAs',
+            'features_looth3'  => 'Everything in LITE|Demo-based content|Live session archives',
         ], (array) $atts, 'lg_join' );
 
         $user        = wp_get_current_user();
@@ -2383,14 +2385,14 @@ final class Shortcodes
         $promoFromUrl = isset( $_GET['promo'] ) ? (string) $_GET['promo'] : '';
         $promoFromUrl = preg_replace( '/[^A-Za-z0-9_\-]/', '', $promoFromUrl );
 
-        // Country override via ?country=XX URL param. Forwarded to /v1/products
-        // (drives which tier products appear) and /v1/checkout body (forwarded
-        // for completeness — the actual regional verification reads the billing
-        // country from the Stripe Checkout form, not this param).
+        // Country override via ?country=XX URL param.
         $countryFromUrl = isset( $_GET['country'] ) ? strtoupper( preg_replace( '/[^A-Za-z]/', '', (string) $_GET['country'] ) ) : '';
         if ( strlen( $countryFromUrl ) !== 2 ) {
             $countryFromUrl = '';
         }
+
+        // ?preview=single — shows single-tier mockup for internal team review.
+        $previewSingle = isset( $_GET['preview'] ) && $_GET['preview'] === 'single';
 
         $heading      = esc_html( (string) $atts['heading'] );
         $subheading   = esc_html( (string) $atts['subheading'] );
@@ -2407,17 +2409,29 @@ final class Shortcodes
                 }
             }
         }
+
+        // Build per-tier feature lists from shortcode atts.
+        $featuresMap = [];
+        foreach ( [ 'looth1', 'looth2', 'looth3', 'looth4' ] as $ref ) {
+            $key = "features_{$ref}";
+            if ( ! empty( $atts[ $key ] ) ) {
+                $featuresMap[ $ref ] = array_values( array_filter( array_map( 'trim', explode( '|', (string) $atts[ $key ] ) ) ) );
+            }
+        }
+
         $email        = esc_attr( $emailValue );
         $name         = esc_attr( $nameValue );
         $promoEsc     = esc_attr( (string) $promoFromUrl );
         $endpointsJs  = wp_json_encode( $endpoints );
         $authUrl      = esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) );
         $configJs     = wp_json_encode( [
-            'popular'   => $popularRef,
-            'taglines'  => $taglineMap,
-            'loggedIn'  => $isLoggedIn,
-            'authUrl'   => $authUrl,
-            'forgotUrl' => wp_lostpassword_url(),
+            'popular'       => $popularRef,
+            'taglines'      => $taglineMap,
+            'features'      => $featuresMap,
+            'loggedIn'      => $isLoggedIn,
+            'authUrl'       => $authUrl,
+            'forgotUrl'     => wp_lostpassword_url(),
+            'previewSingle' => $previewSingle,
         ] );
 
         ob_start();
@@ -2436,6 +2450,21 @@ final class Shortcodes
                     </ul>
                 <?php endif; ?>
             </header>
+
+            <div class="lg-join__trial-banner" data-lg-trial-banner hidden>
+                &#10003; 7-day free trial on all plans &mdash; no charge until day 8
+            </div>
+
+            <?php if ( $previewSingle ) : ?>
+            <div class="lg-join__preview-bar">
+                <span>&#9888; Preview mode: single tier</span>
+                <a href="<?php echo esc_url( remove_query_arg( 'preview' ) ); ?>" class="lg-join__preview-exit">Exit preview</a>
+            </div>
+            <?php else : ?>
+            <div class="lg-join__preview-bar lg-join__preview-bar--hint">
+                <a href="<?php echo esc_url( add_query_arg( 'preview', 'single' ) ); ?>" class="lg-join__preview-link">&#128065; Preview single-tier layout</a>
+            </div>
+            <?php endif; ?>
 
             <div class="lg-join__region-note" data-lg-region-note hidden></div>
 
@@ -2906,81 +2935,127 @@ final class Shortcodes
                 }
             }
 
+            function buildTierCard(prod, prices, isPopular, isMock) {
+                const card = document.createElement('div');
+                card.className = 'lg-join__tier';
+                if (isPopular) {
+                    card.classList.add('is-popular');
+                    const badge = document.createElement('span');
+                    badge.className = 'lg-join__tier-badge';
+                    badge.textContent = 'Most popular';
+                    card.appendChild(badge);
+                }
+
+                const title = document.createElement('h3');
+                title.className = 'lg-join__tier-name';
+                title.textContent = prod.name;
+                card.appendChild(title);
+
+                const tagline = document.createElement('p');
+                tagline.className = 'lg-join__tier-tagline';
+                tagline.textContent = (CONFIG.taglines && CONFIG.taglines[prod.ref]) || '';
+                card.appendChild(tagline);
+
+                // Feature list
+                const feats = (CONFIG.features && CONFIG.features[prod.ref]) || prod.features || [];
+                if (feats.length > 0) {
+                    const ul = document.createElement('ul');
+                    ul.className = 'lg-join__features';
+                    feats.forEach(function(f){
+                        const li = document.createElement('li');
+                        li.className = 'lg-join__feature';
+                        li.textContent = f;
+                        ul.appendChild(li);
+                    });
+                    card.appendChild(ul);
+                }
+
+                // Price buttons
+                const list = document.createElement('div');
+                list.className = 'lg-join__tier-prices';
+                prices.forEach(function(price){
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'lg-join__buy';
+                    if (price.type === 'recurring' && price.interval === 'year') btn.classList.add('is-primary');
+                    btn.textContent = priceLabel(price);
+                    if (isMock) {
+                        btn.disabled = true;
+                        btn.title = 'Preview only — not a live price';
+                    } else {
+                        btn.addEventListener('click', () => selectPrice(price, prod, btn));
+                    }
+                    list.appendChild(btn);
+                });
+                card.appendChild(list);
+
+                // Trial button (only for live cards with a monthly recurring price that has trial_days)
+                if (!isMock) {
+                    const trialDays = prices.reduce((m, p) => p.type === 'recurring' && (p.trial_days || 0) > m ? (p.trial_days || 0) : m, 0);
+                    const monthlyP  = prices.find(p => p.type === 'recurring' && p.interval === 'month');
+                    if (trialDays > 0 && monthlyP) {
+                        const trialBtn = document.createElement('button');
+                        trialBtn.type = 'button';
+                        trialBtn.className = 'lg-join__trial-btn';
+                        trialBtn.textContent = 'Try free for ' + trialDays + ' days';
+                        trialBtn.addEventListener('click', () => {
+                            document.querySelectorAll('.lg-join__buy.is-selected, .lg-join__trial-btn.is-selected').forEach(b => b.classList.remove('is-selected'));
+                            selectPrice(monthlyP, prod, trialBtn, { label: trialDays + '-day free trial — ' + dollars(monthlyP.unit_amount_cents) + '/mo after' });
+                        });
+                        card.appendChild(trialBtn);
+                    }
+                }
+
+                return card;
+            }
+
             function renderTiers(products){
                 tiersEl.innerHTML = '';
+
+                // Show trial banner if any tier has a trial
+                const anyTrial = products.some(p => p.prices.some(pr => (pr.trial_days || 0) > 0));
+                const trialBanner = document.querySelector('[data-lg-trial-banner]');
+                if (trialBanner) trialBanner.hidden = !anyTrial;
+
+                if (CONFIG.previewSingle) {
+                    renderSingleTierPreview();
+                    return;
+                }
+
                 let defaultBtn = null, defaultPrice = null, defaultProd = null;
                 products.forEach(function(prod){
-                    const card = document.createElement('div');
-                    card.className = 'lg-join__tier';
+                    const sorted   = sortPrices(prod.prices);
                     const isPopular = (prod.ref && CONFIG.popular && prod.ref === CONFIG.popular);
-                    if (isPopular) {
-                        card.classList.add('is-popular');
-                        const badge = document.createElement('span');
-                        badge.className = 'lg-join__tier-badge';
-                        badge.textContent = 'Most popular';
-                        card.appendChild(badge);
-                    }
-
-                    const title = document.createElement('h3');
-                    title.className = 'lg-join__tier-name';
-                    title.textContent = prod.name;
-                    card.appendChild(title);
-
-                    const tagline = document.createElement('p');
-                    tagline.className = 'lg-join__tier-tagline';
-                    tagline.textContent = (CONFIG.taglines && CONFIG.taglines[prod.ref]) || '';
-                    card.appendChild(tagline);
-
-                    const list = document.createElement('div');
-                    list.className = 'lg-join__tier-prices';
-                    const sorted = sortPrices(prod.prices);
-                    sorted.forEach(function(price, idx){
-                        const btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.className = 'lg-join__buy';
-                        // Highlight the yearly subscription as the suggested CTA
-                        const isYearly = (price.type === 'recurring' && price.interval === 'year');
-                        if (isYearly) {
-                            btn.classList.add('is-primary');
-                        }
-                        btn.textContent = priceLabel(price);
-                        btn.addEventListener('click', () => selectPrice(price, prod, btn));
-                        list.appendChild(btn);
-                        // Stash the popular-tier yearly button so we can default-select it after render.
-                        if (isPopular && isYearly && !defaultBtn) {
-                            defaultBtn   = btn;
-                            defaultPrice = price;
-                            defaultProd  = prod;
-                        }
-                    });
-                    card.appendChild(list);
-
-                    // Trial button — shown when any recurring price has trial_days > 0
-                    const trialDays = prod.prices.reduce((max, p) => p.type === 'recurring' && (p.trial_days || 0) > max ? (p.trial_days || 0) : max, 0);
-                    if (trialDays > 0) {
-                        const monthlyP = sorted.find(p => p.type === 'recurring' && p.interval === 'month');
-                        if (monthlyP) {
-                            const trialBtn = document.createElement('button');
-                            trialBtn.type = 'button';
-                            trialBtn.className = 'lg-join__trial-btn';
-                            trialBtn.textContent = 'Try free for ' + trialDays + ' days';
-                            trialBtn.addEventListener('click', () => {
-                                document.querySelectorAll('.lg-join__buy.is-selected').forEach(b => b.classList.remove('is-selected'));
-                                selectPrice(monthlyP, prod, trialBtn, { label: trialDays + '-day free trial — ' + dollars(monthlyP.unit_amount_cents) + '/mo after' });
-                            });
-                            card.appendChild(trialBtn);
-                        }
-                    }
-
+                    const card     = buildTierCard(prod, sorted, isPopular, false);
                     tiersEl.appendChild(card);
+
+                    const yearlyBtn = card.querySelector('.lg-join__buy.is-primary');
+                    const yearlyP   = sorted.find(p => p.type === 'recurring' && p.interval === 'year');
+                    if (isPopular && yearlyBtn && yearlyP && !defaultBtn) {
+                        defaultBtn = yearlyBtn; defaultPrice = yearlyP; defaultProd = prod;
+                    }
                 });
 
-                // Default selection: pre-pick the popular tier's yearly price + reveal
-                // the form, but stay quiet — no scroll, no focus steal — so the user can
-                // still see the tier cards above without the page jumping on load.
                 if (defaultBtn && defaultPrice && defaultProd) {
                     selectPrice(defaultPrice, defaultProd, defaultBtn, { silent: true });
                 }
+            }
+
+            function renderSingleTierPreview(){
+                const mockProd = {
+                    name: 'Looth Group',
+                    ref:  'single',
+                    features: ['Member forums & community', 'Interviews & AMAs', 'Demo-based content', 'Live session archives'],
+                };
+                const mockPrices = [
+                    { stripe_price_id: 'mock_month', type: 'recurring', interval: 'month', unit_amount_cents: 800,  trial_days: 7 },
+                    { stripe_price_id: 'mock_year',  type: 'recurring', interval: 'year',  unit_amount_cents: 8000, trial_days: 7 },
+                    { stripe_price_id: 'mock_once',  type: 'one_time',  interval: null,    unit_amount_cents: 9600 },
+                ];
+                const card = buildTierCard(mockProd, mockPrices, false, true);
+                card.style.maxWidth = '420px';
+                card.style.margin   = '0 auto';
+                tiersEl.appendChild(card);
             }
 
             // Step 1: customer picks a price → highlight selected card, reveal form panel.
