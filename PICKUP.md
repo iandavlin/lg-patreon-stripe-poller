@@ -99,7 +99,7 @@ Five new WP REST endpoints under `/wp-json/lg-member-sync/v1/`:
 
 ## What's planned but not done
 
-1. **3-month gift duration POC** — server-side already reads `grants_duration_days` from price metadata, so it's mostly a Stripe-admin task (create new one-time prices with `metadata.grants_duration_days=90`) plus a duration toggle on each tier card. **NOT YET STARTED** — user wants to run by team first.
+1. **Create gift-duration prices in Stripe** — the backend is complete (`discount_scale` column in DB, Slim reads `lgms_discount_scale` metadata, `CheckoutService` applies scale, WP duration picker UI is wired). All that remains is creating the 1/3/6-month one-time prices in the Stripe Dashboard with the right metadata. See `PROD-CUTOVER.md` → "Gift duration pricing" for the full table of prices to create.
 2. Subscription-flow active-gift confirmation server-side query is in place; UI tested but not yet validated end-to-end with real fixture data.
 3. Post-Stripe processing modal on the gift checkout — built and reverted in same session because Stripe's `onComplete` timing was awkward and the redirect-to-feed felt sufficient. May re-attempt later.
 
