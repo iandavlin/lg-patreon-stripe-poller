@@ -963,10 +963,56 @@ final class Shortcodes
                     bulkTiers = (json.bulk_discount_tiers || []).slice().sort((a,b) => a.min_qty - b.min_qty);
                     // renderTiers → selectTier → renderDurations → selectDuration → renderPresets + recompute
                     renderTiers();
+                    applyResumeState();
                 } catch (err) {
                     showError('Failed to load tiers: ' + err.message);
                 }
             }
+
+            // Reapply gift-form state captured before a login-modal reload
+            // (see serializeGiftState below). Runs after products + tiers
+            // are populated so selectTier/selectDuration have something to
+            // hook into. Strips the lg_resume params from the URL after
+            // applying so a manual refresh doesn't re-apply stale state.
+            function applyResumeState(){
+                let params;
+                try { params = new URLSearchParams(window.location.search); }
+                catch (e) { return; }
+                if (params.get('lg_resume') !== '1') return;
+                const tier = params.get('tier');
+                const dur  = params.get('dur');
+                const cm   = parseInt(params.get('cm') || '', 10);
+                const qty  = parseInt(params.get('qty') || '', 10);
+                if (cm && cm >= 2 && cm <= 36) customMonthsVal = cm;
+                if (tier && products.some(p => p.ref === tier)) selectTier(tier);
+                if (dur === 'year' || dur === 'month' || dur === 'custom') {
+                    try { selectDuration(dur); } catch (e) {}
+                }
+                if (qty && qty >= 1 && qtyInput) {
+                    qtyInput.value = String(qty);
+                    try { recompute(); } catch (e) {}
+                }
+                ['lg_resume','tier','dur','cm','qty'].forEach(k => params.delete(k));
+                const clean = window.location.pathname + (params.toString() ? '?' + params : '') + window.location.hash;
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState({}, '', clean);
+                }
+            }
+
+            // Serialize current gift selections into a query string the
+            // post-reload page can pick up via applyResumeState. Used by
+            // the inline login modal so a returning member doesn't lose
+            // their tier/duration/qty when we reload to render the
+            // canonical logged-in state.
+            window.lgSerializeGiftState = function(){
+                const p = new URLSearchParams();
+                p.set('lg_resume', '1');
+                if (selectedRef) p.set('tier', selectedRef);
+                if (selectedDuration && selectedDuration.key) p.set('dur', selectedDuration.key);
+                if (customMonthsVal) p.set('cm', String(customMonthsVal));
+                if (qtyInput && qtyInput.value) p.set('qty', String(qtyInput.value));
+                return p.toString();
+            };
 
             // Quantity stepper buttons
             document.querySelectorAll('[data-lg-qty-step]').forEach(btn => {
@@ -1555,8 +1601,16 @@ final class Shortcodes
                             // mode/buyer-email sections, /my-gifts link, etc.).
                             // The auth cookie was set in the response above so
                             // the reload runs as the now-logged-in user.
+                            // Carry the in-progress selections through as URL
+                            // params so the post-reload page can re-apply them
+                            // (see applyResumeState above).
                             loginBtn.textContent = 'Logged in — refreshing…';
-                            window.location.reload();
+                            const qs = (typeof window.lgSerializeGiftState === 'function')
+                                ? window.lgSerializeGiftState() : '';
+                            const dest = window.location.pathname
+                                + (qs ? '?' + qs : '')
+                                + window.location.hash;
+                            window.location.replace(dest);
                             return;
                         } else {
                             if (loginErrEl) { loginErrEl.textContent = data.error || 'Login failed. Check your password.'; loginErrEl.hidden = false; }
