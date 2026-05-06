@@ -1375,6 +1375,18 @@ final class RestController
                 // their access. Arbiter is the sole writer of tier roles.)
             }
         } else {
+            // login_only=true: caller is the inline login modal — they
+            // expect this email to belong to an existing user, so refuse
+            // to fall through into the account-creation path. Returning a
+            // dedicated error lets the modal say "No account found" instead
+            // of the generic "Login failed".
+            if ( ! empty( $body['login_only'] ) ) {
+                return new WP_REST_Response( [
+                    'ok'        => false,
+                    'error'     => 'No account found for that email.',
+                    'no_account'=> true,
+                ], 404 );
+            }
             // No account on file — require consent before creating one. The
             // first call returns needs_consent so the client can show a modal;
             // the client re-submits with confirmed_consent=true to actually
