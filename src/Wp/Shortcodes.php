@@ -334,7 +334,7 @@ final class Shortcodes
 
             .lg-gift__tier-select-wrap { position: relative; }
             .lg-gift__tier-select-wrap::after { content: '▾'; position: absolute; right: 1em; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: .6; font-size: .95em; }
-            .lg-gift__tier-select { width: 100%; padding: .75em 2.5em .75em 1em; font-size: 1em; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: #fff; color: inherit; cursor: pointer; appearance: none; -webkit-appearance: none; }
+            .lg-gift__tier-select { width: 100%; padding: .75em 2.5em .75em 1em; font-size: 1em; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; background: #fff; color: inherit; cursor: pointer; appearance: none; -webkit-appearance: none; text-overflow: ellipsis; min-width: 0; }
 
             .lg-gift__durations { display: flex; flex-direction: column; gap: 0; border: 1px solid rgba(0,0,0,0.12); border-radius: 10px; overflow: hidden; margin-top: .2em; }
             .lg-gift__dur-row { display: flex; align-items: center; gap: .85em; padding: .85em 1.1em; cursor: pointer; background: #fff; border-bottom: 1px solid rgba(0,0,0,0.08); transition: background .12s; }
@@ -343,7 +343,10 @@ final class Shortcodes
             .lg-gift__dur-row.is-selected { background: rgba(236,179,81,0.10); }
             .lg-gift__dur-row input[type="radio"] { accent-color: var(--lg-amber, #ECB351); width: 1.1em; height: 1.1em; flex-shrink: 0; margin: 0; cursor: pointer; }
             .lg-gift__dur-label { font-weight: 500; flex-shrink: 0; }
-            .lg-gift__dur-custom-input { width: 60px; padding: .25em .5em; font-size: .95em; border: 1px solid rgba(0,0,0,0.2); border-radius: 5px; text-align: center; margin-left: .6em; -moz-appearance: textfield; }
+            .lg-gift__dur-stepper { display: inline-flex; align-items: stretch; border: 1px solid rgba(0,0,0,0.18); border-radius: 6px; overflow: hidden; margin-left: .65em; flex-shrink: 0; }
+            .lg-gift__dur-step { width: 32px; background: rgba(0,0,0,0.04); border: none; cursor: pointer; font-size: 1.1em; line-height: 1; color: inherit; padding: 0; flex-shrink: 0; }
+            .lg-gift__dur-step:hover { background: rgba(0,0,0,0.09); }
+            .lg-gift__dur-custom-input { width: 46px; text-align: center; border: none; border-left: 1px solid rgba(0,0,0,0.1); border-right: 1px solid rgba(0,0,0,0.1); font-size: .95em; padding: .3em 0; background: #fff; color: inherit; -moz-appearance: textfield; }
             .lg-gift__dur-custom-input::-webkit-outer-spin-button, .lg-gift__dur-custom-input::-webkit-inner-spin-button { -webkit-appearance: none; }
             .lg-gift__dur-price { color: var(--lg-sage, #87986A); font-weight: 600; font-size: .95em; flex-shrink: 0; flex: 1; text-align: right; }
 
@@ -644,9 +647,13 @@ final class Shortcodes
                 const eligible = products.filter(p => monthlyPrice(p) || yearlyPrice(p));
                 eligible.forEach(function(prod){
                     const mp = monthlyPrice(prod);
+                    const yp = yearlyPrice(prod);
                     const opt = document.createElement('option');
                     opt.value = prod.ref;
-                    opt.textContent = prod.name + (mp ? ' (' + dollars(mp.unit_amount_cents) + '/month)' : '');
+                    let label = prod.name;
+                    if (mp && yp) label += ' — ' + dollars(mp.unit_amount_cents) + '/mo · ' + dollars(yp.unit_amount_cents) + '/yr';
+                    else if (mp)  label += ' — ' + dollars(mp.unit_amount_cents) + '/mo';
+                    opt.textContent = label;
                     tierSelect.appendChild(opt);
                 });
                 // Default: popular tier or first
@@ -707,21 +714,45 @@ final class Shortcodes
                     durationsEl.appendChild(makeRow('month', '1 month', dollars(mp.unit_amount_cents) + ' / code'));
                 }
 
-                // Custom months row — shows a number input, price updates on change
+                // Custom months row — stepper (− N +), price updates live
                 if (mp) {
+                    const stepper = document.createElement('div');
+                    stepper.className = 'lg-gift__dur-stepper';
+
+                    const decBtn = document.createElement('button');
+                    decBtn.type = 'button'; decBtn.className = 'lg-gift__dur-step'; decBtn.textContent = '−';
+                    decBtn.setAttribute('aria-label', 'Decrease months');
+
                     const numInput = document.createElement('input');
                     numInput.type = 'number'; numInput.min = '2'; numInput.max = '36';
                     numInput.value = String(customMonthsVal);
                     numInput.className = 'lg-gift__dur-custom-input';
-                    numInput.addEventListener('input', function(){
-                        customMonthsVal = Math.max(2, parseInt(this.value, 10) || 2);
-                        this.value = String(customMonthsVal);
-                        // Update price display
+
+                    const incBtn = document.createElement('button');
+                    incBtn.type = 'button'; incBtn.className = 'lg-gift__dur-step'; incBtn.textContent = '+';
+                    incBtn.setAttribute('aria-label', 'Increase months');
+
+                    function updateCustomMonths(val){
+                        customMonthsVal = Math.max(2, Math.min(36, val));
+                        numInput.value = String(customMonthsVal);
                         const pr = durationsEl.querySelector('[data-dur-price-key="custom"]');
                         if (pr) pr.textContent = dollars(mp.unit_amount_cents * customMonthsVal) + ' / code';
-                        if (selectedDuration && selectedDuration.key === 'custom') { renderPresets(); recompute(); }
-                    });
-                    const customRow = makeRow('custom', 'Custom months', dollars(mp.unit_amount_cents * customMonthsVal) + ' / code', numInput);
+                        if (selectedDuration && selectedDuration.key === 'custom') {
+                            selectedDuration.months = customMonthsVal;
+                            selectedDuration.baseUnitCents = mp.unit_amount_cents * customMonthsVal;
+                            selectedDuration.durationMonths = customMonthsVal;
+                            renderPresets(); recompute();
+                        }
+                    }
+                    decBtn.addEventListener('click', (e) => { e.stopPropagation(); updateCustomMonths(customMonthsVal - 1); });
+                    incBtn.addEventListener('click', (e) => { e.stopPropagation(); updateCustomMonths(customMonthsVal + 1); });
+                    numInput.addEventListener('input', function(){ updateCustomMonths(parseInt(this.value, 10) || 2); });
+
+                    stepper.appendChild(decBtn);
+                    stepper.appendChild(numInput);
+                    stepper.appendChild(incBtn);
+
+                    const customRow = makeRow('custom', 'Custom months', dollars(mp.unit_amount_cents * customMonthsVal) + ' / code', stepper);
                     durationsEl.appendChild(customRow);
                 }
             }
