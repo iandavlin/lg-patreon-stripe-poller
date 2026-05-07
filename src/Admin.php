@@ -458,9 +458,11 @@ final class Admin
         try {
             $rows = Db::pdo()->query(
                 'SELECT a.id, a.slug, a.label, a.created_at,
-                        COUNT(c.id) AS conversions
+                        COUNT(DISTINCT cl.id) AS clicks,
+                        COUNT(DISTINCT cv.id) AS conversions
                  FROM affiliates a
-                 LEFT JOIN affiliate_conversions c ON c.affiliate_id = a.id
+                 LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
+                 LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
                  GROUP BY a.id
                  ORDER BY a.created_at DESC'
             )->fetchAll( \PDO::FETCH_ASSOC );
@@ -478,19 +480,26 @@ final class Admin
                 <tr>
                     <th>Slug</th>
                     <th>Label</th>
+                    <th style="text-align:center;">Clicks</th>
                     <th style="text-align:center;">Conversions</th>
+                    <th style="text-align:center;">Rate</th>
                     <th>Shareable link</th>
                     <th>Created</th>
                 </tr>
             </thead>
             <tbody>
             <?php foreach ( $rows as $row ) :
-                $link = add_query_arg( 'ref', esc_attr( (string) $row['slug'] ), $joinBase );
+                $link        = add_query_arg( 'ref', esc_attr( (string) $row['slug'] ), $joinBase );
+                $clicks      = (int) $row['clicks'];
+                $conversions = (int) $row['conversions'];
+                $rate        = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
             ?>
                 <tr>
                     <td><code><?php echo esc_html( (string) $row['slug'] ); ?></code></td>
                     <td><?php echo esc_html( (string) $row['label'] ); ?></td>
-                    <td style="text-align:center;font-weight:700;"><?php echo (int) $row['conversions']; ?></td>
+                    <td style="text-align:center;"><?php echo $clicks; ?></td>
+                    <td style="text-align:center;font-weight:700;"><?php echo $conversions; ?></td>
+                    <td style="text-align:center;color:<?php echo $clicks > 0 ? '#15803d' : '#aaa'; ?>;"><?php echo $rate; ?></td>
                     <td>
                         <input type="text" value="<?php echo esc_attr( $link ); ?>"
                                readonly onclick="this.select()"

@@ -52,10 +52,11 @@ final class Shortcodes
 
         $base      = rtrim( (string) home_url( '/billing' ), '/' );
         $endpoints = [
-            'products' => esc_url_raw( $base . '/v1/products' ),
-            'config'   => esc_url_raw( $base . '/v1/config' ),
-            'checkout' => esc_url_raw( $base . '/v1/checkout' ),
-            'authUrl'  => esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ),
+            'products'       => esc_url_raw( $base . '/v1/products' ),
+            'config'         => esc_url_raw( $base . '/v1/config' ),
+            'checkout'       => esc_url_raw( $base . '/v1/checkout' ),
+            'authUrl'        => esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ),
+            'affiliateClick' => esc_url_raw( $base . '/v1/affiliate-click' ),
         ];
 
         $heading     = esc_html( (string) $atts['heading'] );
@@ -625,14 +626,24 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
-            // Capture ?ref= affiliate slug on landing and persist for this session.
+            // Capture ?ref= affiliate slug on landing, persist across sessions,
+            // and fire a server-side click event so misses are visible in reports.
             (function() {
                 try {
                     var r = new URLSearchParams(window.location.search).get('ref');
-                    if (r) sessionStorage.setItem('lg_ref', r.replace(/[^a-z0-9_-]/gi, '').slice(0, 80));
+                    if (r) {
+                        r = r.replace(/[^a-z0-9_-]/gi, '').slice(0, 80);
+                        localStorage.setItem('lg_ref', r);
+                        fetch(ENDPOINTS.affiliateClick, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ref: r }),
+                            keepalive: true,
+                        }).catch(function(){});
+                    }
                 } catch(_) {}
             })();
-            function lgGetRef() { try { return sessionStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
+            function lgGetRef() { try { return localStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
 
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const CONFIG    = <?php echo $configJs; ?>;
@@ -2689,9 +2700,10 @@ final class Shortcodes
 
         $base       = rtrim( (string) home_url( '/billing' ), '/' );
         $endpoints  = [
-            'products' => esc_url_raw( $base . '/v1/products' ),
-            'config'   => esc_url_raw( $base . '/v1/config' ),
-            'checkout' => esc_url_raw( $base . '/v1/checkout' ),
+            'products'       => esc_url_raw( $base . '/v1/products' ),
+            'config'         => esc_url_raw( $base . '/v1/config' ),
+            'checkout'       => esc_url_raw( $base . '/v1/checkout' ),
+            'affiliateClick' => esc_url_raw( $base . '/v1/affiliate-click' ),
         ];
 
         $promoFromUrl = isset( $_GET['promo'] ) ? (string) $_GET['promo'] : '';
@@ -3070,14 +3082,24 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
-            // Capture ?ref= affiliate slug on landing and persist for this session.
+            // Capture ?ref= affiliate slug on landing, persist across sessions,
+            // and fire a server-side click event so misses are visible in reports.
             (function() {
                 try {
                     var r = new URLSearchParams(window.location.search).get('ref');
-                    if (r) sessionStorage.setItem('lg_ref', r.replace(/[^a-z0-9_-]/gi, '').slice(0, 80));
+                    if (r) {
+                        r = r.replace(/[^a-z0-9_-]/gi, '').slice(0, 80);
+                        localStorage.setItem('lg_ref', r);
+                        fetch(ENDPOINTS.affiliateClick, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ref: r }),
+                            keepalive: true,
+                        }).catch(function(){});
+                    }
                 } catch(_) {}
             })();
-            function lgGetRef() { try { return sessionStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
+            function lgGetRef() { try { return localStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
 
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
