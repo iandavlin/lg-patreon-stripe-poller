@@ -626,6 +626,11 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
+            function lgGetRef() { try { return localStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
+
+            const ENDPOINTS = <?php echo $endpointsJs; ?>;
+            const CONFIG    = <?php echo $configJs; ?>;
+
             // Capture ?ref= affiliate slug on landing, persist across sessions,
             // and fire a server-side click event so misses are visible in reports.
             (function() {
@@ -643,10 +648,6 @@ final class Shortcodes
                     }
                 } catch(_) {}
             })();
-            function lgGetRef() { try { return localStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
-
-            const ENDPOINTS = <?php echo $endpointsJs; ?>;
-            const CONFIG    = <?php echo $configJs; ?>;
             const tierDropdown    = document.querySelector('[data-lg-tier-dropdown]');
             const tierTrigger    = document.querySelector('[data-lg-tier-trigger]');
             const tierOptionsEl  = document.querySelector('[data-lg-tier-options]');
@@ -3082,6 +3083,11 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
+            function lgGetRef() { try { return localStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
+
+            const ENDPOINTS = <?php echo $endpointsJs; ?>;
+            const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
+
             // Capture ?ref= affiliate slug on landing, persist across sessions,
             // and fire a server-side click event so misses are visible in reports.
             (function() {
@@ -3099,10 +3105,6 @@ final class Shortcodes
                     }
                 } catch(_) {}
             })();
-            function lgGetRef() { try { return localStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
-
-            const ENDPOINTS = <?php echo $endpointsJs; ?>;
-            const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
             const COUNTRY_OVERRIDE = <?php echo wp_json_encode( $countryFromUrl ); ?>;
             const CONFIG    = <?php echo $configJs; ?>;
             // Resolved at runtime: URL override > Cloudflare trace > none.
