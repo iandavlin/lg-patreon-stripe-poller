@@ -8,6 +8,7 @@ final class Admin
 {
     private const OPT_GROUP = 'lgms_settings';
     private const OPT_PAGE  = 'lg-member-sync';
+    private const AFF_PAGE  = 'lg-affiliates';
 
     public static function boot(): void
     {
@@ -31,6 +32,16 @@ final class Admin
             'manage_options',
             self::OPT_PAGE,
             [ self::class, 'render' ],
+        );
+
+        add_menu_page(
+            'Affiliates',
+            'Affiliates',
+            'manage_options',
+            self::AFF_PAGE,
+            [ self::class, 'renderAffiliatePage' ],
+            'dashicons-groups',
+            30,
         );
     }
 
@@ -57,14 +68,12 @@ final class Admin
 
     public static function enqueueScripts( string $hook ): void
     {
-        if ( $hook !== 'settings_page_' . self::OPT_PAGE ) {
-            return;
+        if ( $hook === 'settings_page_' . self::OPT_PAGE ) {
+            $tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'settings';
+            if ( $tab === 'welcome_email' ) {
+                wp_enqueue_media();
+            }
         }
-        $tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'settings';
-        if ( $tab !== 'welcome_email' ) {
-            return;
-        }
-        wp_enqueue_media();
     }
 
     // -------------------------------------------------------------------------
@@ -225,10 +234,10 @@ final class Admin
             }
         }
 
-        $args = [ 'page' => self::OPT_PAGE, 'tab' => 'affiliates' ];
+        $args = [ 'page' => self::AFF_PAGE ];
         if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
         if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
-        wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
         exit;
     }
 
@@ -247,7 +256,6 @@ final class Admin
             'settings'      => 'Settings',
             'member_tools'  => 'Member Tools',
             'welcome_email' => 'Welcome Email',
-            'affiliates'    => 'Affiliates',
         ];
         ?>
         <div class="wrap">
@@ -266,7 +274,6 @@ final class Admin
             match ( $tab ) {
                 'member_tools'  => MemberTools::renderContent(),
                 'welcome_email' => self::renderWelcomeEmailTab(),
-                'affiliates'    => self::renderAffiliatesTab(),
                 default         => self::renderSettingsTab(),
             };
             ?>
@@ -480,8 +487,21 @@ final class Admin
     }
 
     // -------------------------------------------------------------------------
-    // Affiliates tab
+    // Affiliates page (top-level menu)
     // -------------------------------------------------------------------------
+
+    public static function renderAffiliatePage(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        ?>
+        <div class="wrap">
+            <h1>Affiliates</h1>
+            <?php self::renderAffiliatesTab(); ?>
+        </div>
+        <?php
+    }
 
     public static function handleCreateAffiliate(): void
     {
@@ -529,10 +549,10 @@ final class Admin
             }
         }
 
-        $args = [ 'page' => self::OPT_PAGE, 'tab' => 'affiliates' ];
+        $args = [ 'page' => self::AFF_PAGE ];
         if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
         if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
-        wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
         exit;
     }
 
@@ -575,10 +595,10 @@ final class Admin
             }
         }
 
-        $args = [ 'page' => self::OPT_PAGE, 'tab' => 'affiliates' ];
+        $args = [ 'page' => self::AFF_PAGE ];
         if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
         if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
-        wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
         exit;
     }
 
@@ -779,10 +799,9 @@ final class Admin
                 $rate             = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
                 $debitsCents      = (int) $row['total_debits_cents'];
                 $editUrl          = add_query_arg( [
-                    'page'          => self::OPT_PAGE,
-                    'tab'           => 'affiliates',
+                    'page'          => self::AFF_PAGE,
                     'lgms_edit_aff' => $row['id'],
-                ], admin_url( 'options-general.php' ) );
+                ], admin_url( 'admin.php' ) );
             ?>
                 <tr>
                     <td>
