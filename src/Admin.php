@@ -16,6 +16,7 @@ final class Admin
         add_action( 'admin_enqueue_scripts', [ self::class, 'enqueueScripts' ] );
         add_action( 'admin_post_lgms_rerun_pages',       [ self::class, 'handleRerunPages' ] );
         add_action( 'admin_post_lgms_save_welcome_mosaic', [ self::class, 'handleSaveMosaic' ] );
+        add_action( 'admin_post_lgms_create_affiliate',   [ self::class, 'handleCreateAffiliate' ] );
         add_action( 'wp_ajax_lgms_search_posts', [ self::class, 'ajaxSearchPosts' ] );
     }
 
@@ -163,6 +164,7 @@ final class Admin
             'settings'      => 'Settings',
             'member_tools'  => 'Member Tools',
             'welcome_email' => 'Welcome Email',
+            'affiliates'    => 'Affiliates',
         ];
         ?>
         <div class="wrap">
@@ -181,6 +183,7 @@ final class Admin
             match ( $tab ) {
                 'member_tools'  => MemberTools::renderContent(),
                 'welcome_email' => self::renderWelcomeEmailTab(),
+                'affiliates'    => self::renderAffiliatesTab(),
                 default         => self::renderSettingsTab(),
             };
             ?>
@@ -390,6 +393,142 @@ final class Admin
             });
         }());
         </script>
+        <?php
+    }
+
+    // -------------------------------------------------------------------------
+    // Affiliates tab
+    // -------------------------------------------------------------------------
+
+    public static function handleCreateAffiliate(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Insufficient permissions.', 403 );
+        }
+        check_admin_referer( 'lgms_create_affiliate' );
+
+        $slug  = sanitize_text_field( (string) ( $_POST['slug']  ?? '' ) );
+        $label = sanitize_text_field( (string) ( $_POST['label'] ?? '' ) );
+
+        // Allow letters, digits, hyphens only.
+        $slug = strtolower( (string) preg_replace( '/[^a-z0-9-]/i', '-', $slug ) );
+        $slug = trim( $slug, '-' );
+
+        $notice = '';
+        $err    = '';
+
+        if ( $slug === '' ) {
+            $err = 'Slug is required.';
+        } else {
+            try {
+                $pdo = Db::pdo();
+                $pdo->prepare( 'INSERT INTO affiliates (slug, label) VALUES (?, ?)' )
+                    ->execute( [ $slug, $label !== '' ? $label : $slug ] );
+                $notice = "Created affiliate: {$slug}";
+            } catch ( \Throwable $e ) {
+                if ( str_contains( $e->getMessage(), 'Duplicate' ) ) {
+                    $err = "Slug '{$slug}' already exists.";
+                } else {
+                    $err = $e->getMessage();
+                }
+            }
+        }
+
+        $args = [ 'page' => self::OPT_PAGE, 'tab' => 'affiliates' ];
+        if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
+        if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+        exit;
+    }
+
+    private static function renderAffiliatesTab(): void
+    {
+        $notice = isset( $_GET['lgms_aff_ok'] )  ? rawurldecode( (string) $_GET['lgms_aff_ok'] )  : '';
+        $err    = isset( $_GET['lgms_aff_err'] ) ? rawurldecode( (string) $_GET['lgms_aff_err'] ) : '';
+
+        if ( $notice !== '' ) : ?>
+            <div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
+        <?php endif;
+        if ( $err !== '' ) : ?>
+            <div class="notice notice-error is-dismissible"><p><?php echo esc_html( $err ); ?></p></div>
+        <?php endif;
+
+        // Load affiliates + conversion counts directly from the membership DB.
+        $rows = [];
+        try {
+            $rows = Db::pdo()->query(
+                'SELECT a.id, a.slug, a.label, a.created_at,
+                        COUNT(c.id) AS conversions
+                 FROM affiliates a
+                 LEFT JOIN affiliate_conversions c ON c.affiliate_id = a.id
+                 GROUP BY a.id
+                 ORDER BY a.created_at DESC'
+            )->fetchAll( \PDO::FETCH_ASSOC );
+        } catch ( \Throwable $_ ) {}
+
+        $joinBase = home_url( '/join/' );
+        ?>
+
+        <h2 style="margin-top:0;">Affiliate links</h2>
+        <p class="description">Generate a unique link for each affiliate. Conversions are tracked when a checkout session started on their link completes payment.</p>
+
+        <?php if ( $rows !== [] ) : ?>
+        <table class="widefat striped" style="max-width:860px;margin-bottom:2em;">
+            <thead>
+                <tr>
+                    <th>Slug</th>
+                    <th>Label</th>
+                    <th style="text-align:center;">Conversions</th>
+                    <th>Shareable link</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ( $rows as $row ) :
+                $link = add_query_arg( 'ref', esc_attr( (string) $row['slug'] ), $joinBase );
+            ?>
+                <tr>
+                    <td><code><?php echo esc_html( (string) $row['slug'] ); ?></code></td>
+                    <td><?php echo esc_html( (string) $row['label'] ); ?></td>
+                    <td style="text-align:center;font-weight:700;"><?php echo (int) $row['conversions']; ?></td>
+                    <td>
+                        <input type="text" value="<?php echo esc_attr( $link ); ?>"
+                               readonly onclick="this.select()"
+                               style="width:100%;font-size:12px;font-family:monospace;padding:4px 6px;border:1px solid #ddd;border-radius:3px;">
+                    </td>
+                    <td style="white-space:nowrap;"><?php echo esc_html( (string) $row['created_at'] ); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php else : ?>
+            <p><em>No affiliates yet. Create your first one below.</em></p>
+        <?php endif; ?>
+
+        <h3>Create a new affiliate link</h3>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="max-width:480px;">
+            <?php wp_nonce_field( 'lgms_create_affiliate' ); ?>
+            <input type="hidden" name="action" value="lgms_create_affiliate">
+            <table class="form-table" style="margin:0;">
+                <tr>
+                    <th><label for="lgms-aff-slug">Slug</label></th>
+                    <td>
+                        <input type="text" id="lgms-aff-slug" name="slug" class="regular-text"
+                               placeholder="dan-erlewine" pattern="[a-zA-Z0-9\-]+" required>
+                        <p class="description">Letters, digits, and hyphens only. Appears in the URL: <code>/join/?ref=<em>slug</em></code></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="lgms-aff-label">Label</label></th>
+                    <td>
+                        <input type="text" id="lgms-aff-label" name="label" class="regular-text"
+                               placeholder="Dan Erlewine">
+                        <p class="description">Human-readable name. Defaults to the slug if left blank.</p>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button( 'Create affiliate link' ); ?>
+        </form>
         <?php
     }
 }

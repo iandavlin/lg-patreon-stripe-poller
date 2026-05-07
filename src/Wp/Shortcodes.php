@@ -625,6 +625,15 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
+            // Capture ?ref= affiliate slug on landing and persist for this session.
+            (function() {
+                try {
+                    var r = new URLSearchParams(window.location.search).get('ref');
+                    if (r) sessionStorage.setItem('lg_ref', r.replace(/[^a-z0-9_-]/gi, '').slice(0, 80));
+                } catch(_) {}
+            })();
+            function lgGetRef() { try { return sessionStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
+
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const CONFIG    = <?php echo $configJs; ?>;
             const tierDropdown    = document.querySelector('[data-lg-tier-dropdown]');
@@ -1861,6 +1870,8 @@ final class Shortcodes
                 if (selectedDuration && selectedDuration.durationMonths !== null) {
                     body.duration_months = selectedDuration.durationMonths;
                 }
+                const lgRef = lgGetRef();
+                if (lgRef) body.ref = lgRef;
                 // Logged-in buyers always go to the dashboard — no recipients
                 // collected upfront. Slim sees dashboard_mode=1 and routes the
                 // post-purchase redirect to /my-gifts/ + sends the
@@ -3059,6 +3070,15 @@ final class Shortcodes
         <script src="https://js.stripe.com/basil/stripe.js"></script>
         <script>
         (function(){
+            // Capture ?ref= affiliate slug on landing and persist for this session.
+            (function() {
+                try {
+                    var r = new URLSearchParams(window.location.search).get('ref');
+                    if (r) sessionStorage.setItem('lg_ref', r.replace(/[^a-z0-9_-]/gi, '').slice(0, 80));
+                } catch(_) {}
+            })();
+            function lgGetRef() { try { return sessionStorage.getItem('lg_ref') || ''; } catch(_) { return ''; } }
+
             const ENDPOINTS = <?php echo $endpointsJs; ?>;
             const PROMO     = <?php echo wp_json_encode( $promoFromUrl ); ?>;
             const COUNTRY_OVERRIDE = <?php echo wp_json_encode( $countryFromUrl ); ?>;
@@ -3540,6 +3560,8 @@ final class Shortcodes
                     const finalPromo = typedPromo !== '' ? typedPromo : (PROMO || '');
                     if (finalPromo) body.promo_code = finalPromo;
                     if (DETECTED_COUNTRY) body.country = DETECTED_COUNTRY;
+                    const lgRef = lgGetRef();
+                    if (lgRef) body.ref = lgRef;
 
                     const sessRes  = await fetch(ENDPOINTS.checkout, {
                         method:  'POST',
