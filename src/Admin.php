@@ -897,8 +897,32 @@ final class Admin
                     <th><label for="lgms-aff-slug">Slug</label></th>
                     <td>
                         <input type="text" id="lgms-aff-slug" name="slug" class="regular-text"
-                               placeholder="dan" pattern="[a-zA-Z0-9\-]+" required>
-                        <p class="description">Letters, digits, hyphens only. Link will be <code>/lgjoin/?ref=<em>slug</em></code></p>
+                               placeholder="dan" required>
+                        <p class="description">Link will be <code>/lgjoin/?ref=<em>slug</em></code></p>
+                        <script>
+                        (function() {
+                            var el = document.getElementById('lgms-aff-slug');
+                            function clean(v) {
+                                return v
+                                    .replace(/^ref=/i, '')          // strip leading ref=
+                                    .toLowerCase()
+                                    .replace(/[^a-z0-9-]+/g, '-')  // anything invalid → hyphen
+                                    .replace(/-{2,}/g, '-')         // collapse runs
+                                    .replace(/^-+|-+$/g, '');       // trim edges
+                            }
+                            el.addEventListener('input', function() {
+                                var pos = el.selectionStart;
+                                var cleaned = clean(el.value);
+                                if (cleaned !== el.value) {
+                                    el.value = cleaned;
+                                    el.setSelectionRange(pos, pos);
+                                }
+                            });
+                            el.addEventListener('blur', function() {
+                                el.value = clean(el.value);
+                            });
+                        }());
+                        </script>
                     </td>
                 </tr>
                 <tr>
