@@ -19,6 +19,8 @@ final class Admin
         add_action( 'admin_post_lgms_create_affiliate',          [ self::class, 'handleCreateAffiliate' ] );
         add_action( 'admin_post_lgms_update_affiliate_commission', [ self::class, 'handleUpdateAffiliateCommission' ] );
         add_action( 'wp_ajax_lgms_search_posts', [ self::class, 'ajaxSearchPosts' ] );
+        add_action( 'wp_ajax_lgms_search_users', [ self::class, 'ajaxSearchUsers' ] );
+        add_action( 'admin_post_lgms_create_affiliate_user', [ self::class, 'handleCreateAffiliateUser' ] );
     }
 
     public static function menu(): void
@@ -148,6 +150,86 @@ final class Admin
         }
 
         wp_send_json_success( $out );
+    }
+
+    public static function ajaxSearchUsers(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'forbidden', 403 );
+        }
+        check_ajax_referer( 'lgms_user_search' );
+
+        $q = sanitize_text_field( (string) ( $_GET['q'] ?? '' ) );
+        if ( strlen( $q ) < 2 ) {
+            wp_send_json_success( [] );
+        }
+
+        $users = get_users( [
+            'search'         => '*' . $q . '*',
+            'search_columns' => [ 'user_login', 'user_email', 'display_name' ],
+            'number'         => 12,
+            'fields'         => [ 'ID', 'user_login', 'user_email', 'display_name' ],
+        ] );
+
+        $out = [];
+        foreach ( $users as $u ) {
+            $out[] = [
+                'id'      => $u->ID,
+                'name'    => $u->display_name ?: $u->user_login,
+                'email'   => $u->user_email,
+                'login'   => $u->user_login,
+                'avatar'  => get_avatar_url( $u->ID, [ 'size' => 32 ] ),
+                'roles'   => implode( ', ', (array) ( get_userdata( $u->ID )->roles ?? [] ) ),
+            ];
+        }
+
+        wp_send_json_success( $out );
+    }
+
+    public static function handleCreateAffiliateUser(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Insufficient permissions.', 403 );
+        }
+        check_admin_referer( 'lgms_create_affiliate_user' );
+
+        $affId    = (int)    ( $_POST['affiliate_id'] ?? 0 );
+        $name     = sanitize_text_field( (string) ( $_POST['new_user_name']  ?? '' ) );
+        $email    = sanitize_email( (string)         ( $_POST['new_user_email'] ?? '' ) );
+        $role     = sanitize_text_field( (string) ( $_POST['new_user_role']  ?? 'subscriber' ) );
+
+        $err = '';
+        $notice = '';
+
+        if ( $affId <= 0 || $email === '' || $name === '' ) {
+            $err = 'Name, email, and affiliate are all required.';
+        } elseif ( email_exists( $email ) ) {
+            $err = "A user with email {$email} already exists. Use the search field to link them instead.";
+        } else {
+            $userId = wp_create_user(
+                sanitize_user( strtolower( str_replace( ' ', '.', $name ) ) ),
+                wp_generate_password( 24, true, true ),
+                $email
+            );
+            if ( is_wp_error( $userId ) ) {
+                $err = $userId->get_error_message();
+            } else {
+                $u = get_user_by( 'id', $userId );
+                $u->set_role( $role );
+                wp_update_user( [ 'ID' => $userId, 'display_name' => $name, 'first_name' => explode( ' ', $name )[0] ] );
+                wp_send_new_user_notifications( $userId, 'user' );
+                // Link to affiliate.
+                Db::pdo()->prepare( 'UPDATE affiliates SET wp_user_id = ? WHERE id = ?' )
+                    ->execute( [ $userId, $affId ] );
+                $notice = "Created WP user for {$name} ({$email}) and linked to affiliate.";
+            }
+        }
+
+        $args = [ 'page' => self::OPT_PAGE, 'tab' => 'affiliates' ];
+        if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
+        if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+        exit;
     }
 
     // -------------------------------------------------------------------------
@@ -500,6 +582,139 @@ final class Admin
         exit;
     }
 
+    /**
+     * Renders a user search + "create new user" widget.
+     * $linkedUser = currently linked WP_User object or null.
+     * $affId      = affiliate ID (0 when creating a new affiliate).
+     */
+    private static function renderUserSearchField( string $fieldName, ?\WP_User $linkedUser, string $nonce, int $affId ): void
+    {
+        $uid   = $linkedUser ? (int) $linkedUser->ID : 0;
+        $uName = $linkedUser ? esc_html( $linkedUser->display_name ?: $linkedUser->user_login ) : '';
+        $uEmail= $linkedUser ? esc_html( $linkedUser->user_email ) : '';
+        $uAv   = $linkedUser ? esc_url( get_avatar_url( $uid, [ 'size' => 32 ] ) ) : '';
+        $roles = wp_roles()->get_names();
+        $uid_field = esc_attr( $fieldName );
+        ?>
+        <div class="lgms-user-search" style="max-width:420px;">
+            <input type="hidden" name="<?php echo $uid_field; ?>" id="lgms-us-val-<?php echo $uid_field; ?>"
+                   value="<?php echo $uid > 0 ? $uid : ''; ?>">
+
+            <?php if ( $uid > 0 ) : ?>
+            <div id="lgms-us-linked-<?php echo $uid_field; ?>"
+                 style="display:flex;align-items:center;gap:.6em;padding:.5em;background:#f0f6ff;border:1px solid #b8d0f0;border-radius:4px;margin-bottom:.5em;">
+                <img src="<?php echo $uAv; ?>" width="32" height="32" style="border-radius:50%;">
+                <span><strong><?php echo $uName; ?></strong><br><small style="color:#666;"><?php echo $uEmail; ?></small></span>
+                <button type="button" onclick="lgmsUserSearchClear('<?php echo $uid_field; ?>')"
+                        style="margin-left:auto;background:none;border:none;cursor:pointer;color:#dc2626;font-size:1.1em;" title="Unlink">✕</button>
+            </div>
+            <?php else : ?>
+            <div id="lgms-us-linked-<?php echo $uid_field; ?>" style="display:none;"></div>
+            <?php endif; ?>
+
+            <div id="lgms-us-search-wrap-<?php echo $uid_field; ?>" <?php echo $uid > 0 ? 'style="display:none;"' : ''; ?>>
+                <input type="text" id="lgms-us-q-<?php echo $uid_field; ?>"
+                       placeholder="Search by name, email, or username…"
+                       autocomplete="off"
+                       style="width:100%;margin-bottom:.35em;"
+                       oninput="lgmsUserSearch('<?php echo $uid_field; ?>', this.value)">
+                <div id="lgms-us-results-<?php echo $uid_field; ?>"
+                     style="border:1px solid #ddd;border-radius:4px;background:#fff;display:none;max-height:220px;overflow-y:auto;"></div>
+
+                <details style="margin-top:.8em;">
+                    <summary style="cursor:pointer;color:#2271b1;font-size:.9em;">Create new WP user instead</summary>
+                    <?php if ( $affId > 0 ) : ?>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+                          style="margin-top:.6em;padding:.8em;background:#fafafa;border:1px solid #eee;border-radius:4px;">
+                        <?php wp_nonce_field( 'lgms_create_affiliate_user' ); ?>
+                        <input type="hidden" name="action"       value="lgms_create_affiliate_user">
+                        <input type="hidden" name="affiliate_id" value="<?php echo $affId; ?>">
+                        <table style="border-collapse:collapse;width:100%;">
+                            <tr>
+                                <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Display name</label></td>
+                                <td><input type="text" name="new_user_name" class="regular-text" required placeholder="Dan Smith"></td>
+                            </tr>
+                            <tr>
+                                <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Email</label></td>
+                                <td><input type="email" name="new_user_email" class="regular-text" required placeholder="dan@example.com"></td>
+                            </tr>
+                            <tr>
+                                <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Role</label></td>
+                                <td>
+                                    <select name="new_user_role">
+                                        <?php foreach ( $roles as $roleKey => $roleLabel ) : ?>
+                                            <option value="<?php echo esc_attr( $roleKey ); ?>"
+                                                <?php selected( $roleKey, 'subscriber' ); ?>>
+                                                <?php echo esc_html( $roleLabel ); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="description" style="margin:.3em 0 0;">User will receive a password-setup email.</p>
+                                </td>
+                            </tr>
+                        </table>
+                        <?php submit_button( 'Create user & link', 'secondary', 'submit', false ); ?>
+                    </form>
+                    <?php else : ?>
+                    <p class="description" style="margin-top:.4em;">Save the affiliate first, then use Edit rates to create a new user.</p>
+                    <?php endif; ?>
+                </details>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            var timers = {};
+            window.lgmsUserSearch = function(field, q) {
+                clearTimeout(timers[field]);
+                var res = document.getElementById('lgms-us-results-' + field);
+                if (q.length < 2) { res.style.display = 'none'; return; }
+                timers[field] = setTimeout(function() {
+                    fetch(ajaxurl + '?action=lgms_search_users&q=' + encodeURIComponent(q) + '&_ajax_nonce=<?php echo esc_js( $nonce ); ?>')
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (!data.success || !data.data.length) {
+                                res.innerHTML = '<div style="padding:.5em .8em;color:#888;font-size:.9em;">No users found</div>';
+                                res.style.display = 'block'; return;
+                            }
+                            res.innerHTML = data.data.map(function(u) {
+                                return '<div style="display:flex;align-items:center;gap:.6em;padding:.45em .7em;cursor:pointer;border-bottom:1px solid #f0f0f0;" ' +
+                                    'onmousedown="lgmsUserPick(\'' + field + '\',' + u.id + ',\'' +
+                                    u.name.replace(/'/g,"\\'") + '\',\'' + u.email.replace(/'/g,"\\'") + '\',\'' +
+                                    u.avatar + '\',\'' + u.roles.replace(/'/g,"\\'") + '\')">' +
+                                    '<img src="' + u.avatar + '" width="28" height="28" style="border-radius:50%;flex-shrink:0;">' +
+                                    '<span><strong>' + u.name + '</strong> <span style="color:#888;font-size:.85em;">(' + u.roles + ')</span><br>' +
+                                    '<small style="color:#666;">' + u.email + '</small></span></div>';
+                            }).join('');
+                            res.style.display = 'block';
+                        });
+                }, 280);
+            };
+            window.lgmsUserPick = function(field, id, name, email, avatar, roles) {
+                document.getElementById('lgms-us-val-' + field).value = id;
+                document.getElementById('lgms-us-linked-' + field).innerHTML =
+                    '<div style="display:flex;align-items:center;gap:.6em;padding:.5em;background:#f0f6ff;border:1px solid #b8d0f0;border-radius:4px;">' +
+                    '<img src="' + avatar + '" width="32" height="32" style="border-radius:50%;">' +
+                    '<span><strong>' + name + '</strong> <span style="color:#888;font-size:.85em;">(' + roles + ')</span><br>' +
+                    '<small style="color:#666;">' + email + '</small></span>' +
+                    '<button type="button" onclick="lgmsUserSearchClear(\'' + field + '\')" ' +
+                    'style="margin-left:auto;background:none;border:none;cursor:pointer;color:#dc2626;font-size:1.1em;" title="Unlink">✕</button></div>';
+                document.getElementById('lgms-us-linked-' + field).style.display = 'block';
+                document.getElementById('lgms-us-search-wrap-' + field).style.display = 'none';
+                document.getElementById('lgms-us-results-' + field).style.display = 'none';
+            };
+            window.lgmsUserSearchClear = function(field) {
+                document.getElementById('lgms-us-val-' + field).value = '';
+                document.getElementById('lgms-us-linked-' + field).style.display = 'none';
+                document.getElementById('lgms-us-search-wrap-' + field).style.display = 'block';
+                document.getElementById('lgms-us-q-' + field).value = '';
+                document.getElementById('lgms-us-results-' + field).style.display = 'none';
+            };
+        })();
+        </script>
+        <?php
+    }
+
     private static function renderAffiliatesTab(): void
     {
         $notice  = isset( $_GET['lgms_aff_ok'] )  ? rawurldecode( (string) $_GET['lgms_aff_ok'] )  : '';
@@ -632,15 +847,13 @@ final class Admin
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="lgms-aff-wp-user-edit">WP User</label></th>
+                    <th><label>WP User</label></th>
                     <td>
                         <?php
-                        $linkedUser = $editRow['wp_user_id'] ? get_user_by( 'id', (int) $editRow['wp_user_id'] ) : null;
+                        $linkedUser  = $editRow['wp_user_id'] ? get_user_by( 'id', (int) $editRow['wp_user_id'] ) : null;
+                        $searchNonce = wp_create_nonce( 'lgms_user_search' );
                         ?>
-                        <input type="text" id="lgms-aff-wp-user-edit" name="wp_user"
-                               value="<?php echo $linkedUser ? esc_attr( $linkedUser->user_email ) : ''; ?>"
-                               class="regular-text" placeholder="Email, username, or user ID">
-                        <p class="description">WP user who can see their affiliate stats on the front end.</p>
+                        <?php self::renderUserSearchField( 'wp_user', $linkedUser, $searchNonce, (int) $editRow['id'] ); ?>
                     </td>
                 </tr>
                 <tr>
@@ -678,11 +891,9 @@ final class Admin
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="lgms-aff-wp-user">WP User</label></th>
+                    <th><label>WP User</label></th>
                     <td>
-                        <input type="text" id="lgms-aff-wp-user" name="wp_user" class="regular-text"
-                               placeholder="Email, username, or user ID">
-                        <p class="description">Optional. Links a WP user so they can view their stats on the front end.</p>
+                        <?php self::renderUserSearchField( 'wp_user', null, wp_create_nonce( 'lgms_user_search' ), 0 ); ?>
                     </td>
                 </tr>
             </table>
