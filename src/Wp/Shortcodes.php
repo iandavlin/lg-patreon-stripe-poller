@@ -28,6 +28,7 @@ final class Shortcodes
         add_shortcode( 'lg_subscription_success',[ self::class, 'subscriptionSuccess'] );
         add_shortcode( 'lg_my_gifts',            [ self::class, 'myGifts'            ] );
         add_shortcode( 'lg_member_nav',          [ self::class, 'memberNav'          ] );
+        add_shortcode( 'lg_affiliate_portal',    [ self::class, 'affiliatePortal'    ] );
     }
 
     /**
@@ -2665,6 +2666,121 @@ final class Shortcodes
             }
         })();
         </script>
+
+        <?php
+        // ── Affiliate portal ─────────────────────────────────────────────────
+        $affRow = null;
+        try {
+            $affRow = \LGMS\Db::pdo()->prepare(
+                'SELECT a.id, a.slug, a.commission_pct, a.commission_pct_annual, a.retention_bonus_pct,
+                        COUNT(DISTINCT cl.id)  AS clicks,
+                        COUNT(DISTINCT cv.id)  AS conversions,
+                        COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible,
+                        COALESCE(SUM(db.amount_cents), 0) AS total_debits_cents
+                 FROM affiliates a
+                 LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
+                 LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
+                 LEFT JOIN affiliate_debits      db ON db.affiliate_id = a.id
+                 WHERE a.wp_user_id = ?
+                 GROUP BY a.id LIMIT 1'
+            );
+            $affRow->execute( [ $user->ID ] );
+            $affRow = $affRow->fetch( \PDO::FETCH_ASSOC ) ?: null;
+        } catch ( \Throwable $_ ) {}
+
+        if ( $affRow !== null ) :
+            $affLink     = esc_url( add_query_arg( 'ref', $affRow['slug'], home_url( '/lgjoin/' ) ) );
+            $affClicks   = (int) $affRow['clicks'];
+            $affConvs    = (int) $affRow['conversions'];
+            $affRate     = $affClicks > 0 ? round( $affConvs / $affClicks * 100 ) . '%' : '—';
+            $affDebits   = (int) $affRow['total_debits_cents'];
+            $affRetElig  = (int) $affRow['retention_eligible'];
+            $withdrawNonce = wp_create_nonce( 'lgms_withdraw_request' );
+        ?>
+        <div class="lg-manage-sub__card" style="margin-top:2em;border:1px solid #d4e0b8;border-radius:6px;padding:1.2em 1.4em;max-width:640px;background:#f7fbf2;">
+            <h3 style="margin:0 0 .8em;font-size:1.2em;">Your affiliate stats</h3>
+
+            <table style="border-collapse:collapse;width:100%;margin-bottom:1.2em;">
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;width:50%;">Your link</td>
+                    <td>
+                        <input type="text" value="<?php echo esc_attr( $affLink ); ?>"
+                               readonly onclick="this.select()"
+                               style="width:100%;font-size:12px;font-family:monospace;padding:3px 6px;border:1px solid #ccc;border-radius:3px;">
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Clicks</td>
+                    <td style="font-weight:600;"><?php echo $affClicks; ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Conversions</td>
+                    <td style="font-weight:600;"><?php echo $affConvs; ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Conversion rate</td>
+                    <td style="font-weight:600;"><?php echo $affRate; ?></td>
+                </tr>
+                <?php if ( $affRetElig > 0 ) : ?>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Retention bonuses earned</td>
+                    <td style="font-weight:600;color:#b45309;"><?php echo $affRetElig; ?></td>
+                </tr>
+                <?php endif; ?>
+                <?php if ( $affDebits > 0 ) : ?>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Refund debits</td>
+                    <td style="font-weight:600;color:#dc2626;">−$<?php echo number_format( $affDebits / 100, 2 ); ?></td>
+                </tr>
+                <?php endif; ?>
+            </table>
+
+            <p style="margin:0 0 .8em;font-size:.88em;color:#666;">
+                Commission rates and payout amounts are calculated by the admin team. Use the button below to request a payout — we'll be in touch.
+            </p>
+
+            <button type="button" id="lgms-aff-withdraw-btn"
+                    style="background:#ECB351;color:#1f1d1a;border:none;padding:.6em 1.2em;border-radius:5px;font-weight:600;cursor:pointer;font-size:.95em;">
+                Request withdrawal
+            </button>
+            <span id="lgms-aff-withdraw-msg" style="display:none;margin-left:.8em;font-size:.9em;"></span>
+        </div>
+        <script>
+        document.getElementById('lgms-aff-withdraw-btn').addEventListener('click', async function() {
+            var btn = this;
+            var msg = document.getElementById('lgms-aff-withdraw-msg');
+            btn.disabled = true;
+            btn.textContent = 'Sending…';
+            try {
+                var res = await fetch('<?php echo esc_url_raw( rest_url( 'lg-member-sync/v1/affiliate-withdraw' ) ); ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': '<?php echo esc_js( $withdrawNonce ); ?>' },
+                    body: JSON.stringify({ nonce: '<?php echo esc_js( $withdrawNonce ); ?>' }),
+                });
+                var data = await res.json();
+                if (data.ok) {
+                    btn.style.display = 'none';
+                    msg.style.display = 'inline';
+                    msg.style.color   = '#15803d';
+                    msg.textContent   = 'Request sent! We'll be in touch soon.';
+                } else {
+                    btn.disabled    = false;
+                    btn.textContent = 'Request withdrawal';
+                    msg.style.display = 'inline';
+                    msg.style.color   = '#dc2626';
+                    msg.textContent   = data.error || 'Something went wrong.';
+                }
+            } catch(e) {
+                btn.disabled    = false;
+                btn.textContent = 'Request withdrawal';
+                msg.style.display = 'inline';
+                msg.style.color   = '#dc2626';
+                msg.textContent   = 'Network error.';
+            }
+        });
+        </script>
+        <?php endif; ?>
+
         <?php
         return (string) ob_get_clean();
     }
@@ -5729,5 +5845,127 @@ final class Shortcodes
         $css = preg_replace( '/\s+/', ' ', $css );
 
         return '<style>' . $css . '</style><nav class="lg-member-nav" aria-label="Membership">' . implode( '', $links ) . '</nav>';
+    }
+
+    /** [lg_affiliate_portal] — standalone affiliate earnings page. */
+    public static function affiliatePortal( $atts = [] ): string
+    {
+        $user = wp_get_current_user();
+        if ( $user->ID === 0 ) {
+            return '<p><em>Please sign in to view your affiliate earnings.</em></p>';
+        }
+
+        $aff = null;
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'SELECT a.id, a.slug, a.commission_pct, a.commission_pct_annual, a.retention_bonus_pct,
+                        COUNT(DISTINCT cl.id)  AS clicks,
+                        COUNT(DISTINCT cv.id)  AS conversions,
+                        COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible,
+                        COALESCE(SUM(db.amount_cents), 0) AS total_debits_cents
+                 FROM affiliates a
+                 LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
+                 LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
+                 LEFT JOIN affiliate_debits      db ON db.affiliate_id = a.id
+                 WHERE a.wp_user_id = ?
+                 GROUP BY a.id LIMIT 1'
+            );
+            $stmt->execute( [ $user->ID ] );
+            $aff = $stmt->fetch( \PDO::FETCH_ASSOC ) ?: null;
+        } catch ( \Throwable $_ ) {}
+
+        if ( $aff === null ) {
+            return '<p><em>No affiliate account linked to your profile.</em></p>';
+        }
+
+        $affLink       = esc_url( add_query_arg( 'ref', $aff['slug'], home_url( '/lgjoin/' ) ) );
+        $clicks        = (int) $aff['clicks'];
+        $conversions   = (int) $aff['conversions'];
+        $rate          = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
+        $debits        = (int) $aff['total_debits_cents'];
+        $retElig       = (int) $aff['retention_eligible'];
+        $withdrawNonce = wp_create_nonce( 'lgms_withdraw_request' );
+
+        ob_start(); ?>
+        <div class="lg-aff-portal" style="max-width:640px;">
+            <h2 style="margin-top:0;">Your affiliate earnings</h2>
+
+            <div style="background:#f7fbf2;border:1px solid #d4e0b8;border-radius:6px;padding:1.2em 1.4em;margin-bottom:1.5em;">
+                <table style="border-collapse:collapse;width:100%;">
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;width:50%;">Your referral link</td>
+                        <td>
+                            <input type="text" value="<?php echo esc_attr( $affLink ); ?>"
+                                   readonly onclick="this.select()"
+                                   style="width:100%;font-size:12px;font-family:monospace;padding:4px 6px;border:1px solid #ccc;border-radius:3px;">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">Clicks</td>
+                        <td style="font-weight:600;"><?php echo $clicks; ?></td>
+                    </tr>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">Conversions</td>
+                        <td style="font-weight:600;"><?php echo $conversions; ?></td>
+                    </tr>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">Conversion rate</td>
+                        <td style="font-weight:600;"><?php echo $rate; ?></td>
+                    </tr>
+                    <?php if ( $retElig > 0 ) : ?>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">1-year retention bonuses earned</td>
+                        <td style="font-weight:600;color:#b45309;"><?php echo $retElig; ?></td>
+                    </tr>
+                    <?php endif; ?>
+                    <?php if ( $debits > 0 ) : ?>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">Refund debits</td>
+                        <td style="font-weight:600;color:#dc2626;">−$<?php echo number_format( $debits / 100, 2 ); ?></td>
+                    </tr>
+                    <?php endif; ?>
+                </table>
+            </div>
+
+            <p style="color:#555;font-size:.92em;margin-bottom:1.2em;">
+                Payout amounts are calculated by our team based on your commission rate and your members' activity.
+                Click below to request a withdrawal and we'll be in touch.
+            </p>
+
+            <button type="button" id="lgms-aff-portal-withdraw"
+                    style="background:#ECB351;color:#1f1d1a;border:none;padding:.65em 1.3em;border-radius:5px;font-weight:600;cursor:pointer;font-size:1em;">
+                Request withdrawal
+            </button>
+            <span id="lgms-aff-portal-msg" style="display:none;margin-left:.8em;font-size:.9em;"></span>
+        </div>
+        <script>
+        document.getElementById('lgms-aff-portal-withdraw').addEventListener('click', async function() {
+            var btn = this, msg = document.getElementById('lgms-aff-portal-msg');
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                var res  = await fetch('<?php echo esc_url_raw( rest_url( 'lg-member-sync/v1/affiliate-withdraw' ) ); ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': '<?php echo esc_js( $withdrawNonce ); ?>' },
+                    body: JSON.stringify({}),
+                });
+                var data = await res.json();
+                if (data.ok) {
+                    btn.style.display = 'none';
+                    msg.style.display = 'inline'; msg.style.color = '#15803d';
+                    msg.textContent = 'Request sent! We\'ll be in touch soon.';
+                } else {
+                    btn.disabled = false; btn.textContent = 'Request withdrawal';
+                    msg.style.display = 'inline'; msg.style.color = '#dc2626';
+                    msg.textContent = data.error || 'Something went wrong.';
+                }
+            } catch(e) {
+                btn.disabled = false; btn.textContent = 'Request withdrawal';
+                msg.style.display = 'inline'; msg.style.color = '#dc2626';
+                msg.textContent = 'Network error.';
+            }
+        });
+        </script>
+        <?php
+        return (string) ob_get_clean();
     }
 }

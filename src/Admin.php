@@ -408,12 +408,24 @@ final class Admin
         }
         check_admin_referer( 'lgms_create_affiliate' );
 
-        $slug  = sanitize_text_field( (string) ( $_POST['slug']  ?? '' ) );
-        $label = sanitize_text_field( (string) ( $_POST['label'] ?? '' ) );
+        $slug      = sanitize_text_field( (string) ( $_POST['slug']      ?? '' ) );
+        $label     = sanitize_text_field( (string) ( $_POST['label']     ?? '' ) );
+        $wpUserRef = sanitize_text_field( (string) ( $_POST['wp_user']   ?? '' ) );
 
         // Allow letters, digits, hyphens only.
         $slug = strtolower( (string) preg_replace( '/[^a-z0-9-]/i', '-', $slug ) );
         $slug = trim( $slug, '-' );
+
+        // Resolve wp_user field: accepts numeric ID or email/login.
+        $wpUserId = null;
+        if ( $wpUserRef !== '' ) {
+            if ( is_numeric( $wpUserRef ) ) {
+                $wpUserId = (int) $wpUserRef;
+            } else {
+                $u = get_user_by( 'email', $wpUserRef ) ?: get_user_by( 'login', $wpUserRef );
+                $wpUserId = $u ? $u->ID : null;
+            }
+        }
 
         $notice = '';
         $err    = '';
@@ -423,8 +435,8 @@ final class Admin
         } else {
             try {
                 $pdo = Db::pdo();
-                $pdo->prepare( 'INSERT INTO affiliates (slug, label) VALUES (?, ?)' )
-                    ->execute( [ $slug, $label !== '' ? $label : $slug ] );
+                $pdo->prepare( 'INSERT INTO affiliates (slug, label, wp_user_id) VALUES (?, ?, ?)' )
+                    ->execute( [ $slug, $label !== '' ? $label : $slug, $wpUserId ] );
                 $notice = "Created affiliate: {$slug}";
             } catch ( \Throwable $e ) {
                 if ( str_contains( $e->getMessage(), 'Duplicate' ) ) {
@@ -449,10 +461,21 @@ final class Admin
         }
         check_admin_referer( 'lgms_update_affiliate_commission' );
 
-        $id      = (int) ( $_POST['affiliate_id'] ?? 0 );
-        $pct     = (float) ( $_POST['commission_pct']         ?? 0 );
-        $pctAnn  = (float) ( $_POST['commission_pct_annual']  ?? 0 );
-        $bonus   = (float) ( $_POST['retention_bonus_pct']    ?? 0 );
+        $id         = (int) ( $_POST['affiliate_id'] ?? 0 );
+        $pct        = (float) ( $_POST['commission_pct']         ?? 0 );
+        $pctAnn     = (float) ( $_POST['commission_pct_annual']  ?? 0 );
+        $bonus      = (float) ( $_POST['retention_bonus_pct']    ?? 0 );
+        $wpUserRef  = sanitize_text_field( (string) ( $_POST['wp_user'] ?? '' ) );
+
+        $wpUserId = null;
+        if ( $wpUserRef !== '' ) {
+            if ( is_numeric( $wpUserRef ) ) {
+                $wpUserId = (int) $wpUserRef;
+            } else {
+                $u = get_user_by( 'email', $wpUserRef ) ?: get_user_by( 'login', $wpUserRef );
+                $wpUserId = $u ? $u->ID : null;
+            }
+        }
 
         $notice = '';
         $err    = '';
@@ -462,8 +485,8 @@ final class Admin
         } else {
             try {
                 Db::pdo()->prepare(
-                    'UPDATE affiliates SET commission_pct = ?, commission_pct_annual = ?, retention_bonus_pct = ? WHERE id = ?'
-                )->execute( [ $pct, $pctAnn, $bonus, $id ] );
+                    'UPDATE affiliates SET commission_pct = ?, commission_pct_annual = ?, retention_bonus_pct = ?, wp_user_id = ? WHERE id = ?'
+                )->execute( [ $pct, $pctAnn, $bonus, $wpUserId, $id ] );
                 $notice = 'Commission rates updated.';
             } catch ( \Throwable $e ) {
                 $err = $e->getMessage();
@@ -527,6 +550,7 @@ final class Admin
                     <th style="text-align:center;">Annual&nbsp;%</th>
                     <th style="text-align:center;">Retention&nbsp;bonus&nbsp;%</th>
                     <th style="text-align:center;">Retention<br>eligible</th>
+                    <th style="text-align:center;">Refund<br>debits</th>
                     <th>Link</th>
                     <th></th>
                 </tr>
@@ -538,6 +562,7 @@ final class Admin
                 $conversions      = (int) $row['conversions'];
                 $retEligible      = (int) $row['retention_eligible'];
                 $rate             = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
+                $debitsCents      = (int) $row['total_debits_cents'];
                 $editUrl          = add_query_arg( [
                     'page'          => self::OPT_PAGE,
                     'tab'           => 'affiliates',
@@ -557,6 +582,9 @@ final class Admin
                     <td style="text-align:center;"><?php echo (float) $row['retention_bonus_pct'] > 0 ? esc_html( $row['retention_bonus_pct'] ) . '%' : '—'; ?></td>
                     <td style="text-align:center;<?php echo $retEligible > 0 ? 'font-weight:700;color:#b45309;' : 'color:#aaa;'; ?>">
                         <?php echo $retEligible > 0 ? $retEligible : '—'; ?>
+                    </td>
+                    <td style="text-align:center;<?php echo $debitsCents > 0 ? 'font-weight:700;color:#dc2626;' : 'color:#aaa;'; ?>">
+                        <?php echo $debitsCents > 0 ? '$' . number_format( $debitsCents / 100, 2 ) : '—'; ?>
                     </td>
                     <td style="min-width:240px;">
                         <input type="text" value="<?php echo esc_attr( $link ); ?>"
@@ -604,6 +632,18 @@ final class Admin
                     </td>
                 </tr>
                 <tr>
+                    <th><label for="lgms-aff-wp-user-edit">WP User</label></th>
+                    <td>
+                        <?php
+                        $linkedUser = $editRow['wp_user_id'] ? get_user_by( 'id', (int) $editRow['wp_user_id'] ) : null;
+                        ?>
+                        <input type="text" id="lgms-aff-wp-user-edit" name="wp_user"
+                               value="<?php echo $linkedUser ? esc_attr( $linkedUser->user_email ) : ''; ?>"
+                               class="regular-text" placeholder="Email, username, or user ID">
+                        <p class="description">WP user who can see their affiliate stats on the front end.</p>
+                    </td>
+                </tr>
+                <tr>
                     <th><label for="lgms-aff-bonus">1-year retention bonus %</label></th>
                     <td>
                         <input type="number" id="lgms-aff-bonus" name="retention_bonus_pct" step="0.01" min="0" max="100"
@@ -635,6 +675,14 @@ final class Admin
                         <input type="text" id="lgms-aff-label" name="label" class="regular-text"
                                placeholder="Dan">
                         <p class="description">Human-readable name. Defaults to the slug if blank.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="lgms-aff-wp-user">WP User</label></th>
+                    <td>
+                        <input type="text" id="lgms-aff-wp-user" name="wp_user" class="regular-text"
+                               placeholder="Email, username, or user ID">
+                        <p class="description">Optional. Links a WP user so they can view their stats on the front end.</p>
                     </td>
                 </tr>
             </table>

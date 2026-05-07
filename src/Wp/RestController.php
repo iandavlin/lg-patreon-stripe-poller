@@ -169,6 +169,12 @@ final class RestController
             'callback'            => [ self::class, 'dismissWelcome' ],
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
+
+        register_rest_route( self::NAMESPACE, '/affiliate-withdraw', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'affiliateWithdraw' ],
+            'permission_callback' => [ self::class, 'authLoggedInUser' ],
+        ] );
     }
 
     public static function authLoggedInUser(WP_REST_Request $req): bool
@@ -1554,6 +1560,59 @@ final class RestController
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'not_logged_in' ], 401 );
         }
         delete_user_meta( $userId, '_lg_pending_welcome' );
+        return new WP_REST_Response( [ 'ok' => true ] );
+    }
+
+    /** POST /affiliate-withdraw — sends withdrawal request email to admin. */
+    public static function affiliateWithdraw( WP_REST_Request $req ): WP_REST_Response
+    {
+        $userId = get_current_user_id();
+        if ( $userId <= 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'not_logged_in' ], 401 );
+        }
+
+        // Verify this user is actually an affiliate.
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'SELECT a.slug, a.label,
+                        COUNT(DISTINCT cl.id) AS clicks,
+                        COUNT(DISTINCT cv.id) AS conversions,
+                        COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible,
+                        COALESCE(SUM(db.amount_cents), 0) AS total_debits_cents
+                 FROM affiliates a
+                 LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
+                 LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
+                 LEFT JOIN affiliate_debits      db ON db.affiliate_id = a.id
+                 WHERE a.wp_user_id = ?
+                 GROUP BY a.id LIMIT 1'
+            );
+            $stmt->execute( [ $userId ] );
+            $aff = $stmt->fetch( \PDO::FETCH_ASSOC );
+        } catch ( \Throwable $e ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'db_error' ], 500 );
+        }
+
+        if ( ! $aff ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'not_an_affiliate' ], 403 );
+        }
+
+        $user    = get_userdata( $userId );
+        $email   = $user ? $user->user_email : 'unknown';
+        $debits  = number_format( (int) $aff['total_debits_cents'] / 100, 2 );
+        $retElig = (int) $aff['retention_eligible'];
+
+        $subject = '[Looth] Affiliate withdrawal request — ' . $aff['label'];
+        $body    = "Affiliate withdrawal request\n\n"
+                 . "Affiliate:    {$aff['label']} (/{$aff['slug']})\n"
+                 . "WP User:      {$email}\n"
+                 . "Clicks:       {$aff['clicks']}\n"
+                 . "Conversions:  {$aff['conversions']}\n"
+                 . "Retention eligible: {$retElig}\n"
+                 . "Refund debits: -\${$debits}\n\n"
+                 . "Run php bin/poll-retention.php on the billing server for exact payout amounts.\n";
+
+        wp_mail( get_option( 'admin_email' ), $subject, $body );
+
         return new WP_REST_Response( [ 'ok' => true ] );
     }
 }

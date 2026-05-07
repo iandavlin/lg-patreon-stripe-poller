@@ -46,9 +46,10 @@ final class Pages
      *   in_nav        bool. Default true. false = exclude from [lg_member_nav]
      *                 (used for transient destinations like welcome / regional fail).
      *   nav_label     string|null. Override for nav display. Falls back to title.
-     *   visibility    'always' | 'guests' | 'members' | 'gift_buyers'.
+     *   visibility    'always' | 'guests' | 'members' | 'gift_buyers' | 'affiliates'.
      *                 Default 'always'. Filters [lg_member_nav] entries.
      *                 'guests' = hide from logged-in users (e.g. Join).
+     *                 'affiliates' = only for users linked to an affiliate record.
      *                 'members' = hide from logged-out users (e.g. Manage
      *                            Subscription — anon visitors just see "please
      *                            sign in" so the link is dead weight).
@@ -123,6 +124,16 @@ final class Pages
             'nav_label'  => 'My Gifts',
             'visibility' => 'gift_buyers',
         ],
+        'lg_affiliate_portal' => [
+            'slug'       => 'affiliate-earnings',
+            'title'      => 'Affiliate Earnings',
+            'shortcode'  => 'lg_affiliate_portal',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Earnings',
+            'visibility' => 'affiliates',
+        ],
         // Refund kept at end of nav and limited to logged-in members —
         // anonymous visitors don't have a purchase to refund.
         'lg_refund_request' => [
@@ -160,6 +171,11 @@ final class Pages
             }
             if ( $vis === 'gift_buyers' ) {
                 if ( ! $isLoggedIn || ! self::currentUserHasGiftCodes() ) {
+                    continue;
+                }
+            }
+            if ( $vis === 'affiliates' ) {
+                if ( ! $isLoggedIn || ! self::currentUserIsAffiliate() ) {
                     continue;
                 }
             }
@@ -206,6 +222,24 @@ final class Pages
             return $has;
         } catch ( \Throwable $e ) {
             error_log( 'LGMS Pages::currentUserHasGiftCodes: ' . $e->getMessage() );
+            return false;
+        }
+    }
+
+    /** True if the current user is linked to an affiliate record. */
+    public static function currentUserIsAffiliate(): bool
+    {
+        $userId = get_current_user_id();
+        if ( $userId === 0 ) {
+            return false;
+        }
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'SELECT 1 FROM affiliates WHERE wp_user_id = ? LIMIT 1'
+            );
+            $stmt->execute( [ $userId ] );
+            return $stmt->fetchColumn() !== false;
+        } catch ( \Throwable $e ) {
             return false;
         }
     }
