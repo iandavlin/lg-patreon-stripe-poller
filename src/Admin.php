@@ -16,7 +16,8 @@ final class Admin
         add_action( 'admin_enqueue_scripts', [ self::class, 'enqueueScripts' ] );
         add_action( 'admin_post_lgms_rerun_pages',       [ self::class, 'handleRerunPages' ] );
         add_action( 'admin_post_lgms_save_welcome_mosaic', [ self::class, 'handleSaveMosaic' ] );
-        add_action( 'admin_post_lgms_create_affiliate',   [ self::class, 'handleCreateAffiliate' ] );
+        add_action( 'admin_post_lgms_create_affiliate',          [ self::class, 'handleCreateAffiliate' ] );
+        add_action( 'admin_post_lgms_update_affiliate_commission', [ self::class, 'handleUpdateAffiliateCommission' ] );
         add_action( 'wp_ajax_lgms_search_posts', [ self::class, 'ajaxSearchPosts' ] );
     }
 
@@ -441,10 +442,46 @@ final class Admin
         exit;
     }
 
+    public static function handleUpdateAffiliateCommission(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Insufficient permissions.', 403 );
+        }
+        check_admin_referer( 'lgms_update_affiliate_commission' );
+
+        $id      = (int) ( $_POST['affiliate_id'] ?? 0 );
+        $pct     = (float) ( $_POST['commission_pct']         ?? 0 );
+        $pctAnn  = (float) ( $_POST['commission_pct_annual']  ?? 0 );
+        $bonus   = (float) ( $_POST['retention_bonus_pct']    ?? 0 );
+
+        $notice = '';
+        $err    = '';
+
+        if ( $id <= 0 ) {
+            $err = 'Invalid affiliate.';
+        } else {
+            try {
+                Db::pdo()->prepare(
+                    'UPDATE affiliates SET commission_pct = ?, commission_pct_annual = ?, retention_bonus_pct = ? WHERE id = ?'
+                )->execute( [ $pct, $pctAnn, $bonus, $id ] );
+                $notice = 'Commission rates updated.';
+            } catch ( \Throwable $e ) {
+                $err = $e->getMessage();
+            }
+        }
+
+        $args = [ 'page' => self::OPT_PAGE, 'tab' => 'affiliates' ];
+        if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
+        if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+        exit;
+    }
+
     private static function renderAffiliatesTab(): void
     {
-        $notice = isset( $_GET['lgms_aff_ok'] )  ? rawurldecode( (string) $_GET['lgms_aff_ok'] )  : '';
-        $err    = isset( $_GET['lgms_aff_err'] ) ? rawurldecode( (string) $_GET['lgms_aff_err'] ) : '';
+        $notice  = isset( $_GET['lgms_aff_ok'] )  ? rawurldecode( (string) $_GET['lgms_aff_ok'] )  : '';
+        $err     = isset( $_GET['lgms_aff_err'] ) ? rawurldecode( (string) $_GET['lgms_aff_err'] ) : '';
+        $editId  = (int) ( $_GET['lgms_edit_aff'] ?? 0 );
 
         if ( $notice !== '' ) : ?>
             <div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
@@ -453,13 +490,14 @@ final class Admin
             <div class="notice notice-error is-dismissible"><p><?php echo esc_html( $err ); ?></p></div>
         <?php endif;
 
-        // Load affiliates + conversion counts directly from the membership DB.
         $rows = [];
         try {
             $rows = Db::pdo()->query(
                 'SELECT a.id, a.slug, a.label, a.created_at,
-                        COUNT(DISTINCT cl.id) AS clicks,
-                        COUNT(DISTINCT cv.id) AS conversions
+                        a.commission_pct, a.commission_pct_annual, a.retention_bonus_pct,
+                        COUNT(DISTINCT cl.id)  AS clicks,
+                        COUNT(DISTINCT cv.id)  AS conversions,
+                        COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible
                  FROM affiliates a
                  LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
                  LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
@@ -468,44 +506,64 @@ final class Admin
             )->fetchAll( \PDO::FETCH_ASSOC );
         } catch ( \Throwable $_ ) {}
 
-        $joinBase = home_url( '/join/' );
+        $joinBase = home_url( '/lgjoin/' );
         ?>
 
         <h2 style="margin-top:0;">Affiliate links</h2>
-        <p class="description">Generate a unique link for each affiliate. Conversions are tracked when a checkout session started on their link completes payment.</p>
+        <p class="description">
+            Conversions are tracked when a checkout session started on an affiliate link completes payment.
+            Commission rates are informational — use the retention poller script to generate payout reports.
+        </p>
 
         <?php if ( $rows !== [] ) : ?>
-        <table class="widefat striped" style="max-width:860px;margin-bottom:2em;">
+        <table class="widefat striped" style="margin-bottom:2em;">
             <thead>
                 <tr>
-                    <th>Slug</th>
-                    <th>Label</th>
+                    <th>Slug / Label</th>
                     <th style="text-align:center;">Clicks</th>
-                    <th style="text-align:center;">Conversions</th>
+                    <th style="text-align:center;">Conv.</th>
                     <th style="text-align:center;">Rate</th>
-                    <th>Shareable link</th>
-                    <th>Created</th>
+                    <th style="text-align:center;">Monthly&nbsp;%</th>
+                    <th style="text-align:center;">Annual&nbsp;%</th>
+                    <th style="text-align:center;">Retention&nbsp;bonus&nbsp;%</th>
+                    <th style="text-align:center;">Retention<br>eligible</th>
+                    <th>Link</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
             <?php foreach ( $rows as $row ) :
-                $link        = add_query_arg( 'ref', esc_attr( (string) $row['slug'] ), $joinBase );
-                $clicks      = (int) $row['clicks'];
-                $conversions = (int) $row['conversions'];
-                $rate        = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
+                $link             = add_query_arg( 'ref', esc_attr( (string) $row['slug'] ), $joinBase );
+                $clicks           = (int) $row['clicks'];
+                $conversions      = (int) $row['conversions'];
+                $retEligible      = (int) $row['retention_eligible'];
+                $rate             = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
+                $editUrl          = add_query_arg( [
+                    'page'          => self::OPT_PAGE,
+                    'tab'           => 'affiliates',
+                    'lgms_edit_aff' => $row['id'],
+                ], admin_url( 'options-general.php' ) );
             ?>
                 <tr>
-                    <td><code><?php echo esc_html( (string) $row['slug'] ); ?></code></td>
-                    <td><?php echo esc_html( (string) $row['label'] ); ?></td>
+                    <td>
+                        <strong><?php echo esc_html( (string) $row['label'] ); ?></strong><br>
+                        <code style="font-size:11px;"><?php echo esc_html( (string) $row['slug'] ); ?></code>
+                    </td>
                     <td style="text-align:center;"><?php echo $clicks; ?></td>
                     <td style="text-align:center;font-weight:700;"><?php echo $conversions; ?></td>
                     <td style="text-align:center;color:<?php echo $clicks > 0 ? '#15803d' : '#aaa'; ?>;"><?php echo $rate; ?></td>
-                    <td>
+                    <td style="text-align:center;"><?php echo (float) $row['commission_pct'] > 0 ? esc_html( $row['commission_pct'] ) . '%' : '—'; ?></td>
+                    <td style="text-align:center;"><?php echo (float) $row['commission_pct_annual'] > 0 ? esc_html( $row['commission_pct_annual'] ) . '%' : '—'; ?></td>
+                    <td style="text-align:center;"><?php echo (float) $row['retention_bonus_pct'] > 0 ? esc_html( $row['retention_bonus_pct'] ) . '%' : '—'; ?></td>
+                    <td style="text-align:center;<?php echo $retEligible > 0 ? 'font-weight:700;color:#b45309;' : 'color:#aaa;'; ?>">
+                        <?php echo $retEligible > 0 ? $retEligible : '—'; ?>
+                    </td>
+                    <td style="min-width:240px;">
                         <input type="text" value="<?php echo esc_attr( $link ); ?>"
                                readonly onclick="this.select()"
-                               style="width:100%;font-size:12px;font-family:monospace;padding:4px 6px;border:1px solid #ddd;border-radius:3px;">
+                               style="width:100%;font-size:11px;font-family:monospace;padding:3px 5px;border:1px solid #ddd;border-radius:3px;">
                     </td>
-                    <td style="white-space:nowrap;"><?php echo esc_html( (string) $row['created_at'] ); ?></td>
+                    <td><a href="<?php echo esc_url( $editUrl ); ?>">Edit rates</a></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -514,7 +572,51 @@ final class Admin
             <p><em>No affiliates yet. Create your first one below.</em></p>
         <?php endif; ?>
 
-        <h3>Create a new affiliate link</h3>
+        <?php
+        // ── Edit commission rates ────────────────────────────────────────────
+        $editRow = null;
+        if ( $editId > 0 ) {
+            foreach ( $rows as $r ) {
+                if ( (int) $r['id'] === $editId ) { $editRow = $r; break; }
+            }
+        }
+        if ( $editRow !== null ) : ?>
+        <h3>Edit commission rates — <?php echo esc_html( (string) $editRow['label'] ); ?></h3>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="max-width:480px;">
+            <?php wp_nonce_field( 'lgms_update_affiliate_commission' ); ?>
+            <input type="hidden" name="action"       value="lgms_update_affiliate_commission">
+            <input type="hidden" name="affiliate_id" value="<?php echo (int) $editRow['id']; ?>">
+            <table class="form-table" style="margin:0;">
+                <tr>
+                    <th><label for="lgms-aff-pct">Monthly commission %</label></th>
+                    <td>
+                        <input type="number" id="lgms-aff-pct" name="commission_pct" step="0.01" min="0" max="100"
+                               value="<?php echo esc_attr( (string) $editRow['commission_pct'] ); ?>" class="small-text">
+                        <p class="description">Paid on monthly subscription conversions.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="lgms-aff-pct-ann">Annual commission %</label></th>
+                    <td>
+                        <input type="number" id="lgms-aff-pct-ann" name="commission_pct_annual" step="0.01" min="0" max="100"
+                               value="<?php echo esc_attr( (string) $editRow['commission_pct_annual'] ); ?>" class="small-text">
+                        <p class="description">Paid on annual / one-time conversions. Set higher to incentivise yearly.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="lgms-aff-bonus">Retention bonus %</label></th>
+                    <td>
+                        <input type="number" id="lgms-aff-bonus" name="retention_bonus_pct" step="0.01" min="0" max="100"
+                               value="<?php echo esc_attr( (string) $editRow['retention_bonus_pct'] ); ?>" class="small-text">
+                        <p class="description">Bonus paid when a referred member is still active after 1 year. Run <code>bin/poll-retention.php</code> to identify eligible conversions.</p>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button( 'Save rates' ); ?>
+        </form>
+        <?php endif; ?>
+
+        <h3>Create a new affiliate</h3>
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="max-width:480px;">
             <?php wp_nonce_field( 'lgms_create_affiliate' ); ?>
             <input type="hidden" name="action" value="lgms_create_affiliate">
@@ -523,20 +625,20 @@ final class Admin
                     <th><label for="lgms-aff-slug">Slug</label></th>
                     <td>
                         <input type="text" id="lgms-aff-slug" name="slug" class="regular-text"
-                               placeholder="dan-erlewine" pattern="[a-zA-Z0-9\-]+" required>
-                        <p class="description">Letters, digits, and hyphens only. Appears in the URL: <code>/join/?ref=<em>slug</em></code></p>
+                               placeholder="dan" pattern="[a-zA-Z0-9\-]+" required>
+                        <p class="description">Letters, digits, hyphens only. Link will be <code>/lgjoin/?ref=<em>slug</em></code></p>
                     </td>
                 </tr>
                 <tr>
                     <th><label for="lgms-aff-label">Label</label></th>
                     <td>
                         <input type="text" id="lgms-aff-label" name="label" class="regular-text"
-                               placeholder="Dan Erlewine">
-                        <p class="description">Human-readable name. Defaults to the slug if left blank.</p>
+                               placeholder="Dan">
+                        <p class="description">Human-readable name. Defaults to the slug if blank.</p>
                     </td>
                 </tr>
             </table>
-            <?php submit_button( 'Create affiliate link' ); ?>
+            <?php submit_button( 'Create affiliate' ); ?>
         </form>
         <?php
     }
