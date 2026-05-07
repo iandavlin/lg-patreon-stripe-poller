@@ -604,11 +604,11 @@ final class Admin
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="lgms-aff-bonus">Retention bonus %</label></th>
+                    <th><label for="lgms-aff-bonus">1-year retention bonus %</label></th>
                     <td>
                         <input type="number" id="lgms-aff-bonus" name="retention_bonus_pct" step="0.01" min="0" max="100"
                                value="<?php echo esc_attr( (string) $editRow['retention_bonus_pct'] ); ?>" class="small-text">
-                        <p class="description">Bonus paid when a referred member is still active after 1 year. Run <code>bin/poll-retention.php</code> to identify eligible conversions.</p>
+                        <p class="description">% of the member's actual total Stripe invoices in their first year. Paid if still subscribed at the 1-year mark. Run <code>bin/poll-retention.php</code> to generate payout report.</p>
                     </td>
                 </tr>
             </table>
