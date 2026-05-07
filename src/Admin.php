@@ -751,7 +751,7 @@ final class Admin
         $rows = [];
         try {
             $rows = Db::pdo()->query(
-                'SELECT a.id, a.slug, a.label, a.created_at,
+                'SELECT a.id, a.slug, a.label, a.wp_user_id, a.created_at,
                         a.commission_pct, a.commission_pct_annual, a.retention_bonus_pct,
                         COUNT(DISTINCT cl.id)  AS clicks,
                         COUNT(DISTINCT cv.id)  AS conversions,
