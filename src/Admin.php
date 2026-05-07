@@ -569,8 +569,11 @@ final class Admin
         $bonus      = (float) ( $_POST['retention_bonus_pct']    ?? 0 );
         $wpUserRef  = sanitize_text_field( (string) ( $_POST['wp_user'] ?? '' ) );
 
-        $wpUserId = null;
+        // Resolve wp_user field. Empty string means "no change" — don't null out an existing link.
+        $updateWpUser = false;
+        $wpUserId     = null;
         if ( $wpUserRef !== '' ) {
+            $updateWpUser = true;
             if ( is_numeric( $wpUserRef ) ) {
                 $wpUserId = (int) $wpUserRef;
             } else {
@@ -586,16 +589,23 @@ final class Admin
             $err = 'Invalid affiliate.';
         } else {
             try {
-                Db::pdo()->prepare(
-                    'UPDATE affiliates SET commission_pct = ?, commission_pct_annual = ?, retention_bonus_pct = ?, wp_user_id = ? WHERE id = ?'
-                )->execute( [ $pct, $pctAnn, $bonus, $wpUserId, $id ] );
-                $notice = 'Commission rates updated.';
+                $pdo = Db::pdo();
+                if ( $updateWpUser ) {
+                    $pdo->prepare(
+                        'UPDATE affiliates SET commission_pct = ?, commission_pct_annual = ?, retention_bonus_pct = ?, wp_user_id = ? WHERE id = ?'
+                    )->execute( [ $pct, $pctAnn, $bonus, $wpUserId, $id ] );
+                } else {
+                    $pdo->prepare(
+                        'UPDATE affiliates SET commission_pct = ?, commission_pct_annual = ?, retention_bonus_pct = ? WHERE id = ?'
+                    )->execute( [ $pct, $pctAnn, $bonus, $id ] );
+                }
+                $notice = 'Saved.';
             } catch ( \Throwable $e ) {
                 $err = $e->getMessage();
             }
         }
 
-        $args = [ 'page' => self::AFF_PAGE ];
+        $args = [ 'page' => self::AFF_PAGE, 'lgms_edit_aff' => $id ];
         if ( $notice !== '' ) $args['lgms_aff_ok']  = rawurlencode( $notice );
         if ( $err    !== '' ) $args['lgms_aff_err'] = rawurlencode( $err );
         wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
