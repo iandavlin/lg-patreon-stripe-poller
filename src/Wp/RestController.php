@@ -154,12 +154,19 @@ final class RestController
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
 
-        // Public: login or register for gift purchase flow.
-        register_rest_route( self::NAMESPACE, '/gift-auth', [
+        // Public auth endpoint. /auth is the canonical route; /gift-auth is
+        // a backward-compat alias from when this only served the gift
+        // redemption flow. Both routes hit the same handler — keep the alias
+        // so cached front-end JS or any external integration keeps working,
+        // and so testers don't see the confusing "/gift-auth" URL when
+        // signing up via /lgjoin/.
+        $authArgs = [
             'methods'             => 'POST',
             'callback'            => [ self::class, 'giftAuth' ],
             'permission_callback' => '__return_true',
-        ] );
+        ];
+        register_rest_route( self::NAMESPACE, '/auth',      $authArgs );
+        register_rest_route( self::NAMESPACE, '/gift-auth', $authArgs );
 
         // Logged-in only: dismiss the welcome modal (consume the
         // _lg_pending_welcome meta). Called via AJAX from wp_footer when

@@ -56,7 +56,7 @@ final class Shortcodes
             'products'       => esc_url_raw( $base . '/v1/products' ),
             'config'         => esc_url_raw( $base . '/v1/config' ),
             'checkout'       => esc_url_raw( $base . '/v1/checkout' ),
-            'authUrl'        => esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ),
+            'authUrl'        => esc_url_raw( rest_url( 'lg-member-sync/v1/auth' ) ),
             'affiliateClick' => esc_url_raw( $base . '/v1/affiliate-click' ),
         ];
 
@@ -2875,7 +2875,7 @@ final class Shortcodes
         $name         = esc_attr( $nameValue );
         $promoEsc     = esc_attr( (string) $promoFromUrl );
         $endpointsJs  = wp_json_encode( $endpoints );
-        $authUrl      = esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) );
+        $authUrl      = esc_url_raw( rest_url( 'lg-member-sync/v1/auth' ) );
         $configJs     = wp_json_encode( [
             'popular'       => $popularRef,
             'taglines'      => $taglineMap,
@@ -4234,7 +4234,7 @@ final class Shortcodes
                 return res.json();
             }
 
-            const AUTH_URL    = '<?php echo esc_js( esc_url_raw( rest_url( 'lg-member-sync/v1/gift-auth' ) ) ); ?>';
+            const AUTH_URL    = '<?php echo esc_js( esc_url_raw( rest_url( 'lg-member-sync/v1/auth' ) ) ); ?>';
             const ALREADY_IN  = <?php echo $treatAsLoggedIn ? 'true' : 'false'; ?>;
             const EMAIL_HAS_USER = <?php echo $emailHasExistingUser ? 'true' : 'false'; ?>;
             const welcomeEl   = document.querySelector('[data-lg-welcome-modal]');
