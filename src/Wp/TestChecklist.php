@@ -503,10 +503,10 @@ final class TestChecklist
             'items' => [
                 'mg-anon'         => [ 'desc' => 'Visit /membership-guide/ logged out.',                                                                                          'expect' => 'Visitor-state hero, anon preview cards visible in Archive, gated CTAs (Loothalong shows "See the plans →"). No Start Here section.', 'url' => '/membership-guide/' ],
                 'mg-member'       => [ 'desc' => 'Visit /membership-guide/ as a paid member.',                                                                                    'expect' => 'Start Here section visible (if starter content exists). Loothalong shows the Zoom link if configured. All sections render.', 'url' => '/membership-guide/' ],
-                'mg-admin-bar'    => [ 'desc' => 'Visit /membership-guide/ as a WP admin.',                                                                                       'expect' => 'Fixed admin preview bar visible top-right with Visitor / Member toggle and the WELCOME EMAIL test form.', 'url' => '/membership-guide/' ],
-                'mg-toggle'       => [ 'desc' => 'In the admin preview bar, click Visitor and Member buttons.',                                                                  'expect' => 'Body class flips between lgms-mg-anon / lgms-mg-member. Loothalong gating updates client-side.' ],
-                'mg-test-email'   => [ 'desc' => 'In the admin preview bar, enter an email and click Send test.',                                                                'expect' => 'Status line shows "Test email sent to ...". Email arrives with [TEST] subject prefix and matches the live page visually.' ],
-                'mg-avatar-override' => [ 'desc' => 'Edit an elder via the front-end edit modal, paste a URL into "Avatar Override URL", save, reload.',                          'expect' => 'Elder card now shows the override URL\'s image. NOT the BuddyBoss avatar.' ],
+                'mg-admin-bar'    => [ 'desc' => 'Visit /membership-guide/ as a WP admin.',                                                                                       'expect' => 'Fixed admin preview bar visible top-right with Visitor / Member toggle and the WELCOME EMAIL test form.', 'url' => '/membership-guide/', 'audience' => 'admins' ],
+                'mg-toggle'       => [ 'desc' => 'In the admin preview bar, click Visitor and Member buttons.',                                                                  'expect' => 'Body class flips between lgms-mg-anon / lgms-mg-member. Loothalong gating updates client-side.', 'audience' => 'admins' ],
+                'mg-test-email'   => [ 'desc' => 'In the admin preview bar, enter an email and click Send test.',                                                                'expect' => 'Status line shows "Test email sent to ...". Email arrives with [TEST] subject prefix and matches the live page visually.', 'audience' => 'admins' ],
+                'mg-avatar-override' => [ 'desc' => 'Edit an elder via the front-end edit modal, paste a URL into "Avatar Override URL", save, reload.',                          'expect' => 'Elder card now shows the override URL\'s image. NOT the BuddyBoss avatar.', 'audience' => 'admins' ],
                 'mg-shows'        => [ 'desc' => 'Confirm Recurring Shows section renders.',                                                                                     'expect' => 'Configured shows appear with thumbnails. Empty config = no slider rendered.' ],
                 'mg-events'       => [ 'desc' => 'Confirm Live Events shortcode renders next 4 events.',                                                                         'expect' => 'Cards with date pill + title + thumbnail. Fallback "Recent shows" appears if no upcoming events exist.' ],
                 'mg-elders'       => [ 'desc' => 'Confirm Council of Elders slider renders.',                                                                                    'expect' => 'Avatars + names + IG link per card. View bio links to /elder-NAME/ pages.' ],
@@ -515,7 +515,8 @@ final class TestChecklist
         ],
 
         'admin' => [
-            'title' => 'Admin tools (wp-admin)',
+            'title'    => 'Admin tools (wp-admin)',
+            'audience' => 'admins',
             'items' => [
                 'ad-user-edit'   => [ 'desc' => 'In /wp-admin/users.php, edit a customer with an active subscription.',                                                          'expect' => 'Membership section at the bottom shows the subscription. Cancel & Refund + Block buttons present.' ],
                 'ad-cancel'      => [ 'desc' => 'Use the admin "Cancel & Refund" button on the user-edit page.',                                                                 'expect' => 'Subscription canceled in Stripe. Refund processed. Audit log row written. Customer email confirms.' ],
@@ -556,13 +557,14 @@ final class TestChecklist
             'items' => [
                 'rl-customer-hidden' => [ 'desc' => 'Log in as a customer-only user (gift-only buyer, no paid sub).',                                                            'expect' => 'No avatar in BB site chrome. Not in /members/ directory. Cannot post or reply in forums.' ],
                 'rl-sticky'           => [ 'desc' => 'A customer-only user later subscribes to a paid tier.',                                                                    'expect' => 'User has both customer + looth tier roles. Forum + directory access enabled. customer cap remains.' ],
-                'rl-looth4-protect'   => [ 'desc' => 'Confirm a looth4 user does not get downgraded by the Arbiter on tick.',                                                    'expect' => 'looth4 role + caps remain after Tick::run. lg_role_sources rows for that user are still respected.' ],
+                'rl-looth4-protect'   => [ 'desc' => 'Confirm a looth4 user does not get downgraded by the Arbiter on tick.',                                                    'expect' => 'looth4 role + caps remain after Tick::run. lg_role_sources rows for that user are still respected.', 'audience' => 'admins' ],
                 'rl-bb-allowlist'     => [ 'desc' => 'Anon visit each public Pages registry page (/lgjoin/, /lggift-buy/, /lggift/, /membership-guide/, /request-refund/).',     'expect' => 'All render without redirecting to wp-login.php?bp-auth=1. (BuddyBoss public-content allowlist auto-populated.)' ],
             ],
         ],
 
         'cron' => [
-            'title' => 'Cron / polling / webhooks',
+            'title'    => 'Cron / polling / webhooks',
+            'audience' => 'admins',
             'items' => [
                 'cr-tick-manual'    => [ 'desc' => 'Trigger Tick::run via /run-now (or wp cron event run lgms_poll_tick).',                                                       'expect' => 'tick.log shows: tick start → stripe poll → expiry sweep → reconcile-pending → sync sweep ok=N errors=0.' ],
                 'cr-tick-lock'      => [ 'desc' => 'Fire two concurrent /run-now calls.',                                                                                       'expect' => 'tick.log shows one "tick start" and one "tick SKIPPED: another tick is already running".' ],
@@ -573,7 +575,8 @@ final class TestChecklist
         ],
 
         'security' => [
-            'title' => 'Security smoke tests (post-audit)',
+            'title'    => 'Security smoke tests (post-audit)',
+            'audience' => 'admins',
             'items' => [
                 'sec-prod-error'      => [ 'desc' => '(On prod only) Hit a deliberately-broken Slim URL.',                                                                       'expect' => 'Generic 500 with no stack trace, file paths, or SQL. Confirms APP_DEBUG is off.' ],
                 'sec-debug-display'   => [ 'desc' => '(On prod only) Trigger a PHP notice/warning anywhere on the site.',                                                       'expect' => 'No errors render to the browser. WP_DEBUG_DISPLAY is false.' ],
@@ -637,6 +640,13 @@ final class TestChecklist
                     <span class="lgtc-progress" id="lgtc-progress">0 of 0 checked</span>
                     <label class="lgtc-toggle"><input type="checkbox" id="lgtc-hide-checked"> Hide checked</label>
                     <button type="button" id="lgtc-reset" class="lgtc-btn lgtc-btn-danger">Reset all</button>
+                    <?php if ( current_user_can( 'manage_options' ) ) : ?>
+                        <span class="lgtc-view-toggle" role="group" aria-label="View as">
+                            View as
+                            <button type="button" id="lgtc-view-admin"  class="lgtc-vt-btn is-active">Admin</button>
+                            <button type="button" id="lgtc-view-tester" class="lgtc-vt-btn">Tester</button>
+                        </span>
+                    <?php endif; ?>
                 </div>
             </header>
 
@@ -725,17 +735,23 @@ final class TestChecklist
                 <div id="lgtc-wipe-status" class="lgtc-wipe-status" aria-live="polite"></div>
             </section>
 
-            <?php foreach ( self::SECTIONS as $sectionId => $section ) : ?>
-                <section class="lgtc-section" data-section="<?php echo esc_attr( $sectionId ); ?>">
+            <?php foreach ( self::SECTIONS as $sectionId => $section ) :
+                $sectionAdminOnly = ( ( $section['audience'] ?? 'all' ) === 'admins' );
+                $sectionClasses   = 'lgtc-section' . ( $sectionAdminOnly ? ' lgtc-admin-only' : '' );
+            ?>
+                <section class="<?php echo esc_attr( $sectionClasses ); ?>" data-section="<?php echo esc_attr( $sectionId ); ?>">
                     <h2><?php echo esc_html( (string) $section['title'] ); ?>
+                        <?php if ( $sectionAdminOnly ) : ?><span class="lgtc-admin-badge">admin only</span><?php endif; ?>
                         <span class="lgtc-section-progress" data-section-progress="<?php echo esc_attr( $sectionId ); ?>"></span>
                     </h2>
                     <ol class="lgtc-items">
                         <?php foreach ( (array) ( $section['items'] ?? [] ) as $itemId => $item ) :
-                            $fullId = $sectionId . ':' . $itemId;
-                            $url    = (string) ( $item['url'] ?? '' );
+                            $fullId        = $sectionId . ':' . $itemId;
+                            $url           = (string) ( $item['url'] ?? '' );
+                            $itemAdminOnly = ( ( $item['audience'] ?? 'all' ) === 'admins' );
+                            $itemClasses   = 'lgtc-item' . ( $itemAdminOnly ? ' lgtc-admin-only' : '' );
                         ?>
-                        <li class="lgtc-item" data-item-id="<?php echo esc_attr( $fullId ); ?>">
+                        <li class="<?php echo esc_attr( $itemClasses ); ?>" data-item-id="<?php echo esc_attr( $fullId ); ?>">
                             <label class="lgtc-check">
                                 <input type="checkbox" data-id="<?php echo esc_attr( $fullId ); ?>">
                                 <span class="lgtc-check-box" aria-hidden="true"></span>
@@ -789,9 +805,10 @@ final class TestChecklist
             .lgtc-section:last-of-type { border-radius: 0 0 8px 8px; }
             .lgtc-section h2 { font-family: Georgia, serif; font-size: 19px; color: var(--dark); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--sand); display: flex; align-items: baseline; gap: 12px; }
             .lgtc-section-progress { font-family: Arial, sans-serif; font-size: 11px; color: var(--amber-d); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-            .lgtc-items { list-style: none; padding: 0; margin: 0; }
-            .lgtc-item { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px dashed var(--sand); align-items: flex-start; }
+            .lgtc-items { list-style: none; padding: 0; margin: 0; counter-reset: lgtc-item; }
+            .lgtc-item { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px dashed var(--sand); align-items: flex-start; counter-increment: lgtc-item; position: relative; }
             .lgtc-item:last-child { border-bottom: 0; }
+            .lgtc-item::before { content: counter(lgtc-item) "."; flex: 0 0 auto; min-width: 22px; font-weight: 700; color: var(--amber-d); font-size: 13px; padding-top: 4px; text-align: right; }
             .lgtc-check { position: relative; flex: 0 0 auto; cursor: pointer; padding-top: 2px; }
             .lgtc-check input { position: absolute; opacity: 0; pointer-events: none; }
             .lgtc-check-box { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--amber); border-radius: 4px; background: #fff; transition: background 0.1s, border-color 0.1s; }
@@ -887,6 +904,18 @@ final class TestChecklist
             .lgtc-inbox-controls .lgtc-btn-danger:hover { background: var(--red); color: #fff; }
             .lgtc-inbox.lgtc-inbox-hide-closed .lgtc-inbox-item:not(.lgtc-inbox-status-open) { display: none; }
 
+            /* View toggle (admin-only): Admin vs Tester */
+            .lgtc-view-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #d8cfc0; text-transform: uppercase; letter-spacing: 0.06em; }
+            .lgtc-vt-btn { background: transparent; border: 1px solid #87986A; color: var(--cream); padding: 4px 12px; border-radius: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
+            .lgtc-vt-btn:hover { background: rgba(135,152,106,0.2); }
+            .lgtc-vt-btn.is-active { background: var(--amber); color: var(--dark); border-color: var(--amber); }
+            .lgtc-admin-badge { display: inline-block; margin-left: 8px; padding: 1px 8px; background: var(--dark); color: var(--amber); font-family: Arial, sans-serif; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; border-radius: 3px; vertical-align: middle; }
+            /* Tester view: hide admin-only sections, items, and panels. CSS counters keep numbering tight (no gaps for hidden items). */
+            .lgtc.lgtc-view-as-tester .lgtc-admin-only { display: none !important; }
+            .lgtc.lgtc-view-as-tester .lgtc-pwd,
+            .lgtc.lgtc-view-as-tester .lgtc-inbox { display: none !important; }
+            .lgtc.lgtc-view-as-tester .lgtc-items { counter-reset: lgtc-item; }
+            .lgtc.lgtc-view-as-tester .lgtc-admin-only.lgtc-item { counter-increment: none; }
             @media (max-width: 600px) {
                 .lgtc-head { padding: 22px 18px; border-radius: 6px 6px 0 0; }
                 .lgtc-section { padding: 14px 16px 16px; }
@@ -926,21 +955,40 @@ final class TestChecklist
                 if (li) li.classList.toggle('is-checked', !!checked);
             }
 
+            function isVisibleItem(cb) {
+                // Items inside admin-only sections or admin-only items are
+                // hidden in tester view; we exclude them from the progress
+                // tally so testers see "X of <items-they-can-actually-do>".
+                if (!root.classList.contains('lgtc-view-as-tester')) return true;
+                var li = cb.closest('.lgtc-item');
+                var sec = cb.closest('.lgtc-section');
+                return !(li && li.classList.contains('lgtc-admin-only'))
+                    && !(sec && sec.classList.contains('lgtc-admin-only'));
+            }
             function updateProgress() {
-                var total = checkboxes.length;
+                var total = 0;
                 var done  = 0;
-                checkboxes.forEach(function(cb){ if (cb.checked) done++; });
+                checkboxes.forEach(function(cb){
+                    if (!isVisibleItem(cb)) return;
+                    total++;
+                    if (cb.checked) done++;
+                });
                 progressEl.textContent = done + ' of ' + total + ' checked';
 
                 root.querySelectorAll('.lgtc-section').forEach(function(sec){
                     var sId = sec.getAttribute('data-section');
                     var items = sec.querySelectorAll('input[type="checkbox"][data-id]');
-                    var sDone = 0;
-                    items.forEach(function(cb){ if (cb.checked) sDone++; });
+                    var sTotal = 0;
+                    var sDone  = 0;
+                    items.forEach(function(cb){
+                        if (!isVisibleItem(cb)) return;
+                        sTotal++;
+                        if (cb.checked) sDone++;
+                    });
                     var label = sec.querySelector('[data-section-progress="' + sId + '"]');
-                    if (label) label.textContent = sDone + ' / ' + items.length;
+                    if (label) label.textContent = sDone + ' / ' + sTotal;
                     if (root.classList.contains('lgtc-hide-mode')) {
-                        sec.classList.toggle('is-empty', sDone === items.length);
+                        sec.classList.toggle('is-empty', sTotal > 0 && sDone === sTotal);
                     } else {
                         sec.classList.remove('is-empty');
                     }
@@ -981,6 +1029,26 @@ final class TestChecklist
             });
 
             updateProgress();
+
+            // ── View toggle: Admin vs Tester (admin-only control) ──────
+            var btnViewAdmin  = root.querySelector('#lgtc-view-admin');
+            var btnViewTester = root.querySelector('#lgtc-view-tester');
+            var VIEW_KEY      = 'lgtc_view_v1';
+            function setView(mode) {
+                var isTester = (mode === 'tester');
+                root.classList.toggle('lgtc-view-as-tester', isTester);
+                if (btnViewAdmin)  btnViewAdmin.classList.toggle('is-active',  !isTester);
+                if (btnViewTester) btnViewTester.classList.toggle('is-active',  isTester);
+                try { localStorage.setItem(VIEW_KEY, mode); } catch (e) {}
+                updateProgress(); // counters re-derive from visible items
+            }
+            if (btnViewAdmin && btnViewTester) {
+                var savedView = '';
+                try { savedView = localStorage.getItem(VIEW_KEY) || ''; } catch (e) {}
+                if (savedView === 'tester') setView('tester');
+                btnViewAdmin.addEventListener('click',  function(){ setView('admin');  });
+                btnViewTester.addEventListener('click', function(){ setView('tester'); });
+            }
 
             // ── Copy-password button ────────────────────────────────────
             var pwdCopyBtn = root.querySelector('#lgtc-pwd-copy');
