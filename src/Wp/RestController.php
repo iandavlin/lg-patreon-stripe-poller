@@ -357,7 +357,7 @@ final class RestController
         // Build a list of customer-selected items with eligibility info.
         $itemsHtml = '';
         if ( $items !== [] ) {
-            $windowDays = max( 1, (int) get_option( 'lgms_refund_window_days', '30' ) );
+            $windowDays = max( 1, min( 90, (int) get_option( 'lgms_refund_window_days', '30' ) ) );
             $cutoffTs   = time() - ( $windowDays * 86400 );
             $rows = [];
             foreach ( $items as $token ) {
