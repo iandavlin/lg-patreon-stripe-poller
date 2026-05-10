@@ -293,7 +293,7 @@ class LGPO_Sync_Engine {
     private static function build_members_url( string $campaign_id, ?string $cursor ): string {
         $params = [
             'include'        => 'currently_entitled_tiers,user',
-            'fields[member]' => 'patron_status,email,full_name',
+            'fields[member]' => 'patron_status,email,full_name,last_charge_status,last_charge_date,next_charge_date,will_pay_amount_cents,currently_entitled_amount_cents',
             'fields[tier]'   => 'title,amount_cents',
             'fields[user]'   => 'email,full_name',
             'page[count]'    => self::PAGE_SIZE,
@@ -339,11 +339,20 @@ class LGPO_Sync_Engine {
             return null; // Cannot match without email
         }
 
-        // Extract entitled tier IDs
-        $tier_ids  = [];
-        $tier_data = $rels['currently_entitled_tiers']['data'] ?? [];
+        // Extract entitled tier IDs and labels
+        $tier_ids    = [];
+        $tier_labels = [];
+        $tier_data   = $rels['currently_entitled_tiers']['data'] ?? [];
         foreach ( $tier_data as $tier_ref ) {
-            $tier_ids[] = (string) $tier_ref['id'];
+            $tid          = (string) $tier_ref['id'];
+            $tier_ids[]   = $tid;
+            $tier_resource = $included[ 'tier:' . $tid ] ?? null;
+            if ( $tier_resource ) {
+                $title = $tier_resource['attributes']['title'] ?? '';
+                if ( $title !== '' ) {
+                    $tier_labels[] = (string) $title;
+                }
+            }
         }
 
         // Get Patreon user ID from relationship
@@ -354,11 +363,17 @@ class LGPO_Sync_Engine {
         }
 
         return [
-            'email'            => strtolower( trim( $email ) ),
-            'full_name'        => $attrs['full_name'] ?? '',
-            'patron_status'    => $attrs['patron_status'] ?? null,
-            'tier_ids'         => $tier_ids,
-            'patreon_user_id'  => $patreon_user_id,
+            'email'                              => strtolower( trim( $email ) ),
+            'full_name'                          => $attrs['full_name'] ?? '',
+            'patron_status'                      => $attrs['patron_status'] ?? null,
+            'last_charge_status'                 => $attrs['last_charge_status'] ?? null,
+            'last_charge_date'                   => $attrs['last_charge_date'] ?? null,
+            'next_charge_date'                   => $attrs['next_charge_date'] ?? null,
+            'will_pay_amount_cents'              => isset( $attrs['will_pay_amount_cents'] ) ? (int) $attrs['will_pay_amount_cents'] : null,
+            'currently_entitled_amount_cents'    => isset( $attrs['currently_entitled_amount_cents'] ) ? (int) $attrs['currently_entitled_amount_cents'] : null,
+            'tier_ids'                           => $tier_ids,
+            'tier_labels'                        => $tier_labels,
+            'patreon_user_id'                    => $patreon_user_id,
         ];
     }
 
@@ -386,6 +401,11 @@ class LGPO_Sync_Engine {
         $changes['stats']['matched']++;
         $user_id       = $user->ID;
         $current_roles = (array) $user->roles;
+
+        // Persist the rich Patreon data for every matched WP user, regardless
+        // of role-change decisions below. The Manage Subscription panel reads
+        // from this row via Membership::statusFor().
+        self::upsert_patreon_member_row( $user_id, $member );
 
         // Skip looth4 always
         if ( in_array( 'looth4', $current_roles, true ) || in_array( 'administrator', $current_roles, true ) ) {
@@ -816,5 +836,63 @@ class LGPO_Sync_Engine {
 
         error_log( "LGPO Sync: Reverted batch {$batch_id} — {$reverted} changes restored." );
         return [ 'reverted' => $reverted, 'errors' => $errors ];
+    }
+
+    /**
+     * Upsert a Patreon member row in lg_patreon_members. Powers the unified
+     * Membership::statusFor() panel on Manage Subscription.
+     */
+    private static function upsert_patreon_member_row( int $wp_user_id, array $member ): void {
+        try {
+            $pdo = \LGMS\Db::pdo();
+            $pdo->prepare(
+                'INSERT INTO lg_patreon_members
+                    (wp_user_id, patreon_user_id, email, full_name, patron_status,
+                     last_charge_status, last_charge_date, next_charge_date,
+                     will_pay_amount_cents, currently_entitled_amount_cents, tier_label)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    patreon_user_id                 = VALUES(patreon_user_id),
+                    email                           = VALUES(email),
+                    full_name                       = VALUES(full_name),
+                    patron_status                   = VALUES(patron_status),
+                    last_charge_status              = VALUES(last_charge_status),
+                    last_charge_date                = VALUES(last_charge_date),
+                    next_charge_date                = VALUES(next_charge_date),
+                    will_pay_amount_cents           = VALUES(will_pay_amount_cents),
+                    currently_entitled_amount_cents = VALUES(currently_entitled_amount_cents),
+                    tier_label                      = VALUES(tier_label)'
+            )->execute( [
+                $wp_user_id,
+                $member['patreon_user_id'] ?: null,
+                $member['email'] ?: null,
+                $member['full_name'] ?: null,
+                $member['patron_status'] ?: null,
+                $member['last_charge_status'] ?: null,
+                self::normalize_datetime( $member['last_charge_date'] ?? null ),
+                self::normalize_datetime( $member['next_charge_date'] ?? null ),
+                $member['will_pay_amount_cents'] ?? null,
+                $member['currently_entitled_amount_cents'] ?? null,
+                ( $member['tier_labels'][0] ?? null ) ?: null,
+            ] );
+        } catch ( \Throwable $e ) {
+            error_log( 'LGPO upsert_patreon_member_row: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Convert Patreon ISO-8601 timestamps to MySQL DATETIME (UTC), or null.
+     */
+    private static function normalize_datetime( ?string $iso ): ?string {
+        if ( ! $iso ) {
+            return null;
+        }
+        try {
+            $dt = new \DateTime( $iso );
+            $dt->setTimezone( new \DateTimeZone( 'UTC' ) );
+            return $dt->format( 'Y-m-d H:i:s' );
+        } catch ( \Throwable $_ ) {
+            return null;
+        }
     }
 }

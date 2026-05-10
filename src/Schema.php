@@ -27,6 +27,27 @@ final class Schema
         SQL);
 
         $pdo->exec(<<<'SQL'
+            CREATE TABLE IF NOT EXISTS lg_patreon_members (
+                wp_user_id                      BIGINT UNSIGNED NOT NULL,
+                patreon_user_id                 VARCHAR(64)     NULL,
+                email                           VARCHAR(255)    NULL,
+                full_name                       VARCHAR(255)    NULL,
+                patron_status                   VARCHAR(32)     NULL,
+                last_charge_status              VARCHAR(32)     NULL,
+                last_charge_date                DATETIME        NULL,
+                next_charge_date                DATETIME        NULL,
+                will_pay_amount_cents           INT             NULL,
+                currently_entitled_amount_cents INT             NULL,
+                tier_label                      VARCHAR(255)    NULL,
+                synced_at                       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                                                    ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (wp_user_id),
+                KEY idx_patreon_user_id (patreon_user_id),
+                KEY idx_patron_status   (patron_status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        SQL);
+
+        $pdo->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS lg_event_cursor (
                 source       VARCHAR(32) PRIMARY KEY,
                 cursor_id    VARCHAR(64) NULL,
