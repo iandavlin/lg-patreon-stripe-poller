@@ -41,11 +41,19 @@ final class TestChecklist
     /**
      * Severities (with display labels and colours) and statuses. Keep the
      * string keys stable — they're stored verbatim in the DB.
+     *
+     * Active set is pass / fail / question — that's what the report modal
+     * lets a tester pick. Legacy 'bug' / 'note' values are retained here so
+     * any rows from before this UI restructure still render correctly in
+     * the admin inbox.
      */
     private const SEVERITY = [
+        'pass'     => [ 'label' => 'Passed',   'color' => '#87986A' ],
+        'fail'     => [ 'label' => 'Failed',   'color' => '#b04a3c' ],
+        'question' => [ 'label' => 'Question', 'color' => '#C68A1E' ],
+        // Legacy (pre-restructure) — render only, never offered in the UI.
         'bug'      => [ 'label' => 'Bug',      'color' => '#b04a3c' ],
         'note'     => [ 'label' => 'Note',     'color' => '#87986A' ],
-        'question' => [ 'label' => 'Question', 'color' => '#C68A1E' ],
     ];
     private const STATUSES = [ 'open', 'fixed', 'wontfix' ];
 
@@ -57,21 +65,29 @@ final class TestChecklist
     {
         check_ajax_referer( 'lgms_test_feedback', 'nonce' );
 
-        $itemId   = sanitize_text_field( (string) ( $_POST['item_id']     ?? '' ) );
-        $name     = sanitize_text_field( (string) ( $_POST['tester_name'] ?? '' ) );
-        $sevRaw   = sanitize_text_field( (string) ( $_POST['severity']    ?? '' ) );
-        $body     = trim( (string) ( $_POST['body'] ?? '' ) );
-        $body     = sanitize_textarea_field( $body );
-        $severity = isset( self::SEVERITY[ $sevRaw ] ) ? $sevRaw : 'note';
-        $ua       = (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+        $itemId    = sanitize_text_field( (string) ( $_POST['item_id']     ?? '' ) );
+        $name      = sanitize_text_field( (string) ( $_POST['tester_name'] ?? '' ) );
+        $sevRaw    = sanitize_text_field( (string) ( $_POST['severity']    ?? '' ) );
+        $body      = trim( (string) ( $_POST['body'] ?? '' ) );
+        $body      = sanitize_textarea_field( $body );
+        // Only the three active severities accepted from the UI. Legacy
+        // values exist for render-back-compat but can't be re-introduced.
+        $allowSev  = [ 'pass', 'fail', 'question' ];
+        $severity  = in_array( $sevRaw, $allowSev, true ) ? $sevRaw : '';
+        $ua        = (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 
         if ( $itemId === '' || ! self::isKnownItemId( $itemId ) ) {
             wp_send_json_error( [ 'message' => 'Unknown item id.' ], 400 );
         }
+        if ( $severity === '' ) {
+            wp_send_json_error( [ 'message' => 'Pick a result: pass, fail, or question.' ], 400 );
+        }
         if ( $name === '' ) {
             $name = 'anonymous';
         }
-        if ( $body === '' ) {
+        // Comment is required for fail / question; optional for pass so
+        // testers can rip through happy-path items fast.
+        if ( $severity !== 'pass' && $body === '' ) {
             wp_send_json_error( [ 'message' => 'Tell us what you saw.' ], 400 );
         }
         // Hard cap on body length so a runaway tester can't bloat the table.
@@ -638,7 +654,7 @@ final class TestChecklist
                 <p class="lgtc-lede">Walk through every flow before prod cutover. Checkboxes save in your browser's local storage &mdash; close and come back later, your progress is preserved. Each tester tracks their own progress; nothing syncs across browsers.</p>
                 <div class="lgtc-controls">
                     <span class="lgtc-progress" id="lgtc-progress">0 of 0 checked</span>
-                    <label class="lgtc-toggle"><input type="checkbox" id="lgtc-hide-checked"> Hide checked</label>
+                    <label class="lgtc-toggle"><input type="checkbox" id="lgtc-hide-checked"> Hide passed</label>
                     <button type="button" id="lgtc-reset" class="lgtc-btn lgtc-btn-danger">Reset all</button>
                     <?php if ( current_user_can( 'manage_options' ) ) : ?>
                         <span class="lgtc-view-toggle" role="group" aria-label="View as">
@@ -752,32 +768,15 @@ final class TestChecklist
                             $itemClasses   = 'lgtc-item' . ( $itemAdminOnly ? ' lgtc-admin-only' : '' );
                         ?>
                         <li class="<?php echo esc_attr( $itemClasses ); ?>" data-item-id="<?php echo esc_attr( $fullId ); ?>">
-                            <label class="lgtc-check">
-                                <input type="checkbox" data-id="<?php echo esc_attr( $fullId ); ?>">
-                                <span class="lgtc-check-box" aria-hidden="true"></span>
-                            </label>
                             <div class="lgtc-body">
                                 <p class="lgtc-desc"><?php echo self::linkifyText( (string) ( $item['desc'] ?? '' ) ); ?></p>
                                 <p class="lgtc-expect"><strong>Expect:</strong> <?php echo self::linkifyText( (string) ( $item['expect'] ?? '' ) ); ?></p>
                                 <?php if ( $url !== '' ) : ?>
                                     <p class="lgtc-link"><a href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $url ); ?> &rarr;</a></p>
                                 <?php endif; ?>
-                                <div class="lgtc-fb">
-                                    <button type="button" class="lgtc-fb-toggle" data-fb-toggle="<?php echo esc_attr( $fullId ); ?>">+ Log bug / note</button>
-                                    <form class="lgtc-fb-form" data-fb-form="<?php echo esc_attr( $fullId ); ?>" hidden>
-                                        <div class="lgtc-fb-sev">
-                                            <label><input type="radio" name="sev-<?php echo esc_attr( $fullId ); ?>" value="bug"      data-fb-sev> Bug</label>
-                                            <label><input type="radio" name="sev-<?php echo esc_attr( $fullId ); ?>" value="note"     data-fb-sev checked> Note</label>
-                                            <label><input type="radio" name="sev-<?php echo esc_attr( $fullId ); ?>" value="question" data-fb-sev> Question</label>
-                                        </div>
-                                        <input type="text" data-fb-name placeholder="Your name (saved in this browser)" maxlength="120">
-                                        <textarea data-fb-body placeholder="What did you see? What were you expecting? Be specific." rows="3" maxlength="4000" required></textarea>
-                                        <div class="lgtc-fb-actions">
-                                            <button type="submit" class="lgtc-btn">Submit</button>
-                                            <button type="button" class="lgtc-btn lgtc-btn-cancel" data-fb-cancel>Cancel</button>
-                                            <span class="lgtc-fb-status" data-fb-status></span>
-                                        </div>
-                                    </form>
+                                <div class="lgtc-report">
+                                    <span class="lgtc-report-state" data-state-for="<?php echo esc_attr( $fullId ); ?>"></span>
+                                    <button type="button" class="lgtc-btn lgtc-btn-report" data-report-trigger="<?php echo esc_attr( $fullId ); ?>">Report result</button>
                                 </div>
                             </div>
                         </li>
@@ -785,6 +784,34 @@ final class TestChecklist
                     </ol>
                 </section>
             <?php endforeach; ?>
+
+            <!-- Shared report modal. Populated by JS when a Report-result button is clicked. -->
+            <div class="lgtc-modal" id="lgtc-report-modal" role="dialog" aria-modal="true" aria-labelledby="lgtc-modal-title" hidden>
+                <div class="lgtc-modal__backdrop" data-modal-close></div>
+                <div class="lgtc-modal__card">
+                    <button type="button" class="lgtc-modal__x" data-modal-close aria-label="Close">&times;</button>
+                    <h3 id="lgtc-modal-title" class="lgtc-modal__title">Report result</h3>
+                    <p class="lgtc-modal__where" id="lgtc-modal-where"></p>
+                    <p class="lgtc-modal__desc"  id="lgtc-modal-desc"></p>
+                    <form class="lgtc-modal__form" id="lgtc-modal-form">
+                        <div class="lgtc-modal__sev">
+                            <button type="button" class="lgtc-sev-btn lgtc-sev-pass"     data-sev="pass">✓ Passed</button>
+                            <button type="button" class="lgtc-sev-btn lgtc-sev-fail"     data-sev="fail">✗ Failed</button>
+                            <button type="button" class="lgtc-sev-btn lgtc-sev-question" data-sev="question">? Question</button>
+                        </div>
+                        <input type="text" id="lgtc-modal-name" placeholder="Your name (saved in this browser)" maxlength="120">
+                        <label class="lgtc-modal__bodylabel" for="lgtc-modal-body">
+                            <span id="lgtc-modal-bodylabel">Optional notes</span>
+                        </label>
+                        <textarea id="lgtc-modal-body" rows="4" maxlength="4000" placeholder="Anything you want recorded with this result. Required for Failed and Question."></textarea>
+                        <div class="lgtc-modal__actions">
+                            <button type="submit" class="lgtc-btn" id="lgtc-modal-submit" disabled>Submit</button>
+                            <button type="button" class="lgtc-btn lgtc-btn-cancel" data-modal-close>Cancel</button>
+                            <span class="lgtc-fb-status" id="lgtc-modal-status"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
 
         <style>
@@ -809,11 +836,6 @@ final class TestChecklist
             .lgtc-item { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px dashed var(--sand); align-items: flex-start; counter-increment: lgtc-item; position: relative; }
             .lgtc-item:last-child { border-bottom: 0; }
             .lgtc-item::before { content: counter(lgtc-item) "."; flex: 0 0 auto; min-width: 22px; font-weight: 700; color: var(--amber-d); font-size: 13px; padding-top: 4px; text-align: right; }
-            .lgtc-check { position: relative; flex: 0 0 auto; cursor: pointer; padding-top: 2px; }
-            .lgtc-check input { position: absolute; opacity: 0; pointer-events: none; }
-            .lgtc-check-box { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--amber); border-radius: 4px; background: #fff; transition: background 0.1s, border-color 0.1s; }
-            .lgtc-check input:checked + .lgtc-check-box { background: var(--green); border-color: var(--green); position: relative; }
-            .lgtc-check input:checked + .lgtc-check-box::after { content: '\2713'; position: absolute; left: 2px; top: -3px; color: #fff; font-size: 16px; font-weight: 700; line-height: 1; }
             .lgtc-body { flex: 1 1 auto; min-width: 0; }
             .lgtc-desc { margin: 0 0 4px; font-size: 14px; color: var(--dark); line-height: 1.5; font-weight: 600; }
             .lgtc-expect { margin: 0 0 4px; font-size: 13px; color: var(--ink); line-height: 1.5; }
@@ -821,10 +843,47 @@ final class TestChecklist
             .lgtc-link { margin: 4px 0 0; font-size: 12px; }
             .lgtc-link a { color: var(--green); text-decoration: none; font-weight: 700; }
             .lgtc-link a:hover { text-decoration: underline; }
-            .lgtc-item.is-checked { opacity: 0.55; }
-            .lgtc-item.is-checked .lgtc-desc { text-decoration: line-through; }
-            .lgtc-hide-mode .lgtc-item.is-checked { display: none; }
+            /* Per-item report controls + state pill */
+            .lgtc-report { margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+            .lgtc-btn-report { background: var(--dark); color: var(--cream); border: 1px solid var(--dark); padding: 4px 14px; font-size: 11px; }
+            .lgtc-btn-report:hover { background: var(--ink); }
+            .lgtc-report-state { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 10px; border-radius: 10px; color: #fff; }
+            .lgtc-report-state[data-state=""] { display: none; }
+            .lgtc-report-state[data-state="pass"]     { background: #87986A; }
+            .lgtc-report-state[data-state="fail"]     { background: #b04a3c; }
+            .lgtc-report-state[data-state="question"] { background: #C68A1E; }
+            .lgtc-item.is-pass     { opacity: 0.55; }
+            .lgtc-item.is-pass .lgtc-desc { text-decoration: line-through; }
+            .lgtc-hide-mode .lgtc-item.is-pass { display: none; }
             .lgtc-hide-mode .lgtc-section.is-empty { display: none; }
+            /* Report modal */
+            .lgtc-modal { position: fixed; inset: 0; z-index: 2147483600; display: flex; align-items: center; justify-content: center; padding: 1em; }
+            .lgtc-modal[hidden] { display: none !important; }
+            .lgtc-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+            .lgtc-modal__card { position: relative; background: var(--cream); color: var(--dark); border: 2px solid var(--amber); border-radius: 12px; padding: 24px 26px; max-width: 520px; width: 100%; box-shadow: 0 24px 60px rgba(0,0,0,0.45); }
+            .lgtc-modal__x { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; padding: 0; background: transparent; border: 0; font-size: 22px; line-height: 1; color: var(--ink); cursor: pointer; }
+            .lgtc-modal__x:hover { color: var(--dark); }
+            .lgtc-modal__title { margin: 0 0 4px; font-family: Georgia, serif; font-size: 20px; color: var(--dark); }
+            .lgtc-modal__where { margin: 0 0 2px; font-size: 11px; font-weight: 700; color: var(--amber-d); text-transform: uppercase; letter-spacing: 0.07em; }
+            .lgtc-modal__desc  { margin: 0 0 16px; font-size: 13px; color: var(--ink); line-height: 1.5; }
+            .lgtc-modal__form  { display: flex; flex-direction: column; gap: 12px; }
+            .lgtc-modal__sev   { display: flex; gap: 8px; flex-wrap: wrap; }
+            .lgtc-sev-btn      { flex: 1 1 130px; padding: 12px 10px; border: 2px solid; background: #fff; font-size: 14px; font-weight: 700; cursor: pointer; border-radius: 6px; transition: background 0.1s, color 0.1s; }
+            .lgtc-sev-pass     { color: #87986A; border-color: #87986A; }
+            .lgtc-sev-pass.is-active     { background: #87986A; color: #fff; }
+            .lgtc-sev-fail     { color: #b04a3c; border-color: #b04a3c; }
+            .lgtc-sev-fail.is-active     { background: #b04a3c; color: #fff; }
+            .lgtc-sev-question { color: #C68A1E; border-color: #C68A1E; }
+            .lgtc-sev-question.is-active { background: #C68A1E; color: #fff; }
+            .lgtc-modal__form input[type="text"], .lgtc-modal__form textarea { padding: 8px 10px; border: 1px solid var(--sand); border-radius: 4px; font-size: 13px; font-family: inherit; }
+            .lgtc-modal__bodylabel { font-size: 11px; font-weight: 700; color: var(--ink); text-transform: uppercase; letter-spacing: 0.06em; }
+            .lgtc-modal__form textarea { resize: vertical; }
+            .lgtc-modal__actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+            .lgtc-modal__actions .lgtc-btn { background: var(--green); color: #fff; border-color: var(--green); padding: 8px 18px; font-size: 13px; }
+            .lgtc-modal__actions .lgtc-btn:hover { background: #6e8252; }
+            .lgtc-modal__actions .lgtc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+            .lgtc-modal__actions .lgtc-btn-cancel { background: transparent; color: var(--ink); border-color: var(--sand); }
+            .lgtc-modal__actions .lgtc-btn-cancel:hover { background: var(--sand); color: var(--dark); }
             .lgtc-pwd { background: var(--dark); color: var(--cream); padding: 12px 22px; border-top: 1px solid #3a2f24; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
             .lgtc-pwd-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--amber); font-weight: 700; flex: 0 0 auto; }
             .lgtc-pwd input { background: #1a140d; color: var(--amber); border: 1px solid #5a4732; padding: 5px 10px; border-radius: 4px; font-family: Consolas, Menlo, monospace; font-size: 13px; flex: 0 0 auto; min-width: 200px; }
@@ -856,20 +915,7 @@ final class TestChecklist
             .lgtc-wipe-status td { padding: 2px 12px 2px 0; }
             .lgtc-wipe-status td:last-child { text-align: right; color: var(--amber-d); font-weight: 700; }
             .lgtc-wipe-self { background: var(--red); color: #fff; padding: 8px 12px; border-radius: 4px; margin: 8px 0 0; font-weight: 700; }
-            /* Per-item feedback form */
-            .lgtc-fb { margin-top: 8px; }
-            .lgtc-fb-toggle { background: transparent; border: 1px dashed var(--green); color: var(--green); padding: 3px 10px; border-radius: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
-            .lgtc-fb-toggle:hover { background: var(--green-l); }
-            .lgtc-fb-toggle.is-open { background: var(--green); color: #fff; }
-            .lgtc-fb-form { margin-top: 8px; padding: 10px 12px; background: #fbf9f3; border: 1px solid var(--sand); border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
-            .lgtc-fb-sev label { display: inline-block; margin-right: 12px; font-size: 12px; cursor: pointer; }
-            .lgtc-fb-form input[type="text"] { padding: 5px 8px; border: 1px solid var(--sand); border-radius: 3px; font-size: 12px; font-family: inherit; }
-            .lgtc-fb-form textarea { padding: 6px 8px; border: 1px solid var(--sand); border-radius: 3px; font-size: 13px; font-family: inherit; resize: vertical; }
-            .lgtc-fb-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-            .lgtc-fb-actions .lgtc-btn { background: var(--green); color: #fff; border-color: var(--green); }
-            .lgtc-fb-actions .lgtc-btn:hover { background: #6e8252; }
-            .lgtc-fb-actions .lgtc-btn-cancel { background: transparent; color: var(--ink); border-color: var(--sand); }
-            .lgtc-fb-actions .lgtc-btn-cancel:hover { background: var(--sand); color: var(--dark); }
+            /* Submit-status pill (shared by modal + wipe panel) */
             .lgtc-fb-status { font-size: 12px; }
             .lgtc-fb-status.ok  { color: #4f6d3a; }
             .lgtc-fb-status.err { color: var(--red); }
@@ -926,7 +972,7 @@ final class TestChecklist
 
         <script>
         (function(){
-            var STORAGE_KEY  = 'lgtc_state_v1';
+            var STORAGE_KEY  = 'lgtc_state_v2'; // shape: { itemId: "pass" | "fail" | "question" }
             var NAME_KEY     = 'lgtc_tester_name_v1';
             var AJAX_URL     = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
             var WIPE_NONCE   = <?php echo wp_json_encode( wp_create_nonce( 'lgms_test_wipe' ) ); ?>;
@@ -938,7 +984,7 @@ final class TestChecklist
             var hideToggle  = root.querySelector('#lgtc-hide-checked');
             var resetBtn    = root.querySelector('#lgtc-reset');
             var progressEl  = root.querySelector('#lgtc-progress');
-            var checkboxes  = root.querySelectorAll('input[type="checkbox"][data-id]');
+            var items       = root.querySelectorAll('.lgtc-item[data-item-id]');
 
             function loadState() {
                 try {
@@ -949,41 +995,50 @@ final class TestChecklist
             function saveState(state) {
                 try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
             }
-
-            function applyItemChecked(input, checked) {
-                var li = input.closest('.lgtc-item');
-                if (li) li.classList.toggle('is-checked', !!checked);
+            function applyItemState(li, sev) {
+                ['is-pass','is-fail','is-question'].forEach(function(c){ li.classList.remove(c); });
+                if (sev) li.classList.add('is-' + sev);
+                var pill = li.querySelector('.lgtc-report-state');
+                if (pill) {
+                    pill.setAttribute('data-state', sev || '');
+                    pill.textContent = sev === 'pass' ? '✓ Passed'
+                                     : sev === 'fail' ? '✗ Failed'
+                                     : sev === 'question' ? '? Question'
+                                     : '';
+                }
             }
 
-            function isVisibleItem(cb) {
+            function isVisibleItem(li) {
                 // Items inside admin-only sections or admin-only items are
                 // hidden in tester view; we exclude them from the progress
                 // tally so testers see "X of <items-they-can-actually-do>".
                 if (!root.classList.contains('lgtc-view-as-tester')) return true;
-                var li = cb.closest('.lgtc-item');
-                var sec = cb.closest('.lgtc-section');
-                return !(li && li.classList.contains('lgtc-admin-only'))
+                var sec = li.closest('.lgtc-section');
+                return !li.classList.contains('lgtc-admin-only')
                     && !(sec && sec.classList.contains('lgtc-admin-only'));
             }
             function updateProgress() {
-                var total = 0;
-                var done  = 0;
-                checkboxes.forEach(function(cb){
-                    if (!isVisibleItem(cb)) return;
+                var total = 0, pass = 0, fail = 0, question = 0, reported = 0;
+                items.forEach(function(li){
+                    if (!isVisibleItem(li)) return;
                     total++;
-                    if (cb.checked) done++;
+                    if (li.classList.contains('is-pass'))     { pass++;     reported++; }
+                    else if (li.classList.contains('is-fail'))     { fail++;     reported++; }
+                    else if (li.classList.contains('is-question')) { question++; reported++; }
                 });
-                progressEl.textContent = done + ' of ' + total + ' checked';
+                progressEl.innerHTML = reported + ' / ' + total + ' reported'
+                    + ' <span style="color:#9ec56e;">· ' + pass + ' pass</span>'
+                    + ' <span style="color:#e88080;">· ' + fail + ' fail</span>'
+                    + ' <span style="color:#ECB351;">· ' + question + ' ?</span>';
 
                 root.querySelectorAll('.lgtc-section').forEach(function(sec){
                     var sId = sec.getAttribute('data-section');
-                    var items = sec.querySelectorAll('input[type="checkbox"][data-id]');
-                    var sTotal = 0;
-                    var sDone  = 0;
-                    items.forEach(function(cb){
-                        if (!isVisibleItem(cb)) return;
+                    var its = sec.querySelectorAll('.lgtc-item[data-item-id]');
+                    var sTotal = 0, sDone = 0;
+                    its.forEach(function(li){
+                        if (!isVisibleItem(li)) return;
                         sTotal++;
-                        if (cb.checked) sDone++;
+                        if (li.classList.contains('is-pass') || li.classList.contains('is-fail') || li.classList.contains('is-question')) sDone++;
                     });
                     var label = sec.querySelector('[data-section-progress="' + sId + '"]');
                     if (label) label.textContent = sDone + ' / ' + sTotal;
@@ -997,20 +1052,10 @@ final class TestChecklist
 
             // Initial state from localStorage
             var state = loadState();
-            checkboxes.forEach(function(cb){
-                var id = cb.getAttribute('data-id');
-                if (state[id]) {
-                    cb.checked = true;
-                    applyItemChecked(cb, true);
-                }
-                cb.addEventListener('change', function(){
-                    var s = loadState();
-                    if (cb.checked) s[id] = true;
-                    else delete s[id];
-                    saveState(s);
-                    applyItemChecked(cb, cb.checked);
-                    updateProgress();
-                });
+            items.forEach(function(li){
+                var id  = li.getAttribute('data-item-id');
+                var sev = state[id];
+                if (sev) applyItemState(li, sev);
             });
 
             hideToggle.addEventListener('change', function(){
@@ -1019,16 +1064,145 @@ final class TestChecklist
             });
 
             resetBtn.addEventListener('click', function(){
-                if (!confirm('Clear all your check marks? This only affects your browser.')) return;
+                if (!confirm('Clear your reported results? This only affects your browser. Submitted DB rows are kept for the audit log.')) return;
                 localStorage.removeItem(STORAGE_KEY);
-                checkboxes.forEach(function(cb){
-                    cb.checked = false;
-                    applyItemChecked(cb, false);
-                });
+                items.forEach(function(li){ applyItemState(li, ''); });
                 updateProgress();
             });
 
             updateProgress();
+
+            // ── Report modal ───────────────────────────────────────────
+            var modal       = root.querySelector('#lgtc-report-modal');
+            var modalForm   = modal.querySelector('#lgtc-modal-form');
+            var modalTitle  = modal.querySelector('#lgtc-modal-title');
+            var modalWhere  = modal.querySelector('#lgtc-modal-where');
+            var modalDesc   = modal.querySelector('#lgtc-modal-desc');
+            var modalName   = modal.querySelector('#lgtc-modal-name');
+            var modalBody   = modal.querySelector('#lgtc-modal-body');
+            var modalBodyLbl= modal.querySelector('#lgtc-modal-bodylabel');
+            var modalSubmit = modal.querySelector('#lgtc-modal-submit');
+            var modalStatus = modal.querySelector('#lgtc-modal-status');
+            var sevButtons  = modal.querySelectorAll('.lgtc-sev-btn');
+            var currentItemId = '';
+            var currentSev    = '';
+
+            function openModal(itemId) {
+                var li = root.querySelector('.lgtc-item[data-item-id="' + CSS.escape(itemId) + '"]');
+                if (!li) return;
+                currentItemId  = itemId;
+                currentSev     = '';
+                modalStatus.className = 'lgtc-fb-status';
+                modalStatus.textContent = '';
+                modalSubmit.disabled = true;
+                sevButtons.forEach(function(b){ b.classList.remove('is-active'); });
+                modalBody.value = '';
+                // Title + context strings
+                var sec = li.closest('.lgtc-section');
+                var secTitle = sec ? (sec.querySelector('h2') || {}).textContent || '' : '';
+                secTitle = (secTitle || '').replace(/\s*admin only\s*$/i, '').trim();
+                var desc = (li.querySelector('.lgtc-desc') || {}).textContent || '';
+                modalWhere.textContent = secTitle;
+                modalDesc.textContent  = desc;
+                // Restore saved name
+                try {
+                    var savedName = localStorage.getItem(NAME_KEY) || '';
+                    if (savedName) modalName.value = savedName;
+                } catch (e) {}
+                modal.hidden = false;
+                setTimeout(function(){ modalName.focus(); }, 0);
+            }
+            function closeModal() {
+                modal.hidden = true;
+                currentItemId = '';
+                currentSev    = '';
+            }
+            function setSeverity(sev) {
+                currentSev = sev;
+                sevButtons.forEach(function(b){
+                    b.classList.toggle('is-active', b.getAttribute('data-sev') === sev);
+                });
+                // Body required for fail/question; optional for pass.
+                if (sev === 'pass') {
+                    modalBodyLbl.textContent = 'Optional notes';
+                    modalBody.placeholder = 'Anything you want recorded with this pass.';
+                } else {
+                    modalBodyLbl.textContent = 'What happened? (required)';
+                    modalBody.placeholder = 'What did you see? What were you expecting? Be specific.';
+                }
+                modalSubmit.disabled = !sev;
+            }
+
+            // Open from any Report-result button
+            root.querySelectorAll('[data-report-trigger]').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    openModal(btn.getAttribute('data-report-trigger'));
+                });
+            });
+
+            // Severity pickers
+            sevButtons.forEach(function(b){
+                b.addEventListener('click', function(){
+                    setSeverity(b.getAttribute('data-sev'));
+                });
+            });
+
+            // Close
+            modal.querySelectorAll('[data-modal-close]').forEach(function(el){
+                el.addEventListener('click', closeModal);
+            });
+            document.addEventListener('keydown', function(e){
+                if (e.key === 'Escape' && !modal.hidden) closeModal();
+            });
+
+            // Submit
+            modalForm.addEventListener('submit', function(e){
+                e.preventDefault();
+                if (!currentSev || !currentItemId) return;
+                var name = (modalName.value || '').trim() || 'anonymous';
+                var body = (modalBody.value || '').trim();
+                if (currentSev !== 'pass' && !body) {
+                    modalStatus.className = 'lgtc-fb-status err';
+                    modalStatus.textContent = 'Tell us what you saw.';
+                    return;
+                }
+                try { localStorage.setItem(NAME_KEY, name); } catch (e) {}
+                modalSubmit.disabled = true;
+                modalStatus.className = 'lgtc-fb-status';
+                modalStatus.textContent = 'Submitting…';
+                var fd = new URLSearchParams();
+                fd.append('action', 'lgms_test_feedback_submit');
+                fd.append('nonce', FB_NONCE);
+                fd.append('item_id', currentItemId);
+                fd.append('tester_name', name);
+                fd.append('severity', currentSev);
+                fd.append('body', body);
+                fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: fd })
+                    .then(function(r){ return r.json().then(function(j){ return { http: r.status, json: j }; }); })
+                    .then(function(o){
+                        if (o.json && o.json.success) {
+                            // Update the cached state + the item visual
+                            var s = loadState();
+                            s[currentItemId] = currentSev;
+                            saveState(s);
+                            var li = root.querySelector('.lgtc-item[data-item-id="' + CSS.escape(currentItemId) + '"]');
+                            if (li) applyItemState(li, currentSev);
+                            updateProgress();
+                            modalStatus.className = 'lgtc-fb-status ok';
+                            modalStatus.textContent = 'Recorded.';
+                            setTimeout(closeModal, 900);
+                        } else {
+                            modalStatus.className = 'lgtc-fb-status err';
+                            modalStatus.textContent = (o.json && o.json.data && o.json.data.message) || ('HTTP ' + o.http);
+                            modalSubmit.disabled = false;
+                        }
+                    })
+                    .catch(function(){
+                        modalStatus.className = 'lgtc-fb-status err';
+                        modalStatus.textContent = 'Network error.';
+                        modalSubmit.disabled = false;
+                    });
+            });
 
             // ── View toggle: Admin vs Tester (admin-only control) ──────
             var btnViewAdmin  = root.querySelector('#lgtc-view-admin');
@@ -1157,75 +1331,6 @@ final class TestChecklist
                     lastPreview = null;
                     wipeEmailIn.value = '';
                 }).catch(function(){ setStatus('Network error during wipe.', 'err'); });
-            });
-
-            // ── Per-item feedback form ─────────────────────────────────
-            var savedName = '';
-            try { savedName = localStorage.getItem(NAME_KEY) || ''; } catch (e) {}
-
-            root.querySelectorAll('[data-fb-toggle]').forEach(function(btn){
-                var itemId = btn.getAttribute('data-fb-toggle');
-                var form   = root.querySelector('[data-fb-form="' + CSS.escape(itemId) + '"]');
-                if (!form) return;
-                var nameIn = form.querySelector('[data-fb-name]');
-                if (nameIn && savedName) nameIn.value = savedName;
-                btn.addEventListener('click', function(){
-                    var willOpen = form.hidden;
-                    form.hidden = !willOpen;
-                    btn.classList.toggle('is-open', willOpen);
-                    if (willOpen) {
-                        var ta = form.querySelector('[data-fb-body]');
-                        if (ta) ta.focus();
-                    }
-                });
-                form.querySelector('[data-fb-cancel]').addEventListener('click', function(){
-                    form.hidden = true;
-                    btn.classList.remove('is-open');
-                });
-                form.addEventListener('submit', function(e){
-                    e.preventDefault();
-                    var sev   = (form.querySelector('[data-fb-sev]:checked') || {}).value || 'note';
-                    var name  = (form.querySelector('[data-fb-name]').value || '').trim() || 'anonymous';
-                    var body  = (form.querySelector('[data-fb-body]').value || '').trim();
-                    var status = form.querySelector('[data-fb-status]');
-                    if (!body) {
-                        status.className = 'lgtc-fb-status err';
-                        status.textContent = 'Tell us what you saw.';
-                        return;
-                    }
-                    try { localStorage.setItem(NAME_KEY, name); } catch (e) {}
-                    savedName = name;
-                    status.className = 'lgtc-fb-status';
-                    status.textContent = 'Submitting…';
-                    var fd = new URLSearchParams();
-                    fd.append('action', 'lgms_test_feedback_submit');
-                    fd.append('nonce', FB_NONCE);
-                    fd.append('item_id', itemId);
-                    fd.append('tester_name', name);
-                    fd.append('severity', sev);
-                    fd.append('body', body);
-                    fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: fd })
-                        .then(function(r){ return r.json().then(function(j){ return { http: r.status, json: j }; }); })
-                        .then(function(o){
-                            if (o.json && o.json.success) {
-                                status.className = 'lgtc-fb-status ok';
-                                status.textContent = 'Thanks — logged.';
-                                form.querySelector('[data-fb-body]').value = '';
-                                setTimeout(function(){
-                                    form.hidden = true;
-                                    btn.classList.remove('is-open');
-                                    status.textContent = '';
-                                }, 1500);
-                            } else {
-                                status.className = 'lgtc-fb-status err';
-                                status.textContent = (o.json && o.json.data && o.json.data.message) || ('HTTP ' + o.http);
-                            }
-                        })
-                        .catch(function(){
-                            status.className = 'lgtc-fb-status err';
-                            status.textContent = 'Network error.';
-                        });
-                });
             });
 
             // ── Admin: feedback inbox ──────────────────────────────────
