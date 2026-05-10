@@ -1,116 +1,143 @@
 # Pickup — lg-patreon-stripe-poller
 
-*Last worked: 2026-05-04*
+*Updated: 2026-05-09*
 
-> **See companion repo** [`lg-stripe-billing`](https://github.com/iandavlin/lg-stripe-billing) (Slim API). Slim's PICKUP has the cross-cutting picture; this doc is the WP plugin half.
+> Companion repo: [`lg-stripe-billing`](https://github.com/iandavlin/lg-stripe-billing) (Slim API). Cross-cutting picture is in its PICKUP.
 
-## ⚠️ Open bugs / immediate triage
+## State
 
-1. **`/lggift-buy/` returning Bad Gateway.** Reported by user 2026-05-04 right after the latest `/lgjoin/` polish (password confirm + eye toggle + existing-account modal + grid layout — see `git log` last 5 commits on `src/Wp/Shortcodes.php`). The same shortcodes file was touched, so a stray heredoc / PHP fatal in the gift-buy render path is the most likely culprit.
-   - Triage: enable `WP_DEBUG_DISPLAY` (`/var/www/dev/wp-config.php`), curl `/lggift-buy/`, capture the inline trace, fix, flip back.
-   - Confirmed-good earlier this session before the polish bundle: revert to compare if needed (`git log --oneline -- src/Wp/Shortcodes.php`).
+WordPress plugin at `/var/www/dev/wp-content/plugins/lg-patreon-stripe-poller/` on `dev.loothgroup.com` (php-fpm pool `php8.3-fpm-looth-dev.sock`). Two databases: WordPress (`wp_*`, accessed via `$wpdb`) and `lg_membership` (own PDO via `LGMS\Db::pdo()`). The plugin's hourly cron (`lgms_poll_tick` → `Tick::run`) is the heart: pulls Stripe events, sweeps expired entitlements, calls back to Slim's `/v1/reconcile-pending`, and runs the customer sync.
 
-## Architecture (unchanged)
+**Server WIP not yet committed (canonical version):** `Plugin.php`, `Pages.php`, `Shortcodes.php`, `class-lgpo-sync-engine.php`, `Schema.php` (membership-guide table), plus untracked `src/Membership.php`, `src/Wp/MembershipGuide.php`, `src/Wp/UpcomingEvents.php`, `templates/page/*.php`, `assets/video/`, `seed-elders.php`, `snippets/admin-view-as-toggle.php`. The session-16 revert (`2d679fc`) restored `origin/main` to *before* a stale local laptop version of these. Don't pull origin over the server's working tree.
 
-Every role write goes through `Arbiter::sync($wpUserId)`. Sources of truth (`lg_role_sources` rows): `stripe`, `patreon`, `manual_*`. The arbiter merges, picks the highest tier across `looth1..4`, writes `wp_capabilities`, and **never touches** non-tier roles (administrator, bbp_keymaster, etc.). looth4 users are protected — the arbiter early-returns and won't modify them.
+## TODO
 
-Bridge points (where the arbiter gets called from):
+- **NEXT:** Triage `/lggift-buy/` Bad Gateway (reported 2026-05-04 after `[lg_join]` polish; suspect heredoc / PHP fatal in `Shortcodes.php` gift-buy render path). Enable `WP_DEBUG_DISPLAY` in `wp-config.php`, curl `/lggift-buy/`, capture inline trace, fix.
+- Commit the server's membership-guide WIP (see "State" above) when ready.
+- Verify `session 15` carryover items in companion `lg-stripe-billing` PICKUP — `charge.refunded` webhook event registration, affiliate `dan` linkage, etc.
 
-1. Cron tick — `Tick::run` → `Sync::all()` → `Sync::customer()` per dirty customer
-2. Slim webhook → `WpSync::trigger($customerId)` → POST to `/wp-json/lg-member-sync/v1/sync-customer` → `UserProvisioner::findOrProvision` → `RoleSourceWriter::report` → `Arbiter::sync`
-3. OAuth onboarding paths — all use `lgpo_apply_role_via_arbiter()` helper
-4. **NEW:** gift-auth REST endpoint — see below
+## Architecture
 
-## What changed this session (2026-05-03 → 2026-05-04)
+**Arbiter:** every role write goes through `Arbiter::sync($wpUserId)`. Sources of truth (`lg_role_sources` rows): `stripe`, `patreon`, `manual_*`. Arbiter merges, picks the highest tier across `looth1..4`, writes `wp_capabilities`, **never touches** non-tier roles (administrator, bbp_keymaster, customer). looth4 users are protected — early return.
 
-### Tier 2 Phase D — gift management UI shipped
+**Bridge points (where `Arbiter::sync` gets called):**
+1. Cron tick — `Tick::run` → `Sync::all()` → `Sync::customer()` per dirty customer.
+2. Slim webhook → `WpSync::trigger` → `/sync-customer` → `UserProvisioner::findOrProvision` → `RoleSourceWriter::report` → `Arbiter::sync`.
+3. OAuth onboarding paths — all use `lgpo_apply_role_via_arbiter()` helper.
+4. Gift-auth REST endpoint — see endpoints table.
 
-Five new WP REST endpoints under `/wp-json/lg-member-sync/v1/`:
-- `POST /send-gift-recipient` — shared-secret auth; called by Slim's `GiftActionController` when a buyer hits Send / Resend / Reassign on the dashboard. Single per-recipient email + `email_sent_at` stamp.
-- `POST /me/gift-{send,resend,reassign,void}` — WP-nonce auth (browser-only); permission via `authLoggedInUser`. Each one calls `proxyToSlim()` which curls back to Slim's `/v1/gift-*` endpoints. **Important:** `proxyToSlim` uses raw curl with `CURLOPT_RESOLVE => host:443:127.0.0.1` to bypass Cloudflare on internal calls. `wp_remote_post()` does NOT work for these — Cloudflare returns a 403 HTML challenge instead of letting the request reach origin nginx.
-- `POST /gift-auth` — public; no nonce. Login or sign-up endpoint that creates `customer`-role users with their own typed password and sets the auth cookie. Detailed below.
+**Roles:**
+- `looth1..4` — paid tiers, managed by Arbiter.
+- `customer` — gift-only buyers; sticky. `Plugin::denyGlobalAccessForCustomers` + cap-strip filters keep them out of forums and directories. `RestController::eraseBuddypressFootprint` wipes BB rows on creation.
+- `bbp_*` / `administrator` — never touched by the arbiter.
 
-`[lg_my_gifts]` shortcode is the buyer-facing dashboard at `/my-gifts/`. Renders Unsent / Sent / Redeemed / Voided buckets, with inline action buttons that fire the `/me/gift-*` endpoints. **Wrong-account "Oops" gate:** if the URL carries `?for=<email>` (added to the buyer's receipt-email link by `GiftMailer::sendDashboardSummary`) and the session email doesn't match, the dashboard refuses to render and shows "you're signed in as the wrong account" with a sign-out button.
+## REST endpoints (prefix `/wp-json/lg-member-sync/v1/`)
 
-### Gift purchase form (`[lg_gift]` at `/lggift-buy/`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/run-now` | X-LGMS-Token | Run `Tick::run` on demand (acquires GET_LOCK) |
+| POST | `/sync-customer` | X-LGMS-Token | `Sync::customer($id)` — fast on-checkout provisioning |
+| POST | `/send-gift-codes` | X-LGMS-Token | Gift code email + buyer's "My Gifts" stamp |
+| POST | `/send-gift-recipient` | X-LGMS-Token | Per-recipient send/resend/reassign email |
+| POST | `/refund-request` | **public** (rate-limited 5/hr/IP) | Customer-facing refund-request form → admin email |
+| POST | `/admin/cancel-subscription` | manage_options + nonce | Cancel + optional refund |
+| POST | `/admin/block-customer` | manage_options + nonce | Block by email |
+| POST | `/admin/refund-gift-purchase` | manage_options + nonce | Refund a gift purchase |
+| POST | `/me/cancel-subscription` | logged-in + nonce | Customer self-cancel |
+| POST | `/me/switch-plan` | logged-in + nonce | Customer self-switch |
+| POST | `/me/{create-setup-intent,set-default-payment-method,delete-payment-method}` | logged-in + nonce | Payment-method management |
+| GET | `/me/{payment-methods,invoices}` | logged-in + nonce | Customer self-service reads |
+| POST | `/me/gift-{send,resend,reassign,void}` | logged-in + nonce | Buyer dashboard actions (proxies to Slim) |
+| POST | `/gift-auth` | **public** | Login or sign-up for gift redemption / lgjoin |
+| POST | `/affiliate-withdraw` | logged-in + nonce | Affiliate payout request → admin email |
 
-- Two radio cards (was a 3-card accordion mid-session): **"Log in to manage & send personalized gift emails"** (default, with **Recommended** pill) and **"Get codes via email"** (anonymous, with subtle amber inline warning).
-- Inline auth panel (email + password + weekly opt-in) attached to the managed radio. On submit calls `/gift-auth` BEFORE Stripe — cookie is set before checkout, so post-payment the welcome modal lands the user logged in.
-- Consent modal for new accounts: when `/gift-auth` returns `needs_consent: true`, pop modal with privacy disclosure and weekly-email opt-in. Confirm → re-submit with `confirmed_consent: true`.
-- Anonymous-checkout warning modal with required acknowledgment checkbox.
-- Stripe embedded checkout is hosted in a centered modal (max 720px) portaled to `<body>` so BuddyBoss containing-blocks can't trap `position: fixed`. Fullscreen redirect overlay shown immediately on click (700ms minimum display) with a watchdog that drops the spinner after 12s.
-- One-shot `checkoutInProgress` flag prevents button-spam double-charges (verified — user spammed the button, only 1 Stripe session fired).
+## DB tables (in `lg_membership`)
 
-### Gift redemption form (`[lg_redeem_gift]` at `/lggift/`)
+| Table | Created by | What |
+|---|---|---|
+| `lg_role_sources` | `Schema.php` | (wp_user_id, source, tier) — input rows the Arbiter merges |
+| `lg_patreon_members` | `Schema.php` | Patreon membership snapshot per WP user |
+| `lg_event_cursor` | `Schema.php` | Stripe poller's cursor + last-poll status |
+| `lg_processed_events` | `Schema.php` | (event_id PK, first_seen_at, last_seen_at, dup_count) — populated by `EventHandler::handle` for duplicate detection |
 
-- Email is **stapled** to the gift code: server-side override in `RedeemController::redeem()` plus form field `readonly` whenever the code's `recipient_email` is set. Defense in depth — DevTools tampering can't change the destination.
-- Three render variants:
-  1. **Sign-in variant** (existing email + visitor not logged in) — green "this email already has an account" banner, no Name field, sign-in copy + Forgot link, "Sign in & redeem" button. After auth success, page reloads to `/lggift/?code=XXX` so the visitor lands logged-in and confirms redemption from there.
-  2. **Wrong-user hard fail** (logged-in session != recipient) — red banner "You're not <recipient>. This gift isn't for you." + sign-out button. Form is **not rendered** (early return).
-  3. **Create-account variant** (new email) — full form with Name + 8-char password.
-- Tier conflict picker (Stacked / Prorated options) only renders for authenticated users. Anonymous users hitting `requires_choice` get the inline-login gate (above).
-- `gift-auth` runs **before** `/v1/redeem` — wrong password = inline error, redemption never fires. New users created with their typed password, account auto-claim happens via `lg_auto_provisioned` user meta + `redemption_code` proof in `redemptionCodeProves()` (10-min window OR un-redeemed-yet codes for that email).
-- Welcome modal on success: "Welcome to the Looth Group!" with Take-me-to-feed CTA → `/activity/`.
-
-### Subscription form (`[lg_join]` at `/lgjoin/`) — auth-before-Stripe
-
-- Profile name copy strengthened (was "Used for your account / community profile" → now "what other members will see in forums, comments, and the activity feed — not optional").
-- Required Password + Confirm Password fields with live mismatch indicator + 👁 reveal toggles on both. Hidden when already logged in.
-- Submit calls `/gift-auth` first → cookie set before Stripe iframe loads → user lands on `/welcome/` already authenticated.
-- **Existing-account modal:** when gift-auth says wrong password for an existing email, show a dedicated modal with primary CTA → `wp-login.php?redirect_to=/manage-subscription/` (don't bounce them to a fresh checkout — they already have an account, send them to manage it).
-- Active-gift confirmation modal: server returns `needs_gift_confirmation` if email has an active gift entitlement. Modal shows "you have N days of looth2 from a gift" + checkbox "I understand — charge me today and stack on top". Re-submit with `acknowledged_active_gift: true`.
-- Stripe embedded checkout in a centered modal (same 720px lightbox pattern as the gift form).
-
-### Customer role lockdown (gift-only buyers)
-
-- New WP role `customer` (already in WordPress; we just lean on it).
-- `Plugin::denyGlobalAccessForCustomers` filter on `bbp_allow_global_access` prevents bbPress from auto-adding `bbp_participant` on every page load for users whose only role is `customer`.
-- `Plugin::stripForumCapsForCustomers` filter on `user_has_cap` forces `participate / publish_replies / publish_topics / edit_* / delete_* / moderate / throttle / spectate / *_topic_tags / mark_as_spam` to `false` for customer-only users. Read caps left intact.
-- `Plugin::maskCustomerBpUserId` masks `bp_loggedin_user_id` and `bp_displayed_user_id` to 0 for customer-only — they appear logged-out to every BB component (no avatar menu, no member-directory entry).
-- `Plugin::excludeCustomersFromBpQueries` appends customer-only user IDs to every `bp_pre_user_query` exclude list.
-- `RestController::eraseBuddypressFootprint($userId)` runs on every fresh customer creation — wipes `bp_activity / bp_friends / bp_groups_members / bp_messages_recipients / bp_notifications / bp_xprofile_data / bp_user_blogs / bp_invitations` rows and `last_activity / bp_latest_update / total_friend_count / total_group_count` user meta.
-- `customer` is sticky — Arbiter only manages `looth1..4`, so a customer who later subscribes ends up with `customer + looth2`. Both caps test true.
-
-### BuddyBoss public-content allowlist auto-sync
-
-- `Pages::PAGES` registry has `public => true|false` flag per shortcode page.
-- `Pages::ensureBuddyBossAllowlist()` appends slugs of `public => true` pages to the `bp-enable-private-network-public-content` option (idempotent, only adds what's missing).
-- `Plugin::maybeRefreshBbAllowlist()` runs the above on `init` priority 20, gated by a 6-hour transient. Self-heals after page renames or fresh installs.
-- `lg_my_gifts` and `lg_manage_subscription` were flipped from `public=>false` to `public=>true` — the shortcodes themselves render "please sign in" for anon, so BB doesn't need to double-gate them.
-
-### Slim-side changes (lg-stripe-billing repo)
-
-- `RedeemController` server-side enforces `recipient_email` override — the email param is replaced with the gift code's recipient_email if set, regardless of what the form posted.
-- `CheckoutController` injects `EntitlementRepository` and gates new subscriptions behind `acknowledged_active_gift` when an active gift exists.
-- `GiftRedemptionService` strategy labels prefixed with `Stacked:` / `Prorated:` for clarity on the conflict picker.
+Plus all the cross-cutting tables in `lg_membership` owned by Slim (`customers`, `subscriptions`, `entitlements`, `gift_codes`, `pending_sessions`, `affiliates`, etc.).
 
 ## Settings / cutover gotchas
 
-- **Patreon CSV plugin (`lg-patreon-sync`) is decommissioned** as of cutover. Already inactive on dev (`*.deprecated-2026-04-25`). Looth roles (looth1-4) are now persisted via User Role Editor — make sure URE registration sticks on prod.
-- Role display names = role slugs (renamed via wp-cli; if URE re-syncs labels, push the rename via URE's option key).
-- `WP_MEMORY_LIMIT` and `WP_MAX_MEMORY_LIMIT` set to **512M** in `wp-config.php`. The php-fpm pool config (`/etc/php/8.3/fpm/pool.d/looth-dev.conf`) has `php_admin_value[memory_limit] = 256M` — that's the actual ceiling and **needs sudo to bump**:
-  ```
+- **Patreon CSV plugin (`lg-patreon-sync`) is decommissioned** — inactive on dev (`*.deprecated-2026-04-25`). Looth roles persisted via User Role Editor — make sure URE registration sticks on prod.
+- **Role display names = role slugs** (renamed via wp-cli; if URE re-syncs labels, push rename via URE's option key).
+- **PHP-FPM memory limit** at 256M caps the effective limit even though `WP_MEMORY_LIMIT` is 512M:
+  ```bash
   sudo sed -i 's/^php_admin_value\[memory_limit\] = 256M/php_admin_value[memory_limit] = 512M/' /etc/php/8.3/fpm/pool.d/looth-dev.conf
   sudo systemctl reload php8.3-fpm
   ```
-  Until that lands, Search & Filter Pro's bitmap indexer can OOM `/archive/`.
+  Without this, Search & Filter Pro's bitmap indexer can OOM `/archive/`.
 - **Dev mu-plugin `dev-admin-only-login.php` is disabled** (`.disabled` extension). Do NOT re-enable on prod.
-- **Debug log rotation** is set up via user-cron at 03:15 daily (`~/logrotate-debug.conf`, state at `~/logrotate-debug.state`). Caps `wp-content/debug.log` at 10 MB live + 5 gzipped rotations.
+- **Debug log rotation** — user-cron at 03:15 daily (`~/logrotate-debug.conf`, state `~/logrotate-debug.state`). Caps `wp-content/debug.log` at 10 MB live + 5 gzipped rotations.
+- **BuddyBoss public-content allowlist auto-syncs** — `Pages::PAGES` registry has `public => true|false`. `ensureBuddyBossAllowlist()` runs on `init` priority 20, gated by 6h transient. Self-heals after page renames.
 
-## What's planned but not done
+## Key gotchas
 
-1. **Create gift-duration prices in Stripe** — the backend is complete (`discount_scale` column in DB, Slim reads `lgms_discount_scale` metadata, `CheckoutService` applies scale, WP duration picker UI is wired). All that remains is creating the 1/3/6-month one-time prices in the Stripe Dashboard with the right metadata. See `PROD-CUTOVER.md` → "Gift duration pricing" for the full table of prices to create.
-2. Subscription-flow active-gift confirmation server-side query is in place; UI tested but not yet validated end-to-end with real fixture data.
-3. Post-Stripe processing modal on the gift checkout — built and reverted in same session because Stripe's `onComplete` timing was awkward and the redirect-to-feed felt sufficient. May re-attempt later.
+- **`Tick::run` holds a GET_LOCK** (`lgms_tick_lock`, non-blocking). A second tick (e.g. cron + manual `/run-now`) returns immediately and logs `tick SKIPPED`. PDO is non-persistent so MySQL auto-releases on connection end — no stale-lock risk.
+- **`tick.log` ownership matters** — written by `looth-dev` (php-fpm pool user). If you `echo > tick.log` as `ccdev`, future `@file_put_contents` from PHP fails silently. Delete the file instead and let php-fpm recreate it with the right owner.
+- **CF resolve pin (`CURLOPT_RESOLVE => host:port:127.0.0.1`)** for all internal server-to-server HTTP. `wp_remote_post` does NOT honor this — use raw curl. Pattern is in `Tick::run` Pass 1.7 (`reconcile-pending`) and the gift-action proxy in `RestController::proxyToSlim`.
+- **`/refund-request` is the only public unauthenticated POST** — rate-limited 5/hr/IP via transient keyed off `HTTP_CF_CONNECTING_IP` (Cloudflare-aware, falls back to `REMOTE_ADDR`).
+- **`lg_membership` DB user is separate from the WP DB user** — wp-cli queries the WP DB by default, **cannot** SELECT/INSERT against `lg_membership` tables directly. Use `wp eval 'LGMS\Db::pdo()->...'` to access them.
+- **Gift email is stapled to the code** — `RedeemController::redeem()` server-side override + `readonly` form field. DevTools tampering can't change the destination.
 
-## Test fixtures + cleanup
-
-Quick "nuke ianhates + clear ian.davlin gifts" recipe (we ran it ~10 times this session):
+## Quick test commands
 
 ```bash
-ssh -i "ssh keys/ccdev_key" ccdev@54.157.13.77 'wp eval "
+# Server SSH
+ssh -i "C:/Users/ianda/git-repos/ssh keys/ccdev_key" ccdev@54.157.13.77
+
+# Trigger the cron tick manually
+cd /var/www/dev && wp cron event run lgms_poll_tick
+
+# Manually run Tick::run via REST (exercises GET_LOCK)
+SECRET=$(wp --path=/var/www/dev option get lgms_shared_secret)
+curl -sS -X POST 'https://dev.loothgroup.com/wp-json/lg-member-sync/v1/run-now' \
+  --resolve dev.loothgroup.com:443:127.0.0.1 -k \
+  -H "X-LGMS-Token: $SECRET" -H 'Content-Type: application/json' -d '{}'
+
+# Sync one customer
+curl -sS -X POST -H "X-LGMS-Token: $SECRET" -H 'Content-Type: application/json' \
+  -d '{"customer_id":3}' \
+  --resolve dev.loothgroup.com:443:127.0.0.1 -k \
+  https://dev.loothgroup.com/wp-json/lg-member-sync/v1/sync-customer
+
+# Inspect role sources for a user
+wp eval 'print_r(\LGMS\RoleSourceWriter::readAllForUser(1838));' --path=/var/www/dev
+
+# Force BB-allowlist refresh
+wp transient delete lgms_bb_allowlist_synced --path=/var/www/dev
+
+# Smoke-test the rate limit on /refund-request (6th+ should be silently throttled)
+for i in 1 2 3 4 5 6; do
+  curl -sS -o /dev/null -w "$i: %{http_code} %{time_total}s\n" -X POST \
+    'https://dev.loothgroup.com/wp-json/lg-member-sync/v1/refund-request' \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"smoke","email":"smoke@example.com","reasons":["test"],"items":[]}'
+done
+
+# Check duplicate-event table
+wp --path=/var/www/dev eval '
+  $pdo = LGMS\Db::pdo();
+  echo "total: " . $pdo->query("SELECT COUNT(*) FROM lg_processed_events")->fetchColumn() . "\n";
+  echo "dupes: " . $pdo->query("SELECT COUNT(*) FROM lg_processed_events WHERE dup_count > 0")->fetchColumn() . "\n";
+'
+
+# Tail tick.log
+tail -f /var/www/dev/wp-content/plugins/lg-patreon-stripe-poller/tick.log
+```
+
+## Test fixture cleanup
+
+```bash
+# Nuke ianhates + clear ian.davlin gift codes (run between gift flow tests)
+ssh -i "C:/Users/ianda/git-repos/ssh keys/ccdev_key" ccdev@54.157.13.77 'wp eval "
 require_once \"/var/www/dev/wp-content/plugins/lg-patreon-stripe-poller/vendor/autoload.php\";
-\$pdo = \LGMS\Db::pdo();
+\$pdo = \\LGMS\\Db::pdo();
 foreach ([\"ianhatesguitars@gmail.com\",\"ian.davlin@gmail.com\"] as \$email) {
     \$st = \$pdo->prepare(\"SELECT id FROM customers WHERE email = ?\");
     \$st->execute([\$email]);
@@ -120,30 +147,10 @@ foreach ([\"ianhatesguitars@gmail.com\",\"ian.davlin@gmail.com\"] as \$email) {
 }" --path=/var/www/dev'
 ```
 
-Full ianhates teardown (WP user + customer + all FK-linked rows) is documented in earlier session transcript.
+Full ianhates teardown (WP user + customer + FK-linked rows) is in earlier session transcripts — search for "ianhates teardown".
 
-## Quick commands
+## Recent history
 
-```bash
-# Trigger the cron tick manually
-cd /var/www/dev && wp cron event run lgms_poll_tick
-
-# Sync one customer via REST
-SECRET=$(sudo grep '^LGMS_SHARED_SECRET=' /home/ccdev/lg-stripe-billing/.env | cut -d= -f2)
-curl -s -X POST -H "Content-Type: application/json" -H "X-LGMS-Token: $SECRET" \
-  -d '{"customer_id":3}' \
-  --resolve dev.loothgroup.com:443:127.0.0.1 -k \
-  https://dev.loothgroup.com/wp-json/lg-member-sync/v1/sync-customer
-
-# Force BB-allowlist refresh
-wp transient delete lgms_bb_allowlist_synced --path=/var/www/dev
-
-# Inspect role sources for a user
-wp eval 'print_r(\LGMS\RoleSourceWriter::readAllForUser(1838));' --path=/var/www/dev
-```
-
-## Server access
-
-```bash
-ssh -i "C:/Users/ianda/git-repos/ssh keys/ccdev_key" ccdev@54.157.13.77
-```
+- **2026-05-09 (security audit)** — `/refund-request` rate limit, `Tick` GET_LOCK, `lg_processed_events` table + dup detection, `refund_window_days` clamp 1–90. Reverted commit `a545d39` (laptop's stale membership-guide snapshot) — server's working tree is canonical for that work.
+- **2026-05-04** — gift-management UI shipped: `[lg_my_gifts]` dashboard, `/me/gift-*` endpoints, `/gift-auth` for login-before-Stripe, gift-buy form (`[lg_gift]`), gift-redemption (`[lg_redeem_gift]`), customer-role lockdown. See `git log --grep gift`.
+- Earlier — see `git log` and the companion repo's PICKUP for cross-cutting context.
