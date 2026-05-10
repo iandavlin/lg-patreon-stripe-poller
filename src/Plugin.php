@@ -536,11 +536,13 @@ final class Plugin
             'looth4' => 'Looth Premium Plus',
         ][ $tier ] ?? 'Looth';
 
-        $endpoint = esc_url_raw( rest_url( 'lg-member-sync/v1/dismiss-welcome' ) );
-        $nonce    = wp_create_nonce( 'wp_rest' );
-        $titleEsc = esc_html( "🎉 Welcome to {$tierLabel}!" );
-        $bodyEsc  = esc_html( 'Your membership is active. You now have full access to forums, archives, member events, and more.' );
-        $closeEsc = esc_attr__( 'Close', 'lg-patreon-stripe-poller' );
+        $endpoint   = esc_url_raw( rest_url( 'lg-member-sync/v1/dismiss-welcome' ) );
+        $nonce      = wp_create_nonce( 'wp_rest' );
+        $titleEsc   = esc_html( "🎉 Welcome to {$tierLabel}!" );
+        $bodyEsc    = esc_html( 'Your membership is active. Want a quick tour of what\'s inside, or would you rather jump straight in?' );
+        $closeEsc   = esc_attr__( 'Close', 'lg-patreon-stripe-poller' );
+        $tourUrl    = esc_url( home_url( '/membership-guide/' ) );
+        $feedUrl    = esc_url( home_url( '/activity/' ) );
 
         ?>
         <div id="lg-welcome-modal" class="lg-welcome-modal" role="dialog" aria-modal="true" aria-labelledby="lg-welcome-title">
@@ -549,18 +551,29 @@ final class Plugin
                 <button type="button" class="lg-welcome-modal__close" data-lg-welcome-dismiss aria-label="<?php echo $closeEsc; ?>">&times;</button>
                 <h3 id="lg-welcome-title" class="lg-welcome-modal__title"><?php echo $titleEsc; ?></h3>
                 <p class="lg-welcome-modal__body"><?php echo $bodyEsc; ?></p>
+                <div class="lg-welcome-modal__actions">
+                    <a href="<?php echo $tourUrl; ?>" class="lg-welcome-modal__btn lg-welcome-modal__btn--primary" data-lg-welcome-go="<?php echo $tourUrl; ?>">Take the tour</a>
+                    <a href="<?php echo $feedUrl; ?>" class="lg-welcome-modal__btn lg-welcome-modal__btn--ghost" data-lg-welcome-go="<?php echo $feedUrl; ?>">Jump to the feed</a>
+                </div>
             </div>
         </div>
         <style>
             .lg-welcome-modal { position: fixed; inset: 0; z-index: 2147483600; display: flex; align-items: center; justify-content: center; padding: 1em; opacity: 0; pointer-events: auto; transition: opacity .25s ease; }
             .lg-welcome-modal.is-visible { opacity: 1; }
             .lg-welcome-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
-            .lg-welcome-modal__card { position: relative; background: #fff; color: #1f1d1a; border: 2px solid var(--lg-amber, #ECB351); border-radius: 12px; padding: 1.8em 1.6em; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.45); transform: translateY(16px); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+            .lg-welcome-modal__card { position: relative; background: #fff; color: #1f1d1a; border: 2px solid var(--lg-amber, #ECB351); border-radius: 12px; padding: 1.8em 1.6em; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.45); transform: translateY(16px); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
             .lg-welcome-modal.is-visible .lg-welcome-modal__card { transform: translateY(0); }
             .lg-welcome-modal__close { position: absolute; top: .55em; right: .55em; width: 2em; height: 2em; padding: 0; background: #fff; border: 1px solid rgba(0,0,0,0.15); border-radius: 50%; font-size: 1.3em; line-height: 1; cursor: pointer; color: #333; display: flex; align-items: center; justify-content: center; transition: background .15s, color .15s; }
             .lg-welcome-modal__close:hover { color: #000; background: #f3f3f3; }
             .lg-welcome-modal__title { margin: 0 0 .55em; font-size: 1.25em; font-weight: 700; line-height: 1.3; }
-            .lg-welcome-modal__body { margin: 0; font-size: .95em; line-height: 1.5; color: #444; }
+            .lg-welcome-modal__body { margin: 0 0 1.4em; font-size: .95em; line-height: 1.5; color: #444; }
+            .lg-welcome-modal__actions { display: flex; gap: .65em; justify-content: center; flex-wrap: wrap; }
+            .lg-welcome-modal__btn { display: inline-block; padding: .7em 1.4em; border-radius: 6px; font-size: .95em; font-weight: 700; text-decoration: none; cursor: pointer; transition: background .15s, color .15s, transform .1s; line-height: 1.2; }
+            .lg-welcome-modal__btn:hover { transform: translateY(-1px); }
+            .lg-welcome-modal__btn--primary { background: var(--lg-amber, #ECB351); color: #2B2318; border: 2px solid var(--lg-amber, #ECB351); }
+            .lg-welcome-modal__btn--primary:hover { background: #d99a3a; border-color: #d99a3a; color: #2B2318; }
+            .lg-welcome-modal__btn--ghost   { background: #fff; color: #2B2318; border: 2px solid #2B2318; }
+            .lg-welcome-modal__btn--ghost:hover { background: #2B2318; color: #fff; }
         </style>
         <script>
         (function(){
@@ -571,22 +584,31 @@ final class Plugin
             if ( modal.parentNode !== document.body ) document.body.appendChild( modal );
             requestAnimationFrame( function(){ modal.classList.add('is-visible'); } );
 
-            function dismiss() {
-                modal.classList.remove('is-visible');
-                setTimeout( function(){ modal.parentNode && modal.parentNode.removeChild(modal); }, 250 );
-                // Fire-and-forget — even if this fails the modal is gone
-                // locally; worst case it shows again on next page load.
+            // Fire-and-forget meta cleanup so the modal won't re-fire on
+            // the next page load, regardless of which CTA the user clicked.
+            function clearWelcomeMeta() {
                 try {
                     fetch(<?php echo wp_json_encode( $endpoint ); ?>, {
                         method: 'POST',
                         credentials: 'same-origin',
+                        keepalive: true,
                         headers: { 'X-WP-Nonce': <?php echo wp_json_encode( $nonce ); ?>, 'Content-Type': 'application/json' },
                         body: '{}'
                     });
                 } catch (e) {}
             }
+            function dismiss() {
+                clearWelcomeMeta();
+                modal.classList.remove('is-visible');
+                setTimeout( function(){ modal.parentNode && modal.parentNode.removeChild(modal); }, 250 );
+            }
+            // X / backdrop: dismiss without navigating.
             modal.querySelectorAll('[data-lg-welcome-dismiss]').forEach(function(el){
                 el.addEventListener('click', dismiss);
+            });
+            // Tour / Feed buttons: clear meta, then let the browser follow the href.
+            modal.querySelectorAll('[data-lg-welcome-go]').forEach(function(el){
+                el.addEventListener('click', function(){ clearWelcomeMeta(); });
             });
         })();
         </script>
