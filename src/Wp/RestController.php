@@ -947,6 +947,14 @@ final class RestController
         }
         try {
             $stripe = new StripeClient();
+            // Defense-in-depth IDOR check: verify the PM is actually attached
+            // to this customer before Stripe rejects it. Mirrors the explicit
+            // membership check in meDeletePaymentMethod.
+            $pms = $stripe->listPaymentMethods( (string) $customer['stripe_customer_id'] );
+            $ids = array_map( fn( $p ) => (string) $p->id, $pms );
+            if ( ! in_array( $pmId, $ids, true ) ) {
+                return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Payment method not found on your account.' ], 404 );
+            }
             $stripe->updateCustomer( (string) $customer['stripe_customer_id'], [
                 'invoice_settings' => [ 'default_payment_method' => $pmId ],
             ] );
@@ -1303,9 +1311,15 @@ final class RestController
         // as WpGiftMailer. Slim lives on the same host; CURLOPT_RESOLVE pins the
         // hostname to 127.0.0.1 so the request never leaves the machine.
         $parts  = parse_url( $url );
-        $host   = (string) ( $parts['host']   ?? '' );
-        $scheme = (string) ( $parts['scheme'] ?? 'https' );
-        $port   = (int)    ( $parts['port']   ?? ( $scheme === 'https' ? 443 : 80 ) );
+        $scheme = strtolower( (string) ( $parts['scheme'] ?? 'https' ) );
+        // Reject anything that isn't http/https. Defense-in-depth against a
+        // poisoned lgms_billing_base_url option (gopher://, file://, etc.).
+        if ( $scheme !== 'http' && $scheme !== 'https' ) {
+            error_log( "LGMS proxyToSlim({$action}): refusing non-http(s) scheme '{$scheme}' in lgms_billing_base_url" );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Billing service URL is misconfigured.' ], 500 );
+        }
+        $host = (string) ( $parts['host'] ?? '' );
+        $port = (int)    ( $parts['port'] ?? ( $scheme === 'https' ? 443 : 80 ) );
 
         $ch = curl_init( $url );
         if ( $ch === false ) {
