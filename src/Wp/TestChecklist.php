@@ -470,6 +470,17 @@ final class TestChecklist
 
     public static function render(): string
     {
+        // Admins auto-bypass the WP post-password gate, so they never see the
+        // password they need to share with testers. Surface it here as an
+        // admin-only callout so it can be copied without leaving the page.
+        $pagePassword = '';
+        if ( current_user_can( 'manage_options' ) ) {
+            $postId = (int) get_the_ID();
+            if ( $postId > 0 ) {
+                $pagePassword = (string) get_post_field( 'post_password', $postId );
+            }
+        }
+
         ob_start();
         ?>
         <div class="lgtc">
@@ -482,6 +493,20 @@ final class TestChecklist
                     <button type="button" id="lgtc-reset" class="lgtc-btn lgtc-btn-danger">Reset all</button>
                 </div>
             </header>
+
+            <?php if ( $pagePassword !== '' && current_user_can( 'manage_options' ) ) : ?>
+                <section class="lgtc-pwd">
+                    <span class="lgtc-pwd-label">Page password (share with testers)</span>
+                    <input type="text" id="lgtc-pwd-value" value="<?php echo esc_attr( $pagePassword ); ?>" readonly>
+                    <button type="button" id="lgtc-pwd-copy" class="lgtc-btn">Copy</button>
+                    <span class="lgtc-pwd-hint">Admins bypass this automatically; testers need it to view the page.</span>
+                </section>
+            <?php elseif ( current_user_can( 'manage_options' ) ) : ?>
+                <section class="lgtc-pwd lgtc-pwd-unset">
+                    <span class="lgtc-pwd-label">No page password set</span>
+                    <span class="lgtc-pwd-hint">Anyone with the URL can view. Set one in wp-admin → Pages → Test Checklist → "Password protected".</span>
+                </section>
+            <?php endif; ?>
 
             <!-- TIPS FOR TESTERS -->
             <section class="lgtc-tips">
@@ -572,6 +597,14 @@ final class TestChecklist
             .lgtc-item.is-checked .lgtc-desc { text-decoration: line-through; }
             .lgtc-hide-mode .lgtc-item.is-checked { display: none; }
             .lgtc-hide-mode .lgtc-section.is-empty { display: none; }
+            .lgtc-pwd { background: var(--dark); color: var(--cream); padding: 12px 22px; border-top: 1px solid #3a2f24; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+            .lgtc-pwd-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--amber); font-weight: 700; flex: 0 0 auto; }
+            .lgtc-pwd input { background: #1a140d; color: var(--amber); border: 1px solid #5a4732; padding: 5px 10px; border-radius: 4px; font-family: Consolas, Menlo, monospace; font-size: 13px; flex: 0 0 auto; min-width: 200px; }
+            .lgtc-pwd .lgtc-btn { background: transparent; border: 1px solid var(--amber); color: var(--amber); padding: 5px 14px; }
+            .lgtc-pwd .lgtc-btn:hover { background: var(--amber); color: var(--dark); }
+            .lgtc-pwd-hint { font-size: 11px; color: #888; flex: 1 1 auto; min-width: 200px; }
+            .lgtc-pwd-unset { background: #5a3a1f; }
+            .lgtc-pwd-unset .lgtc-pwd-label { color: #f1c8c1; }
             .lgtc-tips { background: var(--green-l); border: 1px solid var(--green); padding: 16px 22px; margin: 0 0 0; border-top: 0; }
             .lgtc-tips h2 { margin: 0 0 8px; font-family: Georgia, serif; font-size: 17px; color: var(--dark); }
             .lgtc-tips ul { margin: 0; padding-left: 20px; }
@@ -687,6 +720,28 @@ final class TestChecklist
             });
 
             updateProgress();
+
+            // ── Copy-password button ────────────────────────────────────
+            var pwdCopyBtn = root.querySelector('#lgtc-pwd-copy');
+            if (pwdCopyBtn) {
+                pwdCopyBtn.addEventListener('click', function(){
+                    var input = root.querySelector('#lgtc-pwd-value');
+                    if (!input) return;
+                    input.focus();
+                    input.select();
+                    var ok = false;
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(input.value).then(function(){
+                            pwdCopyBtn.textContent = 'Copied ✓';
+                            setTimeout(function(){ pwdCopyBtn.textContent = 'Copy'; }, 1500);
+                        });
+                        return;
+                    }
+                    try { ok = document.execCommand('copy'); } catch (e) {}
+                    pwdCopyBtn.textContent = ok ? 'Copied ✓' : 'Press Ctrl/Cmd+C';
+                    setTimeout(function(){ pwdCopyBtn.textContent = 'Copy'; }, 1800);
+                });
+            }
 
             // ── Wipe panel ──────────────────────────────────────────────
             var wipeEmailIn   = root.querySelector('#lgtc-wipe-email');
