@@ -3,3 +3,4 @@ vendor/
 .vscode/
 *.log
 .DS_Store
+assets/video/

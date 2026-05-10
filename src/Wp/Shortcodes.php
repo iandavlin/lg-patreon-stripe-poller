@@ -1956,6 +1956,11 @@ final class Shortcodes
 
         $customer = \LGMS\Repos\CustomerRepo::findByEmail( $email );
         if ( $customer === null ) {
+            // No Stripe customer, but we may still have Patreon or admin-grant data.
+            $altStatus = \LGMS\Membership::statusFor( (int) $user->ID );
+            if ( in_array( $altStatus['source'], [ 'patreon', 'manual' ], true ) ) {
+                return self::renderAltMembershipPanel( $altStatus );
+            }
             return '<p><em>No membership record found on this account.</em></p>';
         }
 
@@ -2065,7 +2070,13 @@ final class Shortcodes
             <?php endif; ?>
 
             <?php if ( $subs === [] ) : ?>
-                <?php if ( $giftEnts === [] ) : ?>
+                <?php
+                $altStatus = \LGMS\Membership::statusFor( (int) $user->ID );
+                $hasAlt    = in_array( $altStatus['source'], [ 'patreon', 'manual' ], true );
+                ?>
+                <?php if ( $hasAlt ) : ?>
+                    <?php echo self::renderAltMembershipPanel( $altStatus ); ?>
+                <?php elseif ( $giftEnts === [] ) : ?>
                     <p>You don't have an active membership right now.</p>
                     <p><a href="<?php echo esc_url( home_url( '/lgjoin/' ) ); ?>">Pick a plan to get started &rarr;</a></p>
                 <?php endif; ?>
@@ -4904,6 +4915,73 @@ final class Shortcodes
         if ( ! $ts ) return null;
         $diff = $ts - time();
         return $diff > 0 ? (int) ceil( $diff / DAY_IN_SECONDS ) : 0;
+    }
+
+    /**
+     * Renders the unified non-Stripe membership card (Patreon / admin grant)
+     * from the struct returned by Membership::statusFor().
+     */
+    private static function renderAltMembershipPanel( array $alt ): string
+    {
+        $pillBg = match ( $alt['status'] ) {
+            'active'   => '#dcfce7',
+            'past_due' => '#fee2e2',
+            'canceled' => '#f3f4f6',
+            default    => '#f3f4f6',
+        };
+        $pillFg = match ( $alt['status'] ) {
+            'active'   => '#15803d',
+            'past_due' => '#b91c1c',
+            'canceled' => '#4b5563',
+            default    => '#4b5563',
+        };
+        $borderClr = $alt['status'] === 'past_due' ? '#fca5a5' : '#ddd';
+        $nextDate  = $alt['next_charge_at'] !== null
+                        ? self::shortDate( (string) $alt['next_charge_at'] )
+                        : '';
+        $amount    = $alt['amount_cents'] !== null
+                        ? '$' . number_format( $alt['amount_cents'] / 100, 2 )
+                        : '';
+
+        ob_start();
+        ?>
+        <div class="lg-manage-sub__card lg-manage-sub__card--alt"
+             style="border:1px solid <?php echo esc_attr( $borderClr ); ?>;border-radius:6px;padding:1em 1.2em;margin-bottom:1em;max-width:640px;">
+            <h4 style="margin:0 0 0.5em;display:flex;align-items:center;gap:.6em;flex-wrap:wrap;">
+                <span><?php echo esc_html( $alt['tier'] ?: 'Membership' ); ?></span>
+                <span style="font-size:.78em;font-weight:500;background:<?php echo esc_attr( $pillBg ); ?>;color:<?php echo esc_attr( $pillFg ); ?>;padding:.2em .65em;border-radius:999px;">
+                    <?php echo esc_html( $alt['status_label'] ); ?>
+                </span>
+            </h4>
+            <p style="margin:0.2em 0;color:#444;">
+                Source: <strong><?php echo esc_html( $alt['source_label'] ); ?></strong>
+                <?php if ( $amount !== '' ) : ?>
+                    &middot; <?php echo esc_html( $amount ); ?>
+                <?php endif; ?>
+                <?php if ( $alt['status'] === 'active' && $nextDate !== '' ) : ?>
+                    <br>Next charge: <strong><?php echo esc_html( $nextDate ); ?></strong>
+                <?php endif; ?>
+            </p>
+
+            <?php if ( $alt['status'] === 'past_due' && $alt['source'] === 'patreon' ) : ?>
+                <div style="margin-top:.8em;padding:.7em 1em;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;color:#856404;font-size:.92em;">
+                    <strong>Payment failed on Patreon.</strong> Update your card on Patreon to keep your membership active.
+                </div>
+            <?php endif; ?>
+
+            <?php if ( $alt['manage_url'] !== null ) : ?>
+                <div class="lg-manage-sub__actions" style="margin-top:1em;">
+                    <a class="lg-manage-sub__btn lg-manage-sub__btn--primary"
+                       href="<?php echo esc_url( $alt['manage_url'] ); ?>"
+                       target="_blank" rel="noopener"
+                       style="display:inline-block;background:#ECB351;color:#1f1d1a;padding:.5em 1em;border-radius:6px;font-weight:600;text-decoration:none;">
+                        Manage on <?php echo esc_html( $alt['source_label'] ); ?> &rarr;
+                    </a>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+        return (string) ob_get_clean();
     }
 
     /**
