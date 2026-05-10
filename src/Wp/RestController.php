@@ -958,8 +958,10 @@ final class RestController
             $stripe->updateCustomer( (string) $customer['stripe_customer_id'], [
                 'invoice_settings' => [ 'default_payment_method' => $pmId ],
             ] );
+            self::logAdminAction( (int) $customer['id'], 'self_set_default_pm', null, null, null, $pmId, true, null );
             return new \WP_REST_Response( [ 'ok' => true, 'message' => 'Your payment method has been updated.' ] );
         } catch ( \Throwable $e ) {
+            self::logAdminAction( (int) $customer['id'], 'self_set_default_pm', null, null, null, $pmId, false, $e->getMessage() );
             return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not save payment method. Please try again.' ], 500 );
         }
     }
@@ -1019,8 +1021,10 @@ final class RestController
                 return new \WP_REST_Response( [ 'ok' => false, 'error' => 'You cannot remove your only payment method while you have an active subscription.' ], 400 );
             }
             $stripe->detachPaymentMethod( $pmId );
+            self::logAdminAction( (int) $customer['id'], 'self_remove_pm', null, null, null, $pmId, true, null );
             return new \WP_REST_Response( [ 'ok' => true, 'message' => 'Payment method removed.' ] );
         } catch ( \Throwable $e ) {
+            self::logAdminAction( (int) $customer['id'], 'self_remove_pm', null, null, null, $pmId, false, $e->getMessage() );
             return new \WP_REST_Response( [ 'ok' => false, 'error' => 'Could not remove payment method. Please try again.' ], 500 );
         }
     }
@@ -1284,17 +1288,21 @@ final class RestController
         }
 
         // Ownership check: gift_code must belong to a customer with this email.
+        // Capture customer_id for the audit log row written after the proxy call.
+        $customerId = 0;
         try {
             $pdo  = Db::pdo();
             $stmt = $pdo->prepare(
-                'SELECT g.id FROM gift_codes g
+                'SELECT g.purchased_by FROM gift_codes g
                  JOIN customers c ON c.id = g.purchased_by
                  WHERE g.id = ? AND c.email = ? LIMIT 1'
             );
             $stmt->execute( [ $codeId, $email ] );
-            if ( $stmt->fetch() === false ) {
+            $row = $stmt->fetch( PDO::FETCH_ASSOC );
+            if ( ! $row ) {
                 return new WP_REST_Response( [ 'ok' => false, 'error' => 'Code not found or not yours.' ], 403 );
             }
+            $customerId = (int) $row['purchased_by'];
         } catch ( \Throwable $e ) {
             error_log( "LGMS proxyToSlim({$action}): DB error: " . $e->getMessage() );
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Internal error verifying code ownership.' ], 500 );
@@ -1356,6 +1364,18 @@ final class RestController
             error_log( "LGMS proxyToSlim({$action}): non-JSON response (HTTP {$httpCode}): " . substr( (string) $rawBody, 0, 300 ) );
             $body = [ 'ok' => false, 'error' => 'Unexpected response from billing service.' ];
         }
+
+        $success = ( $httpCode >= 200 && $httpCode < 300 ) && ! empty( $body['ok'] );
+        self::logAdminAction(
+            $customerId,
+            'self_' . str_replace( '-', '_', $action ),
+            null,
+            null,
+            null,
+            (string) $codeId,
+            $success,
+            $success ? null : (string) ( $body['error'] ?? "HTTP {$httpCode}" )
+        );
 
         return new WP_REST_Response( $body, $httpCode >= 100 ? $httpCode : 500 );
     }
