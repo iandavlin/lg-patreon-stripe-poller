@@ -106,6 +106,8 @@ final class MembershipGuide
         // Front-end inline editor for the Recurring Shows carousel (admin-only).
         add_action( 'wp_ajax_lgms_save_show',              [ self::class, 'handleAjaxSaveShow' ] );
         add_action( 'wp_ajax_lgms_delete_show',            [ self::class, 'handleAjaxDeleteShow' ] );
+        // Admin-only "send test welcome email" from the preview bar.
+        add_action( 'wp_ajax_lgms_send_welcome_test',      [ self::class, 'handleAjaxSendWelcomeTest' ] );
 
         // Some plugin in the stack (BB / Search-Filter / Elementor combo) reorders
         // WP's rewrite rules during regeneration so the single-name POST rule lands
@@ -1321,6 +1323,27 @@ final class MembershipGuide
         array_splice( $shows, $idx, 1 );
         update_option( self::OPT_RECURRING, $shows );
         wp_send_json_success();
+    }
+
+    /**
+     * AJAX: fire a test copy of the welcome email to the supplied recipient.
+     * Driven by the Membership Guide admin preview bar. Tier defaults to
+     * looth2 (Looth LITE) but the form lets the admin pick.
+     */
+    public static function handleAjaxSendWelcomeTest(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
+        check_ajax_referer( 'lgms_welcome_test', 'nonce' );
+
+        $recipient = sanitize_email( (string) ( $_POST['recipient'] ?? '' ) );
+        $tierRaw   = sanitize_text_field( (string) ( $_POST['tier'] ?? 'looth2' ) );
+        $tier      = in_array( $tierRaw, [ 'looth2', 'looth3', 'looth4' ], true ) ? $tierRaw : 'looth2';
+
+        $result = WelcomeMailer::sendTest( $recipient, $tier );
+        if ( ! $result['ok'] ) {
+            wp_send_json_error( [ 'message' => $result['message'] ], 400 );
+        }
+        wp_send_json_success( [ 'message' => $result['message'] ] );
     }
 
     /**

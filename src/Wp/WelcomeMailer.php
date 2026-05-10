@@ -42,39 +42,92 @@ final class WelcomeMailer
             return false;
         }
 
-        $tierLabel = self::tierLabel( $tier );
-        $name      = trim( (string) ( $user->display_name ?: $user->first_name ?: $user->user_login ) );
-        $loginUrl  = wp_login_url( home_url( '/activity/' ) );
-        $manageUrl = home_url( '/manage-subscription/' );
-        $homeUrl   = home_url( '/' );
-
-        $mosaicImages = self::loadMosaicImages();
-
-        $template = LGMS_PLUGIN_DIR . 'templates/email/welcome-membership.html.php';
-        if ( ! file_exists( $template ) ) {
-            error_log( "LGMS WelcomeMailer: template missing at {$template}" );
+        $name = trim( (string) ( $user->display_name ?: $user->first_name ?: $user->user_login ) );
+        $body = self::renderBody( $name, $tier );
+        if ( $body === null ) {
             return false;
         }
 
-        ob_start();
-        // Variables in scope for the template:
-        //   $name, $tierLabel, $loginUrl, $manageUrl, $homeUrl, $mosaicImages
-        require $template;
-        $body = (string) ob_get_clean();
+        $subject = sprintf( 'Welcome to %s — your membership is active', self::tierLabel( $tier ) );
 
-        $subject = sprintf( 'Welcome to %s — your membership is active', $tierLabel );
-        $headers = [
-            'Content-Type: text/html; charset=UTF-8',
-            'From: The Looth Group <noreply@loothgroup.com>',
-        ];
-
-        $sent = wp_mail( $user->user_email, $subject, $body, $headers );
+        $sent = wp_mail( $user->user_email, $subject, $body, self::headers() );
         if ( $sent ) {
             update_user_meta( $wpUserId, '_lg_welcome_email_sent_at', gmdate( 'c' ) );
         } else {
             error_log( "LGMS WelcomeMailer: wp_mail returned false for user {$wpUserId}" );
         }
         return (bool) $sent;
+    }
+
+    /**
+     * Send a test copy of the welcome email to an arbitrary recipient.
+     * Driven by the Membership Guide admin preview bar so admins can dry-run
+     * the email visually. Subject is prefixed [TEST] so it's distinguishable
+     * in the inbox. Does NOT touch _lg_welcome_email_sent_at — calling this
+     * against your own account does not block the eventual production send.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    public static function sendTest( string $recipientEmail, string $tier = 'looth2' ): array
+    {
+        $recipientEmail = trim( $recipientEmail );
+        if ( $recipientEmail === '' || ! is_email( $recipientEmail ) ) {
+            return [ 'ok' => false, 'message' => 'A valid recipient email is required.' ];
+        }
+
+        // Use the recipient's own WP display name when they have an account,
+        // otherwise fall back to the local-part of the email so the greeting
+        // looks personalised. Production sends always use the upgraded user's
+        // own name; the test just needs something readable.
+        $existing = get_user_by( 'email', $recipientEmail );
+        if ( $existing ) {
+            $name = trim( (string) ( $existing->display_name ?: $existing->first_name ?: $existing->user_login ) );
+        } else {
+            $name = ucfirst( (string) ( strstr( $recipientEmail, '@', true ) ?: 'there' ) );
+        }
+
+        $body = self::renderBody( $name, $tier );
+        if ( $body === null ) {
+            return [ 'ok' => false, 'message' => 'Email template missing on the server.' ];
+        }
+
+        $subject = sprintf( '[TEST] Welcome to %s — your membership is active', self::tierLabel( $tier ) );
+        $sent    = wp_mail( $recipientEmail, $subject, $body, self::headers() );
+
+        if ( ! $sent ) {
+            error_log( "LGMS WelcomeMailer test send: wp_mail returned false for {$recipientEmail}" );
+            return [ 'ok' => false, 'message' => 'wp_mail() returned false. Check FluentSMTP / mail logs.' ];
+        }
+        return [ 'ok' => true, 'message' => 'Test email sent to ' . $recipientEmail ];
+    }
+
+    private static function renderBody( string $name, string $tier ): ?string
+    {
+        $template = LGMS_PLUGIN_DIR . 'templates/email/welcome-membership.html.php';
+        if ( ! file_exists( $template ) ) {
+            error_log( "LGMS WelcomeMailer: template missing at {$template}" );
+            return null;
+        }
+
+        $tierLabel    = self::tierLabel( $tier );
+        $loginUrl     = wp_login_url( home_url( '/activity/' ) );
+        $manageUrl    = home_url( '/manage-subscription/' );
+        $homeUrl      = home_url( '/' );
+        $mosaicImages = self::loadMosaicImages();
+
+        ob_start();
+        // Variables in scope for the template:
+        //   $name, $tierLabel, $loginUrl, $manageUrl, $homeUrl, $mosaicImages
+        require $template;
+        return (string) ob_get_clean();
+    }
+
+    private static function headers(): array
+    {
+        return [
+            'Content-Type: text/html; charset=UTF-8',
+            'From: The Looth Group <noreply@loothgroup.com>',
+        ];
     }
 
     private static function loadMosaicImages(): array

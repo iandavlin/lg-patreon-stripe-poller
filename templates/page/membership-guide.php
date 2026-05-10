@@ -207,6 +207,7 @@ document.body.classList.add(<?php echo $isMember ? "'lgms-mg-member'" : "'lgms-m
     font-family: Arial, sans-serif;
     font-size: 11px;
     letter-spacing: 0.04em;
+    max-width: 320px;
 }
 .lgms-mg-preview-bar strong { color: #ECB351; margin-right: 6px; }
 .lgms-mg-preview-bar button {
@@ -223,12 +224,38 @@ document.body.classList.add(<?php echo $isMember ? "'lgms-mg-member'" : "'lgms-m
 }
 .lgms-mg-preview-bar button.active { background: #ECB351; color: #2B2318; border-color: #ECB351; font-weight: 700; }
 .lgms-mg-preview-bar small { display:block; color:#888; margin-top:4px; font-size:10px; }
+.lgms-mg-preview-bar hr { border:0; border-top:1px solid #3a2f23; margin:8px 0; }
+.lgms-mg-preview-bar input[type="email"], .lgms-mg-preview-bar select {
+    background:#2B2318; border:1px solid #87986A; color:#FAF6EE;
+    padding:3px 6px; border-radius:3px; font-size:11px; font-family:inherit;
+}
+.lgms-mg-preview-bar input[type="email"] { width: 100%; box-sizing: border-box; margin-top: 2px; }
+.lgms-mg-preview-bar .lgms-mg-row { display:flex; gap:6px; align-items:center; margin-top:6px; }
+.lgms-mg-preview-bar .lgms-mg-row select { flex: 0 0 auto; }
+.lgms-mg-preview-bar .lgms-mg-row button { margin-left:auto; }
+.lgms-mg-preview-bar .lgms-mg-status { margin-top:4px; font-size:10px; min-height:12px; }
+.lgms-mg-preview-bar .lgms-mg-status.ok  { color:#9ec56e; }
+.lgms-mg-preview-bar .lgms-mg-status.err { color:#e88080; }
 </style>
 <div class="lgms-mg-preview-bar">
     <strong>ADMIN PREVIEW:</strong>
     <button id="lgms-mg-btn-anon"<?php echo $isMember ? '' : ' class="active"'; ?>>Visitor</button>
     <button id="lgms-mg-btn-member"<?php echo $isMember ? ' class="active"' : ''; ?>>Member</button>
     <small>Toggles client-side. Loothalong URL is gated server-side and won't appear when previewing as Visitor.</small>
+    <hr>
+    <strong>WELCOME EMAIL:</strong>
+    <input type="email" id="lgms-mg-test-recipient"
+           value="<?php echo esc_attr( wp_get_current_user()->user_email ?? '' ); ?>"
+           placeholder="recipient@example.com">
+    <div class="lgms-mg-row">
+        <select id="lgms-mg-test-tier" aria-label="Tier">
+            <option value="looth2">LITE</option>
+            <option value="looth3">PRO</option>
+            <option value="looth4">Premium+</option>
+        </select>
+        <button id="lgms-mg-btn-test-send" type="button">Send test</button>
+    </div>
+    <div id="lgms-mg-test-status" class="lgms-mg-status" aria-live="polite"></div>
 </div>
 <script>
 (function(){
@@ -240,6 +267,48 @@ document.body.classList.add(<?php echo $isMember ? "'lgms-mg-member'" : "'lgms-m
     }
     document.getElementById('lgms-mg-btn-anon').addEventListener('click',   function(){ setView('anon');   });
     document.getElementById('lgms-mg-btn-member').addEventListener('click', function(){ setView('member'); });
+
+    // Welcome-email test sender.
+    var AJAX_URL = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+    var NONCE    = <?php echo wp_json_encode( wp_create_nonce( 'lgms_welcome_test' ) ); ?>;
+    var btn      = document.getElementById('lgms-mg-btn-test-send');
+    var input    = document.getElementById('lgms-mg-test-recipient');
+    var tierSel  = document.getElementById('lgms-mg-test-tier');
+    var status   = document.getElementById('lgms-mg-test-status');
+
+    btn.addEventListener('click', function(){
+        var recipient = (input.value || '').trim();
+        if (!recipient) {
+            status.className = 'lgms-mg-status err';
+            status.textContent = 'Enter a recipient email.';
+            return;
+        }
+        btn.disabled = true;
+        status.className = 'lgms-mg-status';
+        status.textContent = 'Sending…';
+        var body = new URLSearchParams();
+        body.append('action', 'lgms_send_welcome_test');
+        body.append('nonce', NONCE);
+        body.append('recipient', recipient);
+        body.append('tier', tierSel.value);
+        fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: body })
+            .then(function(r){ return r.json().then(function(j){ return { http: r.status, json: j }; }); })
+            .then(function(o){
+                var msg = (o.json && o.json.data && o.json.data.message) || ('HTTP ' + o.http);
+                if (o.json && o.json.success) {
+                    status.className = 'lgms-mg-status ok';
+                    status.textContent = msg;
+                } else {
+                    status.className = 'lgms-mg-status err';
+                    status.textContent = msg;
+                }
+            })
+            .catch(function(e){
+                status.className = 'lgms-mg-status err';
+                status.textContent = 'Network error.';
+            })
+            .finally(function(){ btn.disabled = false; });
+    });
 })();
 </script>
 <?php endif; ?>
