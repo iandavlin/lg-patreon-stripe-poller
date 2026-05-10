@@ -16,10 +16,11 @@ namespace LGMS\Wp;
  * Item IDs are stable: don't rename one once shipped, or testers will
  * lose their existing checks. Add-only changes are safe.
  *
- * Shortcode renders nothing for non-admins — page is in the nav under
- * 'admins' visibility, so non-admins won't see the link in the first
- * place, but this is defense-in-depth in case the page is reached
- * directly.
+ * Page is publicly seeded (so testers can hit the URL without a WP
+ * login) and gated by a WordPress post password set on the page row.
+ * The nav link is admin-only via 'admins' visibility so admins can
+ * always find the page; non-admin testers reach it via the shared URL +
+ * password.
  */
 final class TestChecklist
 {
@@ -200,12 +201,37 @@ final class TestChecklist
         ],
     ];
 
+    /**
+     * Wrap any /path/ or http(s)://… reference inside the supplied text in
+     * an <a> tag so testers can click straight through. Relative paths get
+     * routed through home_url(); absolute URLs are linked as-is.
+     */
+    private static function linkifyText( string $text ): string
+    {
+        $escaped = esc_html( $text );
+        // URLs grab everything up to whitespace (greedy). Relative paths are
+        // tighter — letter-led, path-safe chars only. Trailing sentence
+        // punctuation is trimmed from the link target back into the
+        // surrounding text so "Visit /lgjoin/." links just /lgjoin/ and the
+        // period reads naturally.
+        return (string) preg_replace_callback(
+            '#(?<![A-Za-z0-9/])(https?://\S+|/[a-zA-Z][\w./?=&@-]*[A-Za-z0-9/])#',
+            static function ( array $m ): string {
+                $token   = (string) $m[1];
+                $trimmed = rtrim( $token, '.,;:!?)' );
+                $tail    = substr( $token, strlen( $trimmed ) );
+                $href    = strpos( $trimmed, 'http' ) === 0 ? $trimmed : home_url( $trimmed );
+                return '<a href="' . esc_url( $href )
+                     . '" target="_blank" rel="noopener" style="color:#87986A;font-weight:600;text-decoration:underline;">'
+                     . esc_html( $trimmed ) . '</a>'
+                     . esc_html( $tail );
+            },
+            $escaped
+        );
+    }
+
     public static function render(): string
     {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            return '<p style="text-align:center;padding:2em;color:#888;"><em>This page is admin-only.</em></p>';
-        }
-
         ob_start();
         ?>
         <div class="lgtc">
@@ -235,8 +261,8 @@ final class TestChecklist
                                 <span class="lgtc-check-box" aria-hidden="true"></span>
                             </label>
                             <div class="lgtc-body">
-                                <p class="lgtc-desc"><?php echo esc_html( (string) ( $item['desc'] ?? '' ) ); ?></p>
-                                <p class="lgtc-expect"><strong>Expect:</strong> <?php echo esc_html( (string) ( $item['expect'] ?? '' ) ); ?></p>
+                                <p class="lgtc-desc"><?php echo self::linkifyText( (string) ( $item['desc'] ?? '' ) ); ?></p>
+                                <p class="lgtc-expect"><strong>Expect:</strong> <?php echo self::linkifyText( (string) ( $item['expect'] ?? '' ) ); ?></p>
                                 <?php if ( $url !== '' ) : ?>
                                     <p class="lgtc-link"><a href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $url ); ?> &rarr;</a></p>
                                 <?php endif; ?>
