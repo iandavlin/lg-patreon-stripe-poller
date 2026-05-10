@@ -124,14 +124,6 @@ final class Pages
             'nav_label'  => 'My Gifts',
             'visibility' => 'gift_buyers',
         ],
-        'lg_membership_guide' => [
-            'slug'       => 'membership-guide',
-            'title'      => 'Membership Guide',
-            'shortcode'  => 'lg_membership_guide',
-            'public'     => true,
-            'template'   => 'page-fullwidth.php',
-            'in_nav'     => false,
-        ],
         'lg_affiliate_portal' => [
             'slug'       => 'affiliate-earnings',
             'title'      => 'Affiliate Earnings',

@@ -651,9 +651,44 @@ final class Admin
                 <div id="lgms-us-results-<?php echo $uid_field; ?>"
                      style="border:1px solid #ddd;border-radius:4px;background:#fff;display:none;max-height:220px;overflow-y:auto;"></div>
 
-                <?php if ( $affId === 0 ) : ?>
-                <p class="description" style="margin-top:.8em;">Save the affiliate first, then use Edit rates to create a new user.</p>
-                <?php endif; ?>
+                <details style="margin-top:.8em;">
+                    <summary style="cursor:pointer;color:#2271b1;font-size:.9em;">Create new WP user instead</summary>
+                    <?php if ( $affId > 0 ) : ?>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+                          style="margin-top:.6em;padding:.8em;background:#fafafa;border:1px solid #eee;border-radius:4px;">
+                        <?php wp_nonce_field( 'lgms_create_affiliate_user' ); ?>
+                        <input type="hidden" name="action"       value="lgms_create_affiliate_user">
+                        <input type="hidden" name="affiliate_id" value="<?php echo $affId; ?>">
+                        <table style="border-collapse:collapse;width:100%;">
+                            <tr>
+                                <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Display name</label></td>
+                                <td><input type="text" name="new_user_name" class="regular-text" required placeholder="Dan Smith"></td>
+                            </tr>
+                            <tr>
+                                <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Email</label></td>
+                                <td><input type="email" name="new_user_email" class="regular-text" required placeholder="dan@example.com"></td>
+                            </tr>
+                            <tr>
+                                <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Role</label></td>
+                                <td>
+                                    <select name="new_user_role">
+                                        <?php foreach ( $roles as $roleKey => $roleLabel ) : ?>
+                                            <option value="<?php echo esc_attr( $roleKey ); ?>"
+                                                <?php selected( $roleKey, 'subscriber' ); ?>>
+                                                <?php echo esc_html( $roleLabel ); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="description" style="margin:.3em 0 0;">User will receive a password-setup email.</p>
+                                </td>
+                            </tr>
+                        </table>
+                        <?php submit_button( 'Create user & link', 'secondary', 'submit', false ); ?>
+                    </form>
+                    <?php else : ?>
+                    <p class="description" style="margin-top:.4em;">Save the affiliate first, then use Edit rates to create a new user.</p>
+                    <?php endif; ?>
+                </details>
             </div>
         </div>
 
@@ -707,47 +742,6 @@ final class Admin
             };
         })();
         </script>
-        <?php
-    }
-
-    private static function renderCreateAffiliateUserForm( int $affId ): void
-    {
-        $roles = wp_roles()->get_names();
-        ?>
-        <details style="margin-top:1em;max-width:480px;">
-            <summary style="cursor:pointer;color:#2271b1;font-size:.95em;">Create new WP user for this affiliate</summary>
-            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-                  style="margin-top:.6em;padding:.8em;background:#fafafa;border:1px solid #eee;border-radius:4px;">
-                <?php wp_nonce_field( 'lgms_create_affiliate_user' ); ?>
-                <input type="hidden" name="action"       value="lgms_create_affiliate_user">
-                <input type="hidden" name="affiliate_id" value="<?php echo $affId; ?>">
-                <table style="border-collapse:collapse;width:100%;">
-                    <tr>
-                        <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Display name</label></td>
-                        <td><input type="text" name="new_user_name" class="regular-text" required placeholder="Dan Smith"></td>
-                    </tr>
-                    <tr>
-                        <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Email</label></td>
-                        <td><input type="email" name="new_user_email" class="regular-text" required placeholder="dan@example.com"></td>
-                    </tr>
-                    <tr>
-                        <td style="padding:.3em .6em .3em 0;white-space:nowrap;"><label>Role</label></td>
-                        <td>
-                            <select name="new_user_role">
-                                <?php foreach ( $roles as $roleKey => $roleLabel ) : ?>
-                                    <option value="<?php echo esc_attr( $roleKey ); ?>"
-                                        <?php selected( $roleKey, 'subscriber' ); ?>>
-                                        <?php echo esc_html( $roleLabel ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="description" style="margin:.3em 0 0;">User will receive a password-setup email.</p>
-                        </td>
-                    </tr>
-                </table>
-                <?php submit_button( 'Create user & link', 'secondary', 'submit', false ); ?>
-            </form>
-        </details>
         <?php
     }
 
@@ -902,7 +896,6 @@ final class Admin
             </table>
             <?php submit_button( 'Save rates' ); ?>
         </form>
-        <?php self::renderCreateAffiliateUserForm( (int) $editRow['id'] ); ?>
         <?php endif; ?>
 
         <h3>Create a new affiliate</h3>
