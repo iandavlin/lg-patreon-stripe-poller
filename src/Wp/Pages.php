@@ -46,7 +46,7 @@ final class Pages
      *   in_nav        bool. Default true. false = exclude from [lg_member_nav]
      *                 (used for transient destinations like welcome / regional fail).
      *   nav_label     string|null. Override for nav display. Falls back to title.
-     *   visibility    'always' | 'guests' | 'members' | 'gift_buyers' | 'affiliates'.
+     *   visibility    'always' | 'guests' | 'members' | 'gift_buyers' | 'affiliates' | 'admins'.
      *                 Default 'always'. Filters [lg_member_nav] entries.
      *                 'guests' = hide from logged-in users (e.g. Join).
      *                 'affiliates' = only for users linked to an affiliate record.
@@ -142,6 +142,19 @@ final class Pages
             'nav_label'  => 'Earnings',
             'visibility' => 'affiliates',
         ],
+        // Admin-only QA checklist for partners testing the stack pre-cutover.
+        // Shortcode itself also gates on manage_options as defense-in-depth
+        // in case the page URL is reached directly by a non-admin.
+        'lg_test_checklist' => [
+            'slug'       => 'test-checklist',
+            'title'      => 'Test Checklist',
+            'shortcode'  => 'lg_test_checklist',
+            'public'     => true,
+            'template'   => 'page-fullwidth.php',
+            'in_nav'     => true,
+            'nav_label'  => 'Test Checklist',
+            'visibility' => 'admins',
+        ],
         // Refund kept at end of nav and limited to logged-in members —
         // anonymous visitors don't have a purchase to refund.
         'lg_refund_request' => [
@@ -184,6 +197,11 @@ final class Pages
             }
             if ( $vis === 'affiliates' ) {
                 if ( ! $isLoggedIn || ! self::currentUserIsAffiliate() ) {
+                    continue;
+                }
+            }
+            if ( $vis === 'admins' ) {
+                if ( ! current_user_can( 'manage_options' ) ) {
                     continue;
                 }
             }

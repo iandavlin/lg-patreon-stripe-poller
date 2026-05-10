@@ -135,6 +135,9 @@ final class Plugin
         add_action( 'init', [ Wp\MembershipGuide::class, 'register' ] );
         add_action( 'init', [ Wp\UpcomingEvents::class,  'register' ] );
 
+        // Admin-only QA checklist for partners testing the stack.
+        add_action( 'init', [ Wp\TestChecklist::class, 'register' ] );
+
         // Welcome modal: print celebratory modal in the footer when the
         // current user has just been upgraded into a paid tier (looth2+).
         // Triggered by the _lg_pending_welcome user meta which Arbiter
