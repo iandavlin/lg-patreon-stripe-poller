@@ -1368,6 +1368,37 @@ final class RestController
         $subWeekly   = (bool)   ( $body['subscribe_weekly']  ?? true );
         $displayName = trim( (string) ( $body['display_name'] ?? '' ) );
 
+        // Rate limit BEFORE any DB lookup. Two layers:
+        //   1. Per-IP: 20/hr — defeats simple botnets and account-creation spam.
+        //   2. Per-email: 5 failed attempts / 15min — defeats distributed
+        //      credential stuffing across many IPs against one account.
+        // Per-IP increments unconditionally; per-email only increments on
+        // failed-password (so legitimate users typing right aren't penalized).
+        $ip = self::clientIp();
+        if ( $ip !== '' ) {
+            $ipKey  = 'lgms_ga_ip_' . md5( $ip );
+            $ipHits = (int) get_transient( $ipKey );
+            if ( $ipHits >= 20 ) {
+                return new WP_REST_Response( [
+                    'ok'           => false,
+                    'error'        => 'Too many attempts. Please wait an hour and try again, or use the password reset link.',
+                    'rate_limited' => true,
+                ], 429 );
+            }
+            set_transient( $ipKey, $ipHits + 1, HOUR_IN_SECONDS );
+        }
+        if ( $email !== '' && is_email( $email ) ) {
+            $emailKey  = 'lgms_ga_em_' . md5( $email );
+            $emailHits = (int) get_transient( $emailKey );
+            if ( $emailHits >= 5 ) {
+                return new WP_REST_Response( [
+                    'ok'           => false,
+                    'error'        => 'Too many failed attempts for this account. Please wait 15 minutes or reset your password.',
+                    'rate_limited' => true,
+                ], 429 );
+            }
+        }
+
         if ( $email === '' || ! is_email( $email ) ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Please enter a valid email address.' ], 400 );
         }
@@ -1403,6 +1434,11 @@ final class RestController
             } else {
                 // Login flow.
                 if ( ! wp_check_password( $password, $existing->user_pass, $existing->ID ) ) {
+                    // Bump per-email failure counter so credential stuffing
+                    // hits the throttle before exhausting common passwords.
+                    $emailKey  = 'lgms_ga_em_' . md5( $email );
+                    $emailHits = (int) get_transient( $emailKey );
+                    set_transient( $emailKey, $emailHits + 1, 15 * MINUTE_IN_SECONDS );
                     return new WP_REST_Response( [ 'ok' => false, 'error' => 'Incorrect password.', 'forgot' => true ], 401 );
                 }
                 $user = $existing;
