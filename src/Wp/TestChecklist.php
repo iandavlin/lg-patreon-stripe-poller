@@ -688,6 +688,12 @@ final class TestChecklist
                     <header class="lgtc-inbox-head">
                         <h2>Feedback inbox <span class="lgtc-inbox-count"><?php echo count( $openFb ); ?> open · <?php echo count( $allFb ); ?> total</span></h2>
                         <div class="lgtc-inbox-actions">
+                            <span class="lgtc-inbox-filter" role="group" aria-label="Filter by severity">
+                                <button type="button" class="lgtc-fbtn is-active" data-fb-filter="all">All</button>
+                                <button type="button" class="lgtc-fbtn" data-fb-filter="fail">Fails</button>
+                                <button type="button" class="lgtc-fbtn" data-fb-filter="question">Qs</button>
+                                <button type="button" class="lgtc-fbtn" data-fb-filter="pass">Passes</button>
+                            </span>
                             <label class="lgtc-toggle"><input type="checkbox" id="lgtc-inbox-show-closed"> Show closed</label>
                             <button type="button" id="lgtc-inbox-copy" class="lgtc-btn">Copy as Markdown</button>
                         </div>
@@ -703,7 +709,7 @@ final class TestChecklist
                                 $label  = self::itemLabel( (string) $fb['item_id'] );
                                 $isOpen = $status === 'open';
                             ?>
-                            <li class="lgtc-inbox-item lgtc-inbox-status-<?php echo esc_attr( $status ); ?>" data-fb-id="<?php echo (int) $fb['id']; ?>" data-fb-status="<?php echo esc_attr( $status ); ?>">
+                            <li class="lgtc-inbox-item lgtc-inbox-status-<?php echo esc_attr( $status ); ?>" data-fb-id="<?php echo (int) $fb['id']; ?>" data-fb-status="<?php echo esc_attr( $status ); ?>" data-fb-severity="<?php echo esc_attr( $sev ); ?>">
                                 <div class="lgtc-inbox-meta">
                                     <span class="lgtc-inbox-sev" style="background:<?php echo esc_attr( $sevDef['color'] ); ?>;"><?php echo esc_html( $sevDef['label'] ); ?></span>
                                     <span class="lgtc-inbox-status"><?php echo esc_html( strtoupper( $status ) ); ?></span>
@@ -949,6 +955,17 @@ final class TestChecklist
             .lgtc-inbox-controls .lgtc-btn-danger { color: var(--red); border-color: var(--red); }
             .lgtc-inbox-controls .lgtc-btn-danger:hover { background: var(--red); color: #fff; }
             .lgtc-inbox.lgtc-inbox-hide-closed .lgtc-inbox-item:not(.lgtc-inbox-status-open) { display: none; }
+            /* Severity filter buttons + hiding */
+            .lgtc-inbox-filter { display: inline-flex; gap: 2px; align-items: center; }
+            .lgtc-fbtn { background: transparent; border: 1px solid var(--sand); color: var(--ink); padding: 4px 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
+            .lgtc-fbtn:first-child { border-radius: 4px 0 0 4px; }
+            .lgtc-fbtn:last-child  { border-radius: 0 4px 4px 0; }
+            .lgtc-fbtn:not(:first-child) { border-left: 0; }
+            .lgtc-fbtn:hover { background: var(--sand); color: var(--dark); }
+            .lgtc-fbtn.is-active { background: var(--dark); color: var(--cream); border-color: var(--dark); }
+            .lgtc-inbox[data-fb-filter="fail"]     .lgtc-inbox-item:not([data-fb-severity="fail"]):not([data-fb-severity="bug"])     { display: none; }
+            .lgtc-inbox[data-fb-filter="question"] .lgtc-inbox-item:not([data-fb-severity="question"]) { display: none; }
+            .lgtc-inbox[data-fb-filter="pass"]     .lgtc-inbox-item:not([data-fb-severity="pass"]):not([data-fb-severity="note"])    { display: none; }
 
             /* View toggle (admin-only): Admin vs Tester */
             .lgtc-view-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #d8cfc0; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -1347,6 +1364,17 @@ final class TestChecklist
                     });
                 }
 
+                // Severity filter (All / Fails / Qs / Passes). Default "all" — no attribute set.
+                inbox.querySelectorAll('[data-fb-filter]').forEach(function(btn){
+                    btn.addEventListener('click', function(){
+                        var f = btn.getAttribute('data-fb-filter');
+                        inbox.querySelectorAll('[data-fb-filter]').forEach(function(b){ b.classList.remove('is-active'); });
+                        btn.classList.add('is-active');
+                        if (f === 'all') inbox.removeAttribute('data-fb-filter');
+                        else             inbox.setAttribute('data-fb-filter', f);
+                    });
+                });
+
                 // Status-change buttons
                 inbox.querySelectorAll('[data-fb-set]').forEach(function(b){
                     b.addEventListener('click', function(){
@@ -1375,11 +1403,16 @@ final class TestChecklist
                     });
                 });
 
-                // Copy as Markdown
+                // Copy as Markdown — exports only currently-visible rows so
+                // the filter selection (severity + show-closed) translates 1:1
+                // into the exported report.
                 if (copyBtn) {
                     copyBtn.addEventListener('click', function(){
-                        var items = inbox.querySelectorAll('.lgtc-inbox-item');
-                        var lines = ['# Test feedback (' + items.length + ' total)\n'];
+                        var items = Array.prototype.filter.call(
+                            inbox.querySelectorAll('.lgtc-inbox-item'),
+                            function(li){ return li.offsetParent !== null; }
+                        );
+                        var lines = ['# Test feedback (' + items.length + ' shown)\n'];
                         items.forEach(function(li){
                             var sev    = (li.querySelector('.lgtc-inbox-sev') || {}).textContent || 'note';
                             var status = li.getAttribute('data-fb-status') || 'open';
