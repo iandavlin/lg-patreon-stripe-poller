@@ -26,7 +26,24 @@ final class Tick
     public static function run(): void
     {
         $log = LGMS_PLUGIN_DIR . 'tick.log';
+
+        // Non-blocking advisory lock: prevents WP-Cron + manual /run-now from
+        // racing on the Stripe cursor and entitlement state. Auto-released
+        // when the PDO connection ends (non-persistent), so a fatal mid-tick
+        // can't leave the lock held.
+        $pdo  = Db::pdo();
+        $got  = $pdo->query( "SELECT GET_LOCK('lgms_tick_lock', 0)" )->fetchColumn();
+        if ( (int) $got !== 1 ) {
+            @file_put_contents( $log, sprintf(
+                "[%s] tick SKIPPED: another tick is already running\n",
+                gmdate( 'c' )
+            ), FILE_APPEND );
+            return;
+        }
+
         @file_put_contents( $log, sprintf( "[%s] tick start\n", gmdate( 'c' ) ), FILE_APPEND );
+
+        try {
 
         // Pass 1: Stripe poll
         try {
@@ -170,6 +187,14 @@ final class Tick
                 gmdate( 'c' ),
                 $e->getMessage(),
             ), FILE_APPEND );
+        }
+
+        } finally {
+            try {
+                $pdo->query( "SELECT RELEASE_LOCK('lgms_tick_lock')" );
+            } catch ( Throwable $e ) {
+                // Connection may already be torn down; auto-release covers it.
+            }
         }
     }
 }

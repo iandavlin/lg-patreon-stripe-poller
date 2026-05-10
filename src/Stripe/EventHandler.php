@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace LGMS\Stripe;
 
+use LGMS\Db;
 use LGMS\Repos\CustomerRepo;
 use LGMS\Repos\EntitlementRepo;
 use LGMS\Repos\GiftCodeRepo;
@@ -30,11 +31,42 @@ final class EventHandler
     /** @return string short result line for logging */
     public function handle(object $event): string
     {
-        $type   = (string) ( $event->type ?? '' );
-        $object = $event->data->object ?? null;
+        $type    = (string) ( $event->type ?? '' );
+        $object  = $event->data->object ?? null;
+        $eventId = (string) ( $event->id ?? '' );
+
+        // Observation-only duplicate detection. The tick lock prevents
+        // concurrent dupes; this catches sequential dupes (Stripe redelivery,
+        // crash mid-batch, manual replay). On a duplicate, we still process
+        // the event normally — the goal is visibility, not gating.
+        $dupNote = '';
+        if ( $eventId !== '' ) {
+            try {
+                $stmt = Db::pdo()->prepare(
+                    'INSERT INTO lg_processed_events (event_id, first_seen_at, last_seen_at)
+                     VALUES (?, NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE
+                         last_seen_at = NOW(),
+                         dup_count    = dup_count + 1'
+                );
+                $stmt->execute( [ $eventId ] );
+                // PDO/MySQL: rowCount() returns 2 on UPDATE branch of ODKU.
+                if ( $stmt->rowCount() === 2 ) {
+                    $dupNote = ' [DUPLICATE]';
+                    error_log( sprintf(
+                        'LGMS DUPLICATE EVENT: %s type=%s — re-processed; check lg_processed_events.dup_count',
+                        $eventId,
+                        $type
+                    ) );
+                }
+            } catch ( Throwable $e ) {
+                // Detection must never block the main flow.
+                error_log( 'LGMS dup-detect insert failed: ' . $e->getMessage() );
+            }
+        }
 
         try {
-            return match ( $type ) {
+            $result = match ( $type ) {
                 'checkout.session.completed'    => $this->onCheckoutCompleted( $object ),
                 'invoice.paid'                  => $this->onInvoicePaid( $object ),
                 'customer.subscription.updated' => $this->onSubscriptionUpdated( $object ),
@@ -44,8 +76,9 @@ final class EventHandler
                 'charge.dispute.created'        => $this->onChargeDisputed( $object ),
                 default                         => "skip {$type}",
             };
+            return $result . $dupNote;
         } catch ( Throwable $e ) {
-            return sprintf( 'ERROR %s: %s', $type, $e->getMessage() );
+            return sprintf( 'ERROR %s: %s%s', $type, $e->getMessage(), $dupNote );
         }
     }
 

@@ -56,5 +56,15 @@ final class Schema
                 last_error   TEXT        NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         SQL);
+
+        $pdo->exec(<<<'SQL'
+            CREATE TABLE IF NOT EXISTS lg_processed_events (
+                event_id      VARCHAR(64) PRIMARY KEY,
+                first_seen_at DATETIME    NOT NULL,
+                last_seen_at  DATETIME    NOT NULL,
+                dup_count     INT         NOT NULL DEFAULT 0,
+                KEY idx_dup_count (dup_count)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        SQL);
     }
 }
