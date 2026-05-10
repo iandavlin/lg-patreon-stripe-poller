@@ -27,6 +27,244 @@ final class TestChecklist
     public static function register(): void
     {
         add_shortcode( 'lg_test_checklist', [ self::class, 'render' ] );
+        add_action( 'wp_ajax_lgms_test_wipe_email', [ self::class, 'handleAjaxWipeEmail' ] );
+    }
+
+    /**
+     * AJAX endpoint backing the "Wipe a tester email" panel. Two modes:
+     *   - mode=preview  → returns counts of what would be deleted, no writes
+     *   - mode=perform  → actually deletes everything across lg_membership
+     *                     + WP user + BP tables. Requires self_confirm:1
+     *                     in the body when wiping the calling admin's own
+     *                     email (otherwise refuses).
+     *
+     * Auth: manage_options + nonce. Refuses to wipe user_id=1 (the original
+     * site installer) and refuses to wipe the last administrator on the
+     * site (to avoid locking everyone out).
+     */
+    public static function handleAjaxWipeEmail(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
+        }
+        check_ajax_referer( 'lgms_test_wipe', 'nonce' );
+
+        $mode  = sanitize_text_field( (string) ( $_POST['mode'] ?? 'preview' ) );
+        $email = sanitize_email( (string) ( $_POST['email'] ?? '' ) );
+        $self  = ! empty( $_POST['self_confirm'] );
+
+        if ( $email === '' || ! is_email( $email ) ) {
+            wp_send_json_error( [ 'message' => 'A valid email is required.' ], 400 );
+        }
+
+        $wpUser = get_user_by( 'email', $email );
+        $wpId   = $wpUser ? (int) $wpUser->ID : 0;
+
+        // Safety: protect the original installer.
+        if ( $wpId === 1 ) {
+            wp_send_json_error( [ 'message' => 'Refusing to wipe user_id=1 (site installer).' ], 400 );
+        }
+
+        // Safety: refuse to wipe the last admin.
+        if ( $wpUser && in_array( 'administrator', (array) $wpUser->roles, true ) ) {
+            $admins = (array) get_users( [ 'role' => 'administrator', 'fields' => 'ID', 'number' => 5 ] );
+            if ( count( $admins ) <= 1 ) {
+                wp_send_json_error( [ 'message' => 'Refusing to wipe the last administrator on the site.' ], 400 );
+            }
+        }
+
+        // Self-wipe gate: target email matches the calling admin's email.
+        $callingEmail = (string) ( wp_get_current_user()->user_email ?? '' );
+        $isSelf       = $callingEmail !== '' && strcasecmp( $callingEmail, $email ) === 0;
+
+        $custId    = 0;
+        $custEmail = '';
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare( 'SELECT id, email FROM customers WHERE email = ? LIMIT 1' );
+            $stmt->execute( [ $email ] );
+            $row = $stmt->fetch( \PDO::FETCH_ASSOC );
+            if ( $row ) {
+                $custId    = (int) $row['id'];
+                $custEmail = (string) $row['email'];
+            }
+        } catch ( \Throwable $e ) {
+            wp_send_json_error( [ 'message' => 'DB error looking up customer: ' . $e->getMessage() ], 500 );
+        }
+
+        $counts = self::wipeCounts( $custId, $wpId, $email );
+
+        if ( $mode === 'preview' ) {
+            wp_send_json_success( [
+                'preview'   => true,
+                'wp_user'   => $wpUser ? [ 'id' => $wpId, 'login' => $wpUser->user_login, 'roles' => array_values( (array) $wpUser->roles ) ] : null,
+                'customer'  => $custId > 0 ? [ 'id' => $custId, 'email' => $custEmail ] : null,
+                'is_self'   => $isSelf,
+                'counts'    => $counts,
+                'total'     => array_sum( $counts ),
+            ] );
+        }
+
+        if ( $mode !== 'perform' ) {
+            wp_send_json_error( [ 'message' => 'Invalid mode.' ], 400 );
+        }
+
+        // Self-wipe needs an explicit second-step opt-in.
+        if ( $isSelf && ! $self ) {
+            wp_send_json_error( [
+                'message'        => 'Self-wipe blocked: pass self_confirm=1 to confirm.',
+                'requires_self'  => true,
+            ], 409 );
+        }
+
+        $deleted = self::wipePerform( $custId, $wpId, $email );
+        wp_send_json_success( [
+            'preview'  => false,
+            'wp_user'  => $wpId > 0 ? [ 'id' => $wpId ] : null,
+            'customer' => $custId > 0 ? [ 'id' => $custId ] : null,
+            'is_self'  => $isSelf,
+            'deleted'  => $deleted,
+            'total'    => array_sum( $deleted ),
+        ] );
+    }
+
+    /**
+     * Returns how many rows each tracked table holds for the given keys.
+     * Tables that don't exist on this install are silently skipped.
+     *
+     * @return array<string,int>
+     */
+    private static function wipeCounts( int $custId, int $wpId, string $email ): array
+    {
+        $counts = [];
+        $pdo    = \LGMS\Db::pdo();
+        $sets   = self::wipeQueries( $custId, $wpId, $email );
+        foreach ( $sets as $label => $q ) {
+            try {
+                $stmt = $pdo->prepare( $q['count'] );
+                $stmt->execute( $q['params'] );
+                $counts[ $label ] = (int) $stmt->fetchColumn();
+            } catch ( \Throwable $e ) {
+                // Table may not exist on this install (e.g. audit_log only
+                // populated by Slim path) — count as 0 and move on.
+                $counts[ $label ] = 0;
+            }
+        }
+        // BB tables and WP user are in WP DB, not lg_membership PDO. Approximate:
+        if ( $wpId > 0 ) {
+            $counts['wp_user'] = 1;
+            global $wpdb;
+            $bpTables = [ 'bp_activity', 'bp_friends', 'bp_groups_members', 'bp_messages_recipients', 'bp_notifications', 'bp_xprofile_data', 'bp_user_blogs' ];
+            $bpTotal  = 0;
+            foreach ( $bpTables as $t ) {
+                $full = $wpdb->prefix . $t;
+                if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $full ) ) !== $full ) {
+                    continue;
+                }
+                $col = $t === 'bp_friends' ? 'initiator_user_id' : 'user_id';
+                $bpTotal += (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$full} WHERE {$col} = %d", $wpId ) );
+            }
+            $counts['bp_*_rows'] = $bpTotal;
+        }
+        return $counts;
+    }
+
+    /**
+     * Actually performs the deletes. Same table set as wipeCounts(); each
+     * DELETE is independent so a failure on one table doesn't block the
+     * others.
+     *
+     * @return array<string,int>  rows deleted per table
+     */
+    private static function wipePerform( int $custId, int $wpId, string $email ): array
+    {
+        $deleted = [];
+        $pdo     = \LGMS\Db::pdo();
+        $sets    = self::wipeQueries( $custId, $wpId, $email );
+        foreach ( $sets as $label => $q ) {
+            try {
+                $stmt = $pdo->prepare( $q['delete'] );
+                $stmt->execute( $q['params'] );
+                $deleted[ $label ] = $stmt->rowCount();
+            } catch ( \Throwable $e ) {
+                $deleted[ $label ] = 0; // Table absent or already empty.
+            }
+        }
+        if ( $wpId > 0 ) {
+            \LGMS\Wp\RestController::eraseBuddypressFootprint( $wpId );
+            $deleted['bp_*_rows'] = 1; // Aggregate signal — exact per-table counts not surfaced.
+            require_once ABSPATH . 'wp-admin/includes/user.php';
+            if ( wp_delete_user( $wpId ) ) {
+                $deleted['wp_user'] = 1;
+            }
+        }
+        return $deleted;
+    }
+
+    /**
+     * One source of truth for the lg_membership table set we touch on wipe.
+     * Returns label => { count: SQL, delete: SQL, params: array }. Counts and
+     * deletes use the same WHERE clause so previews match what perform will do.
+     *
+     * @return array<string,array{count:string,delete:string,params:list<mixed>}>
+     */
+    private static function wipeQueries( int $custId, int $wpId, string $email ): array
+    {
+        $sets = [];
+        if ( $custId > 0 ) {
+            $sets['admin_action_log'] = [
+                'count'  => 'SELECT COUNT(*) FROM admin_action_log WHERE customer_id = ?',
+                'delete' => 'DELETE FROM admin_action_log WHERE customer_id = ?',
+                'params' => [ $custId ],
+            ];
+            $sets['audit_log'] = [
+                'count'  => 'SELECT COUNT(*) FROM audit_log WHERE customer_id = ?',
+                'delete' => 'DELETE FROM audit_log WHERE customer_id = ?',
+                'params' => [ $custId ],
+            ];
+            $sets['entitlements'] = [
+                'count'  => 'SELECT COUNT(*) FROM entitlements WHERE customer_id = ?',
+                'delete' => 'DELETE FROM entitlements WHERE customer_id = ?',
+                'params' => [ $custId ],
+            ];
+            $sets['subscriptions'] = [
+                'count'  => 'SELECT COUNT(*) FROM subscriptions WHERE customer_id = ?',
+                'delete' => 'DELETE FROM subscriptions WHERE customer_id = ?',
+                'params' => [ $custId ],
+            ];
+            $sets['gift_codes'] = [
+                'count'  => 'SELECT COUNT(*) FROM gift_codes WHERE purchased_by = ? OR redeemed_by = ?',
+                'delete' => 'DELETE FROM gift_codes WHERE purchased_by = ? OR redeemed_by = ?',
+                'params' => [ $custId, $custId ],
+            ];
+            $sets['wp_user_bridge'] = [
+                'count'  => 'SELECT COUNT(*) FROM wp_user_bridge WHERE customer_id = ?',
+                'delete' => 'DELETE FROM wp_user_bridge WHERE customer_id = ?',
+                'params' => [ $custId ],
+            ];
+            $sets['customers'] = [
+                'count'  => 'SELECT COUNT(*) FROM customers WHERE id = ?',
+                'delete' => 'DELETE FROM customers WHERE id = ?',
+                'params' => [ $custId ],
+            ];
+        }
+        if ( $wpId > 0 ) {
+            $sets['lg_role_sources'] = [
+                'count'  => 'SELECT COUNT(*) FROM lg_role_sources WHERE wp_user_id = ?',
+                'delete' => 'DELETE FROM lg_role_sources WHERE wp_user_id = ?',
+                'params' => [ $wpId ],
+            ];
+            $sets['lg_patreon_members'] = [
+                'count'  => 'SELECT COUNT(*) FROM lg_patreon_members WHERE wp_user_id = ?',
+                'delete' => 'DELETE FROM lg_patreon_members WHERE wp_user_id = ?',
+                'params' => [ $wpId ],
+            ];
+        }
+        $sets['pending_sessions_by_email'] = [
+            'count'  => 'SELECT COUNT(*) FROM pending_sessions WHERE buyer_email = ?',
+            'delete' => 'DELETE FROM pending_sessions WHERE buyer_email = ?',
+            'params' => [ $email ],
+        ];
+        return $sets;
     }
 
     /**
@@ -245,6 +483,29 @@ final class TestChecklist
                 </div>
             </header>
 
+            <!-- TIPS FOR TESTERS -->
+            <section class="lgtc-tips">
+                <h2>Tips for testers</h2>
+                <ul>
+                    <li><strong>Don't burn 20 inboxes.</strong> Use Gmail <code>+</code>-aliases: <code>you+l1@gmail.com</code>, <code>you+gift1@gmail.com</code>, <code>you+sub2@gmail.com</code> &mdash; everything before the <code>+</code> is your real account; everything after is ignored by Gmail but treated as a distinct address by WordPress, Stripe, and us. All emails arrive in <code>you@gmail.com</code>'s inbox.</li>
+                    <li>Same trick works in <strong>Outlook / Hotmail / iCloud / Fastmail / ProtonMail</strong>. Doesn't work in AOL.</li>
+                    <li>For tests that need <em>different physical inboxes</em> (e.g. "send a gift to someone else"), Gmail+aliases still work &mdash; the recipient inbox is the same Gmail account, you'll just see "to: you+gift-recipient@gmail.com" in the To: header.</li>
+                    <li>Need to re-run the same flow on the same email? Use the wipe tool below to delete that email's WP user, customer record, subscriptions, gift codes, BuddyBoss footprint, and audit-log rows. Then sign up again from scratch.</li>
+                </ul>
+            </section>
+
+            <!-- WIPE TESTER EMAIL -->
+            <section class="lgtc-wipe">
+                <h2>Wipe a tester email</h2>
+                <p class="lgtc-wipe-lede">Removes the tester's WP user + every linked record across the membership stack. Use this between test runs so you don't need a fresh <code>+alias</code> every time. <strong>Destructive &mdash; can't be undone.</strong></p>
+                <div class="lgtc-wipe-row">
+                    <input type="email" id="lgtc-wipe-email" placeholder="tester+l1@gmail.com" autocomplete="off">
+                    <button type="button" id="lgtc-wipe-preview" class="lgtc-btn">Preview</button>
+                    <button type="button" id="lgtc-wipe-perform" class="lgtc-btn lgtc-btn-danger" disabled>Wipe it</button>
+                </div>
+                <div id="lgtc-wipe-status" class="lgtc-wipe-status" aria-live="polite"></div>
+            </section>
+
             <?php foreach ( self::SECTIONS as $sectionId => $section ) : ?>
                 <section class="lgtc-section" data-section="<?php echo esc_attr( $sectionId ); ?>">
                     <h2><?php echo esc_html( (string) $section['title'] ); ?>
@@ -311,17 +572,44 @@ final class TestChecklist
             .lgtc-item.is-checked .lgtc-desc { text-decoration: line-through; }
             .lgtc-hide-mode .lgtc-item.is-checked { display: none; }
             .lgtc-hide-mode .lgtc-section.is-empty { display: none; }
+            .lgtc-tips { background: var(--green-l); border: 1px solid var(--green); padding: 16px 22px; margin: 0 0 0; border-top: 0; }
+            .lgtc-tips h2 { margin: 0 0 8px; font-family: Georgia, serif; font-size: 17px; color: var(--dark); }
+            .lgtc-tips ul { margin: 0; padding-left: 20px; }
+            .lgtc-tips li { font-size: 13px; line-height: 1.55; color: var(--dark); margin-bottom: 6px; }
+            .lgtc-tips code { background: rgba(43,35,24,0.08); padding: 1px 6px; border-radius: 3px; font-size: 12px; color: var(--amber-d); font-weight: 600; }
+            .lgtc-wipe { background: #fff7ec; border: 1px solid var(--amber); border-top: 0; padding: 16px 22px 18px; }
+            .lgtc-wipe h2 { margin: 0 0 6px; font-family: Georgia, serif; font-size: 17px; color: var(--amber-d); }
+            .lgtc-wipe-lede { margin: 0 0 12px; font-size: 13px; color: var(--ink); line-height: 1.55; }
+            .lgtc-wipe code { background: rgba(43,35,24,0.08); padding: 1px 6px; border-radius: 3px; font-size: 12px; color: var(--amber-d); font-weight: 600; }
+            .lgtc-wipe-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+            .lgtc-wipe-row input[type="email"] { flex: 1 1 280px; min-width: 200px; padding: 7px 10px; border: 1px solid var(--sand); border-radius: 4px; font-size: 13px; font-family: inherit; }
+            .lgtc-wipe-row .lgtc-btn { background: var(--dark); color: var(--cream); border: 1px solid var(--dark); padding: 7px 14px; }
+            .lgtc-wipe-row .lgtc-btn:hover { background: var(--ink); }
+            .lgtc-wipe-row .lgtc-btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+            .lgtc-wipe-row .lgtc-btn-danger:hover { background: #8d3a30; }
+            .lgtc-wipe-row .lgtc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+            .lgtc-wipe-status { margin-top: 10px; font-size: 13px; line-height: 1.55; min-height: 16px; }
+            .lgtc-wipe-status.ok  { color: #4f6d3a; }
+            .lgtc-wipe-status.err { color: var(--red); }
+            .lgtc-wipe-status table { border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+            .lgtc-wipe-status td { padding: 2px 12px 2px 0; }
+            .lgtc-wipe-status td:last-child { text-align: right; color: var(--amber-d); font-weight: 700; }
+            .lgtc-wipe-self { background: var(--red); color: #fff; padding: 8px 12px; border-radius: 4px; margin: 8px 0 0; font-weight: 700; }
             @media (max-width: 600px) {
                 .lgtc-head { padding: 22px 18px; border-radius: 6px 6px 0 0; }
                 .lgtc-section { padding: 14px 16px 16px; }
                 .lgtc-controls { gap: 10px; }
+                .lgtc-tips, .lgtc-wipe { padding: 14px 16px; }
             }
         </style>
 
         <script>
         (function(){
-            var STORAGE_KEY = 'lgtc_state_v1';
-            var root        = document.querySelector('.lgtc');
+            var STORAGE_KEY  = 'lgtc_state_v1';
+            var AJAX_URL     = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+            var WIPE_NONCE   = <?php echo wp_json_encode( wp_create_nonce( 'lgms_test_wipe' ) ); ?>;
+            var ADMIN_EMAIL  = <?php echo wp_json_encode( (string) ( wp_get_current_user()->user_email ?? '' ) ); ?>;
+            var root         = document.querySelector('.lgtc');
             if (!root) return;
 
             var hideToggle  = root.querySelector('#lgtc-hide-checked');
@@ -399,6 +687,93 @@ final class TestChecklist
             });
 
             updateProgress();
+
+            // ── Wipe panel ──────────────────────────────────────────────
+            var wipeEmailIn   = root.querySelector('#lgtc-wipe-email');
+            var wipePreview   = root.querySelector('#lgtc-wipe-preview');
+            var wipePerform   = root.querySelector('#lgtc-wipe-perform');
+            var wipeStatus    = root.querySelector('#lgtc-wipe-status');
+            var lastPreview   = null;
+
+            function setStatus(html, kind) {
+                wipeStatus.className = 'lgtc-wipe-status' + (kind ? ' ' + kind : '');
+                wipeStatus.innerHTML = html;
+            }
+            function escHtml(s){ return String(s).replace(/[&<>"']/g, function(c){
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+            }); }
+            function buildCountsTable(counts) {
+                var rows = Object.keys(counts).filter(function(k){ return counts[k] > 0; });
+                if (rows.length === 0) return '<p style="margin:6px 0 0;color:#888;">Nothing to delete &mdash; this email has no records on the system.</p>';
+                var html = '<table>';
+                rows.forEach(function(k){ html += '<tr><td>' + escHtml(k) + '</td><td>' + counts[k] + '</td></tr>'; });
+                html += '</table>';
+                return html;
+            }
+            function postWipe(mode, selfConfirm) {
+                var email = (wipeEmailIn.value || '').trim();
+                if (!email) { setStatus('Enter an email first.', 'err'); return Promise.resolve(null); }
+                var body = new URLSearchParams();
+                body.append('action', 'lgms_test_wipe_email');
+                body.append('nonce', WIPE_NONCE);
+                body.append('mode', mode);
+                body.append('email', email);
+                if (selfConfirm) body.append('self_confirm', '1');
+                return fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: body })
+                    .then(function(r){ return r.json().then(function(j){ return { http: r.status, json: j }; }); });
+            }
+
+            wipePreview.addEventListener('click', function(){
+                wipePerform.disabled = true;
+                lastPreview = null;
+                setStatus('Looking up &hellip;');
+                postWipe('preview').then(function(o){
+                    if (!o) return;
+                    if (!o.json || !o.json.success) {
+                        setStatus(escHtml((o.json && o.json.data && o.json.data.message) || ('HTTP ' + o.http)), 'err');
+                        return;
+                    }
+                    var d = o.json.data;
+                    lastPreview = d;
+                    var who = '';
+                    if (d.wp_user)  who += '<strong>WP user:</strong> #' + d.wp_user.id + ' (' + escHtml(d.wp_user.login) + ', roles: ' + escHtml((d.wp_user.roles || []).join(', ')) + ')<br>';
+                    else            who += '<strong>WP user:</strong> none<br>';
+                    if (d.customer) who += '<strong>Customer:</strong> #' + d.customer.id + ' (' + escHtml(d.customer.email) + ')';
+                    else            who += '<strong>Customer:</strong> none';
+                    var selfNote = d.is_self
+                        ? '<div class="lgtc-wipe-self">Heads up: this is YOUR own admin account. Wiping it will delete your WP user and log you out immediately. You\'ll need a different admin to log back in.</div>'
+                        : '';
+                    setStatus(who + buildCountsTable(d.counts || {}) + selfNote + '<p style="margin:8px 0 0;font-size:12px;color:#888;">Total rows: ' + (d.total || 0) + '. Click <strong>Wipe it</strong> to delete.</p>', 'ok');
+                    wipePerform.disabled = (d.total === 0);
+                }).catch(function(){ setStatus('Network error.', 'err'); });
+            });
+
+            wipePerform.addEventListener('click', function(){
+                if (!lastPreview) { setStatus('Run Preview first.', 'err'); return; }
+                var msg = 'Permanently delete every record for ' + (wipeEmailIn.value || '').trim() + '? This cannot be undone.';
+                if (lastPreview.is_self) {
+                    msg += '\n\nThis is YOUR admin account. You will be logged out and will need a different admin login to recover.';
+                }
+                if (!confirm(msg)) return;
+
+                wipePerform.disabled = true;
+                setStatus('Wiping &hellip;');
+                postWipe('perform', !!lastPreview.is_self).then(function(o){
+                    if (!o) return;
+                    if (!o.json || !o.json.success) {
+                        setStatus(escHtml((o.json && o.json.data && o.json.data.message) || ('HTTP ' + o.http)), 'err');
+                        return;
+                    }
+                    var d = o.json.data;
+                    var html = '<strong>Wiped.</strong> Deleted ' + (d.total || 0) + ' rows total.' + buildCountsTable(d.deleted || {});
+                    if (d.is_self) {
+                        html += '<p style="margin:8px 0 0;color:#b04a3c;font-weight:700;">Your session is now stale. Reload to confirm logout.</p>';
+                    }
+                    setStatus(html, 'ok');
+                    lastPreview = null;
+                    wipeEmailIn.value = '';
+                }).catch(function(){ setStatus('Network error during wipe.', 'err'); });
+            });
         })();
         </script>
         <?php

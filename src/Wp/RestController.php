@@ -1574,8 +1574,11 @@ final class RestController
      * Wipe any BuddyPress / BuddyBoss tables that hold rows for this user
      * so customer-only accounts leave no member-directory footprint. Safe
      * to call repeatedly — uses TRUNCATE-style targeted DELETEs.
+     *
+     * Public so TestChecklist::wipeEmail can reuse it as part of the
+     * tester-fixture teardown flow.
      */
-    private static function eraseBuddypressFootprint( int $userId ): void
+    public static function eraseBuddypressFootprint( int $userId ): void
     {
         if ( $userId <= 0 ) {
             return;
