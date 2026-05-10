@@ -450,12 +450,15 @@ final class MembershipGuide
 
     /**
      * Resolve an avatar URL for an elder. Order of resolution:
-     *   1. BuddyBoss avatar (bp_core_fetch_avatar) — works on prod, often
+     *   1. Manually configured avatar_id (attachment ID or URL string) —
+     *      the "Avatar Override URL" field in the admin edit modal. When
+     *      set, this WINS over BuddyBoss / Patreon, matching the form copy
+     *      "ADMIN ENTRY OVERRIDES BUDDYBOSS".
+     *   2. BuddyBoss avatar (bp_core_fetch_avatar) — works on prod, often
      *      a placeholder on dev because the avatars/{user_id}/ dir doesn't sync.
-     *   2. The user's most recent BB profile-photo attachment (post_title
+     *   3. The user's most recent BB profile-photo attachment (post_title
      *      ends in "-bpfull") — DB-backed so it works on dev.
-     *   3. Patreon-imported avatar URL stored in usermeta `patreon-avatar-url`.
-     *   4. Manually configured avatar_id (attachment ID or URL string).
+     *   4. Patreon-imported avatar URL stored in usermeta `patreon-avatar-url`.
      *
      * Every URL is run through liveify() so dev hosts swap to loothgroup.com.
      *
@@ -468,9 +471,15 @@ final class MembershipGuide
         $key = ( $elder['name'] ?? '' ) . '|' . $size;
         if ( isset( $cache[ $key ] ) ) return $cache[ $key ];
 
+        // 1. Manual avatar_id override — admin-set URL or attachment ID.
+        $manual = self::resolveImage( $elder['avatar_id'] ?? 0, $size === 'full' ? 'medium' : 'thumbnail' );
+        if ( $manual !== '' ) {
+            return $cache[ $key ] = self::liveify( $manual );
+        }
+
         $user = self::getElderUser( $elder );
 
-        // 1. BuddyBoss avatar.
+        // 2. BuddyBoss avatar.
         if ( $user && function_exists( 'bp_core_fetch_avatar' ) ) {
             $url = bp_core_fetch_avatar( [
                 'item_id' => $user->ID,
@@ -493,7 +502,7 @@ final class MembershipGuide
         if ( $user ) {
             global $wpdb;
 
-            // 2. Most-recent BB profile-photo attachment authored by this user.
+            // 3. Most-recent BB profile-photo attachment authored by this user.
             //    Pattern: post_title ends in "-bpfull" (BB's upload naming).
             $guid = $wpdb->get_var( $wpdb->prepare(
                 "SELECT guid FROM {$wpdb->posts}
@@ -505,14 +514,12 @@ final class MembershipGuide
             ) );
             if ( $guid ) return $cache[ $key ] = self::liveify( $guid );
 
-            // 3. Patreon-imported avatar URL.
+            // 4. Patreon-imported avatar URL.
             $patreon = (string) get_user_meta( $user->ID, 'patreon-avatar-url', true );
             if ( $patreon !== '' ) return $cache[ $key ] = self::liveify( $patreon );
         }
 
-        // 4. Manual avatar_id from the admin (attachment ID or URL).
-        $manual = self::resolveImage( $elder['avatar_id'] ?? 0, $size === 'full' ? 'medium' : 'thumbnail' );
-        return $cache[ $key ] = $manual;
+        return $cache[ $key ] = '';
     }
 
     /**
