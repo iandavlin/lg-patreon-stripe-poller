@@ -26,20 +26,10 @@ final class UpcomingEvents
         $atts = shortcode_atts( [ 'count' => 4 ], (array) $atts, 'lg_upcoming_events' );
         $count = max( 1, min( 12, (int) $atts['count'] ) );
 
-        $today = gmdate( 'Ymd' );
-        $q = self::queryEvents( $count, $today, '>=', 'ASC' );
-        $isFallback = false;
+        $rows       = self::nextN( $count );
+        $isFallback = $rows && ( $rows[0]['is_fallback'] ?? false );
 
-        // Fallback for slow scheduling weeks: show the most recent past events
-        // so the carousel never goes empty. Frames as "recent shows" — anon
-        // visitors get a sense the calendar is active even if today's window
-        // happens to be quiet.
-        if ( ! $q->have_posts() ) {
-            $q = self::queryEvents( $count, $today, '<', 'DESC' );
-            $isFallback = true;
-        }
-
-        if ( ! $q->have_posts() ) {
+        if ( ! $rows ) {
             return '<p style="color:#888;font-size:14px;">More events coming soon &mdash; the full schedule lives in the <a href="https://loothgroup.com/calendar/">calendar</a>.</p>';
         }
 
@@ -48,28 +38,14 @@ final class UpcomingEvents
             echo '<p style="color:#888;font-size:13px;margin:0 0 8px;"><em>Recent shows &mdash; recordings live in the Archive.</em></p>';
         }
         echo '<div class="upcoming">';
-        while ( $q->have_posts() ) {
-            $q->the_post();
-            $id        = (int) get_the_ID();
-            $title     = (string) get_the_title();
-            $permalink = (string) get_permalink();
-
-            $ymd = (string) get_post_meta( $id, 'events_start_date_and_time_', true );
-            $hms = (string) get_post_meta( $id, 'time_of_event', true );
-
-            [ $datePill, $dayLabel, $timeLabel ] = self::formatWhen( $ymd, $hms );
-
-            $thumb = (string) get_the_post_thumbnail_url( $id, 'medium' );
-
-            $excerpt = trim( wp_strip_all_tags( (string) get_the_excerpt() ) );
-            if ( $excerpt === '' ) {
-                $excerpt = '';
-            } else {
-                $excerpt = mb_substr( $excerpt, 0, 60 );
-                if ( mb_strlen( get_the_excerpt() ) > 60 ) {
-                    $excerpt .= '…';
-                }
-            }
+        foreach ( $rows as $r ) :
+            $thumb     = (string) $r['thumb'];
+            $title     = (string) $r['title'];
+            $permalink = (string) $r['permalink'];
+            $datePill  = (string) $r['date_pill'];
+            $dayLabel  = (string) $r['day_label'];
+            $timeLabel = (string) $r['time_label'];
+            $excerpt   = (string) $r['excerpt'];
             ?>
             <a class="ev-card" href="<?php echo esc_url( $permalink ); ?>">
                 <div class="ev-thumb"<?php echo $thumb ? ' style="background-image:url(' . esc_url( $thumb ) . ');"' : ''; ?>>
@@ -91,11 +67,70 @@ final class UpcomingEvents
                 </div>
             </a>
             <?php
-        }
+        endforeach;
         echo '</div>';
-        wp_reset_postdata();
 
         return (string) ob_get_clean();
+    }
+
+    /**
+     * Data-only accessor — used by the welcome email template (and anywhere
+     * else that needs the events list without the slider HTML). Returns the
+     * next N upcoming events, falling back to recent past events so callers
+     * never get an empty list when there are events at all.
+     *
+     * Each row:
+     *   id, title, permalink, thumb, date_pill, day_label, time_label,
+     *   excerpt, is_fallback
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function nextN( int $count ): array
+    {
+        $count = max( 1, min( 12, $count ) );
+        $today = gmdate( 'Ymd' );
+
+        $q          = self::queryEvents( $count, $today, '>=', 'ASC' );
+        $isFallback = false;
+        if ( ! $q->have_posts() ) {
+            $q = self::queryEvents( $count, $today, '<', 'DESC' );
+            $isFallback = true;
+        }
+        if ( ! $q->have_posts() ) {
+            wp_reset_postdata();
+            return [];
+        }
+
+        $out = [];
+        while ( $q->have_posts() ) {
+            $q->the_post();
+            $id  = (int) get_the_ID();
+            $ymd = (string) get_post_meta( $id, 'events_start_date_and_time_', true );
+            $hms = (string) get_post_meta( $id, 'time_of_event', true );
+            [ $datePill, $dayLabel, $timeLabel ] = self::formatWhen( $ymd, $hms );
+
+            $excerpt = trim( wp_strip_all_tags( (string) get_the_excerpt() ) );
+            if ( $excerpt !== '' ) {
+                $excerpt = mb_substr( $excerpt, 0, 60 );
+                if ( mb_strlen( (string) get_the_excerpt() ) > 60 ) {
+                    $excerpt .= '…';
+                }
+            }
+
+            $out[] = [
+                'id'          => $id,
+                'title'       => (string) get_the_title(),
+                'permalink'   => (string) get_permalink(),
+                'thumb'       => (string) get_the_post_thumbnail_url( $id, 'medium' ),
+                'date_pill'   => $datePill,
+                'day_label'   => $dayLabel,
+                'time_label'  => $timeLabel,
+                'excerpt'     => $excerpt,
+                'is_fallback' => $isFallback,
+            ];
+        }
+        wp_reset_postdata();
+        return $out;
     }
 
     private static function queryEvents( int $count, string $dateAnchor, string $compare, string $order ): \WP_Query

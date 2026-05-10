@@ -109,15 +109,35 @@ final class WelcomeMailer
             return null;
         }
 
-        $tierLabel    = self::tierLabel( $tier );
-        $loginUrl     = wp_login_url( home_url( '/activity/' ) );
-        $manageUrl    = home_url( '/manage-subscription/' );
-        $homeUrl      = home_url( '/' );
-        $mosaicImages = self::loadMosaicImages();
+        $tierLabel     = self::tierLabel( $tier );
+        $loginUrl      = wp_login_url( home_url( '/activity/' ) );
+        $manageUrl     = home_url( '/manage-subscription/' );
+        $homeUrl       = home_url( '/' );
+        $guideUrl      = home_url( '/membership-guide/' );
+        $loothalongUrl = (string) get_option( 'lgms_guide_loothalong_url', '' );
+        $mosaicImages  = self::loadMosaicImages();
+
+        // Page-mirroring data sets — same sources the /membership-guide/
+        // page reads, so a new elder / show / event surfaces in newly-sent
+        // welcome emails as soon as the admin saves it on the page editor.
+        // Existing emails already in inboxes are immutable (standard email
+        // semantics — see PICKUP). Limited to 3 items each so the email
+        // stays compact and reliable in narrow Outlook columns.
+        $upcomingEvents  = \LGMS\Wp\UpcomingEvents::nextN( 3 );
+        $recurringShows  = array_slice( \LGMS\Wp\MembershipGuide::getRecurringShows(), 0, 3 );
+        $eldersForEmail  = array_map(
+            fn( array $e ) => [
+                'name'   => (string) ( $e['name'] ?? '' ),
+                'avatar' => \LGMS\Wp\MembershipGuide::getElderAvatar( $e, 'thumb' ),
+            ],
+            array_slice( \LGMS\Wp\MembershipGuide::getElders(), 0, 3 )
+        );
 
         ob_start();
         // Variables in scope for the template:
-        //   $name, $tierLabel, $loginUrl, $manageUrl, $homeUrl, $mosaicImages
+        //   $name, $tierLabel, $loginUrl, $manageUrl, $homeUrl, $guideUrl,
+        //   $loothalongUrl, $mosaicImages, $upcomingEvents, $recurringShows,
+        //   $eldersForEmail
         require $template;
         return (string) ob_get_clean();
     }
