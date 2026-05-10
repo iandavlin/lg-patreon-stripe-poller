@@ -209,6 +209,18 @@ final class RestController
         return $given !== '' && hash_equals( $expected, $given );
     }
 
+    // Real client IP behind Cloudflare. Falls back to REMOTE_ADDR if the
+    // CF header is missing (origin-direct hit) or invalid.
+    private static function clientIp(): string
+    {
+        $cf = isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ? (string) $_SERVER['HTTP_CF_CONNECTING_IP'] : '';
+        if ( $cf !== '' && filter_var( $cf, FILTER_VALIDATE_IP ) !== false ) {
+            return $cf;
+        }
+        $ra = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+        return filter_var( $ra, FILTER_VALIDATE_IP ) !== false ? $ra : '';
+    }
+
     public static function runNow(WP_REST_Request $req): WP_REST_Response
     {
         Tick::run();
@@ -263,6 +275,20 @@ final class RestController
         if ( $honeypot !== '' ) {
             return new WP_REST_Response( [ 'ok' => true ] );
         }
+
+        // Per-IP soft rate limit: protects admin inbox and DB from abuse.
+        // Returns the same {ok:true} shape as the honeypot so attackers
+        // can't tell they're being throttled.
+        $ip = self::clientIp();
+        if ( $ip !== '' ) {
+            $key  = 'lgms_rr_' . md5( $ip );
+            $hits = (int) get_transient( $key );
+            if ( $hits >= 5 ) {
+                return new WP_REST_Response( [ 'ok' => true ] );
+            }
+            set_transient( $key, $hits + 1, HOUR_IN_SECONDS );
+        }
+
         if ( $name === '' || $email === '' || ! is_email( $email ) ) {
             return new WP_REST_Response( [ 'ok' => false, 'error' => 'Name and a valid email are required.' ], 400 );
         }
