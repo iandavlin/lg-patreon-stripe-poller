@@ -28,6 +28,152 @@ final class TestChecklist
     {
         add_shortcode( 'lg_test_checklist', [ self::class, 'render' ] );
         add_action( 'wp_ajax_lgms_test_wipe_email', [ self::class, 'handleAjaxWipeEmail' ] );
+
+        // Feedback submission: must be reachable by non-logged-in testers
+        // who passed the page password gate, hence the nopriv hook too.
+        add_action( 'wp_ajax_lgms_test_feedback_submit',        [ self::class, 'handleAjaxFeedbackSubmit' ] );
+        add_action( 'wp_ajax_nopriv_lgms_test_feedback_submit', [ self::class, 'handleAjaxFeedbackSubmit' ] );
+
+        // Triage endpoints — admin-only.
+        add_action( 'wp_ajax_lgms_test_feedback_status',        [ self::class, 'handleAjaxFeedbackStatus' ] );
+    }
+
+    /**
+     * Severities (with display labels and colours) and statuses. Keep the
+     * string keys stable — they're stored verbatim in the DB.
+     */
+    private const SEVERITY = [
+        'bug'      => [ 'label' => 'Bug',      'color' => '#b04a3c' ],
+        'note'     => [ 'label' => 'Note',     'color' => '#87986A' ],
+        'question' => [ 'label' => 'Question', 'color' => '#C68A1E' ],
+    ];
+    private const STATUSES = [ 'open', 'fixed', 'wontfix' ];
+
+    /**
+     * AJAX: a tester submits per-item feedback. Available to anonymous
+     * password-holders (nopriv) and logged-in users alike. Nonce gates spam.
+     */
+    public static function handleAjaxFeedbackSubmit(): void
+    {
+        check_ajax_referer( 'lgms_test_feedback', 'nonce' );
+
+        $itemId   = sanitize_text_field( (string) ( $_POST['item_id']     ?? '' ) );
+        $name     = sanitize_text_field( (string) ( $_POST['tester_name'] ?? '' ) );
+        $sevRaw   = sanitize_text_field( (string) ( $_POST['severity']    ?? '' ) );
+        $body     = trim( (string) ( $_POST['body'] ?? '' ) );
+        $body     = sanitize_textarea_field( $body );
+        $severity = isset( self::SEVERITY[ $sevRaw ] ) ? $sevRaw : 'note';
+        $ua       = (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+
+        if ( $itemId === '' || ! self::isKnownItemId( $itemId ) ) {
+            wp_send_json_error( [ 'message' => 'Unknown item id.' ], 400 );
+        }
+        if ( $name === '' ) {
+            $name = 'anonymous';
+        }
+        if ( $body === '' ) {
+            wp_send_json_error( [ 'message' => 'Tell us what you saw.' ], 400 );
+        }
+        // Hard cap on body length so a runaway tester can't bloat the table.
+        $body = mb_substr( $body, 0, 4000 );
+        $ua   = mb_substr( $ua,   0, 255 );
+
+        try {
+            $stmt = \LGMS\Db::pdo()->prepare(
+                'INSERT INTO lg_test_feedback (item_id, tester_name, severity, status, body, user_agent)
+                 VALUES (?, ?, ?, "open", ?, ?)'
+            );
+            $stmt->execute( [ $itemId, $name, $severity, $body, $ua ] );
+            wp_send_json_success( [
+                'id'      => (int) \LGMS\Db::pdo()->lastInsertId(),
+                'message' => 'Logged. Thanks!',
+            ] );
+        } catch ( \Throwable $e ) {
+            error_log( 'lgms_test_feedback_submit DB error: ' . $e->getMessage() );
+            wp_send_json_error( [ 'message' => 'Could not save just now. Try again.' ], 500 );
+        }
+    }
+
+    /**
+     * AJAX: admin updates a feedback row's status (open/fixed/wontfix) or
+     * deletes it entirely (status="delete"). Admin-only.
+     */
+    public static function handleAjaxFeedbackStatus(): void
+    {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
+        }
+        check_ajax_referer( 'lgms_test_feedback', 'nonce' );
+
+        $id     = (int) ( $_POST['id'] ?? 0 );
+        $status = sanitize_text_field( (string) ( $_POST['status'] ?? '' ) );
+        if ( $id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'Bad id.' ], 400 );
+        }
+
+        try {
+            if ( $status === 'delete' ) {
+                $stmt = \LGMS\Db::pdo()->prepare( 'DELETE FROM lg_test_feedback WHERE id = ?' );
+                $stmt->execute( [ $id ] );
+                wp_send_json_success( [ 'deleted' => $stmt->rowCount() ] );
+            }
+            if ( ! in_array( $status, self::STATUSES, true ) ) {
+                wp_send_json_error( [ 'message' => 'Bad status.' ], 400 );
+            }
+            $stmt = \LGMS\Db::pdo()->prepare( 'UPDATE lg_test_feedback SET status = ? WHERE id = ?' );
+            $stmt->execute( [ $status, $id ] );
+            wp_send_json_success( [ 'updated' => $stmt->rowCount(), 'status' => $status ] );
+        } catch ( \Throwable $e ) {
+            error_log( 'lgms_test_feedback_status DB error: ' . $e->getMessage() );
+            wp_send_json_error( [ 'message' => 'DB error.' ], 500 );
+        }
+    }
+
+    /**
+     * Validate that an item_id from a submitted feedback row maps to a real
+     * checklist item. Prevents random strings from getting saved.
+     */
+    private static function isKnownItemId( string $fullId ): bool
+    {
+        if ( strpos( $fullId, ':' ) === false ) return false;
+        [ $section, $item ] = explode( ':', $fullId, 2 );
+        return isset( self::SECTIONS[ $section ]['items'][ $item ] );
+    }
+
+    /**
+     * Returns label info for an item id ('section:item') — used by the admin
+     * viewer to render readable headings instead of opaque strings.
+     */
+    private static function itemLabel( string $fullId ): array
+    {
+        if ( strpos( $fullId, ':' ) === false ) {
+            return [ 'section' => '?', 'desc' => $fullId ];
+        }
+        [ $sec, $item ] = explode( ':', $fullId, 2 );
+        return [
+            'section' => (string) ( self::SECTIONS[ $sec ]['title']                ?? $sec ),
+            'desc'    => (string) ( self::SECTIONS[ $sec ]['items'][ $item ]['desc'] ?? $item ),
+        ];
+    }
+
+    /**
+     * Server-side fetch of all feedback rows for the admin viewer.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function fetchFeedback(): array
+    {
+        try {
+            $stmt = \LGMS\Db::pdo()->query(
+                'SELECT id, item_id, tester_name, severity, status, body, created_at
+                 FROM lg_test_feedback
+                 ORDER BY (status = "open") DESC, created_at DESC'
+            );
+            $rows = $stmt->fetchAll( \PDO::FETCH_ASSOC );
+            return is_array( $rows ) ? $rows : [];
+        } catch ( \Throwable $e ) {
+            return [];
+        }
     }
 
     /**
@@ -508,6 +654,54 @@ final class TestChecklist
                 </section>
             <?php endif; ?>
 
+            <?php if ( current_user_can( 'manage_options' ) ) :
+                $allFb  = self::fetchFeedback();
+                $openFb = array_values( array_filter( $allFb, fn( $r ) => ( $r['status'] ?? '' ) === 'open' ) );
+            ?>
+                <section class="lgtc-inbox">
+                    <header class="lgtc-inbox-head">
+                        <h2>Feedback inbox <span class="lgtc-inbox-count"><?php echo count( $openFb ); ?> open · <?php echo count( $allFb ); ?> total</span></h2>
+                        <div class="lgtc-inbox-actions">
+                            <label class="lgtc-toggle"><input type="checkbox" id="lgtc-inbox-show-closed"> Show closed</label>
+                            <button type="button" id="lgtc-inbox-copy" class="lgtc-btn">Copy as Markdown</button>
+                        </div>
+                    </header>
+                    <?php if ( ! $allFb ) : ?>
+                        <p class="lgtc-inbox-empty">No feedback yet. Testers' submissions land here.</p>
+                    <?php else : ?>
+                        <ul class="lgtc-inbox-list" id="lgtc-inbox-list">
+                            <?php foreach ( $allFb as $fb ) :
+                                $sev    = (string) ( $fb['severity'] ?? 'note' );
+                                $status = (string) ( $fb['status']   ?? 'open' );
+                                $sevDef = self::SEVERITY[ $sev ] ?? self::SEVERITY['note'];
+                                $label  = self::itemLabel( (string) $fb['item_id'] );
+                                $isOpen = $status === 'open';
+                            ?>
+                            <li class="lgtc-inbox-item lgtc-inbox-status-<?php echo esc_attr( $status ); ?>" data-fb-id="<?php echo (int) $fb['id']; ?>" data-fb-status="<?php echo esc_attr( $status ); ?>">
+                                <div class="lgtc-inbox-meta">
+                                    <span class="lgtc-inbox-sev" style="background:<?php echo esc_attr( $sevDef['color'] ); ?>;"><?php echo esc_html( $sevDef['label'] ); ?></span>
+                                    <span class="lgtc-inbox-status"><?php echo esc_html( strtoupper( $status ) ); ?></span>
+                                    <strong class="lgtc-inbox-who"><?php echo esc_html( (string) $fb['tester_name'] ); ?></strong>
+                                    <span class="lgtc-inbox-when"><?php echo esc_html( (string) $fb['created_at'] ); ?></span>
+                                </div>
+                                <div class="lgtc-inbox-where">
+                                    <span class="lgtc-inbox-section"><?php echo esc_html( $label['section'] ); ?></span>
+                                    <span class="lgtc-inbox-desc"><?php echo esc_html( $label['desc'] ); ?></span>
+                                </div>
+                                <p class="lgtc-inbox-body"><?php echo nl2br( esc_html( (string) $fb['body'] ) ); ?></p>
+                                <div class="lgtc-inbox-controls">
+                                    <button type="button" class="lgtc-btn"        data-fb-set="open">Open</button>
+                                    <button type="button" class="lgtc-btn"        data-fb-set="fixed">Fixed</button>
+                                    <button type="button" class="lgtc-btn"        data-fb-set="wontfix">Won't fix</button>
+                                    <button type="button" class="lgtc-btn lgtc-btn-danger" data-fb-set="delete">Delete</button>
+                                </div>
+                            </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </section>
+            <?php endif; ?>
+
             <!-- TIPS FOR TESTERS -->
             <section class="lgtc-tips">
                 <h2>Tips for testers</h2>
@@ -552,6 +746,23 @@ final class TestChecklist
                                 <?php if ( $url !== '' ) : ?>
                                     <p class="lgtc-link"><a href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $url ); ?> &rarr;</a></p>
                                 <?php endif; ?>
+                                <div class="lgtc-fb">
+                                    <button type="button" class="lgtc-fb-toggle" data-fb-toggle="<?php echo esc_attr( $fullId ); ?>">+ Log bug / note</button>
+                                    <form class="lgtc-fb-form" data-fb-form="<?php echo esc_attr( $fullId ); ?>" hidden>
+                                        <div class="lgtc-fb-sev">
+                                            <label><input type="radio" name="sev-<?php echo esc_attr( $fullId ); ?>" value="bug"      data-fb-sev> Bug</label>
+                                            <label><input type="radio" name="sev-<?php echo esc_attr( $fullId ); ?>" value="note"     data-fb-sev checked> Note</label>
+                                            <label><input type="radio" name="sev-<?php echo esc_attr( $fullId ); ?>" value="question" data-fb-sev> Question</label>
+                                        </div>
+                                        <input type="text" data-fb-name placeholder="Your name (saved in this browser)" maxlength="120">
+                                        <textarea data-fb-body placeholder="What did you see? What were you expecting? Be specific." rows="3" maxlength="4000" required></textarea>
+                                        <div class="lgtc-fb-actions">
+                                            <button type="submit" class="lgtc-btn">Submit</button>
+                                            <button type="button" class="lgtc-btn lgtc-btn-cancel" data-fb-cancel>Cancel</button>
+                                            <span class="lgtc-fb-status" data-fb-status></span>
+                                        </div>
+                                    </form>
+                                </div>
                             </div>
                         </li>
                         <?php endforeach; ?>
@@ -628,19 +839,69 @@ final class TestChecklist
             .lgtc-wipe-status td { padding: 2px 12px 2px 0; }
             .lgtc-wipe-status td:last-child { text-align: right; color: var(--amber-d); font-weight: 700; }
             .lgtc-wipe-self { background: var(--red); color: #fff; padding: 8px 12px; border-radius: 4px; margin: 8px 0 0; font-weight: 700; }
+            /* Per-item feedback form */
+            .lgtc-fb { margin-top: 8px; }
+            .lgtc-fb-toggle { background: transparent; border: 1px dashed var(--green); color: var(--green); padding: 3px 10px; border-radius: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
+            .lgtc-fb-toggle:hover { background: var(--green-l); }
+            .lgtc-fb-toggle.is-open { background: var(--green); color: #fff; }
+            .lgtc-fb-form { margin-top: 8px; padding: 10px 12px; background: #fbf9f3; border: 1px solid var(--sand); border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
+            .lgtc-fb-sev label { display: inline-block; margin-right: 12px; font-size: 12px; cursor: pointer; }
+            .lgtc-fb-form input[type="text"] { padding: 5px 8px; border: 1px solid var(--sand); border-radius: 3px; font-size: 12px; font-family: inherit; }
+            .lgtc-fb-form textarea { padding: 6px 8px; border: 1px solid var(--sand); border-radius: 3px; font-size: 13px; font-family: inherit; resize: vertical; }
+            .lgtc-fb-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+            .lgtc-fb-actions .lgtc-btn { background: var(--green); color: #fff; border-color: var(--green); }
+            .lgtc-fb-actions .lgtc-btn:hover { background: #6e8252; }
+            .lgtc-fb-actions .lgtc-btn-cancel { background: transparent; color: var(--ink); border-color: var(--sand); }
+            .lgtc-fb-actions .lgtc-btn-cancel:hover { background: var(--sand); color: var(--dark); }
+            .lgtc-fb-status { font-size: 12px; }
+            .lgtc-fb-status.ok  { color: #4f6d3a; }
+            .lgtc-fb-status.err { color: var(--red); }
+
+            /* Admin feedback inbox */
+            .lgtc-inbox { background: #fff; border: 1px solid var(--sand); border-top: 0; padding: 14px 22px 18px; }
+            .lgtc-inbox-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+            .lgtc-inbox-head h2 { margin: 0; font-family: Georgia, serif; font-size: 17px; color: var(--dark); }
+            .lgtc-inbox-count { font-family: Arial, sans-serif; font-size: 11px; color: var(--amber-d); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; margin-left: 8px; }
+            .lgtc-inbox-actions { display: flex; gap: 12px; align-items: center; font-size: 12px; }
+            .lgtc-inbox-actions .lgtc-toggle { color: var(--ink); }
+            .lgtc-inbox-actions .lgtc-btn { background: var(--dark); color: var(--cream); border-color: var(--dark); }
+            .lgtc-inbox-actions .lgtc-btn:hover { background: var(--ink); }
+            .lgtc-inbox-empty { font-size: 13px; color: #888; font-style: italic; margin: 0; }
+            .lgtc-inbox-list { list-style: none; padding: 0; margin: 0; }
+            .lgtc-inbox-item { padding: 10px 12px; margin-bottom: 8px; background: #fdfbf6; border: 1px solid var(--sand); border-left: 4px solid var(--green); border-radius: 3px; }
+            .lgtc-inbox-status-fixed   { opacity: 0.55; border-left-color: var(--green); }
+            .lgtc-inbox-status-wontfix { opacity: 0.55; border-left-color: #888; }
+            .lgtc-inbox-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 11px; }
+            .lgtc-inbox-sev { display: inline-block; padding: 1px 8px; border-radius: 10px; color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+            .lgtc-inbox-status { font-weight: 700; letter-spacing: 0.06em; color: var(--ink); }
+            .lgtc-inbox-who { color: var(--dark); }
+            .lgtc-inbox-when { color: #888; }
+            .lgtc-inbox-where { font-size: 12px; color: var(--amber-d); margin: 6px 0 4px; }
+            .lgtc-inbox-section { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 8px; }
+            .lgtc-inbox-desc { color: var(--dark); font-weight: 600; }
+            .lgtc-inbox-body { margin: 0 0 8px; font-size: 13px; line-height: 1.55; color: var(--dark); white-space: pre-wrap; }
+            .lgtc-inbox-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+            .lgtc-inbox-controls .lgtc-btn { padding: 3px 10px; font-size: 10px; background: transparent; color: var(--ink); border-color: var(--sand); }
+            .lgtc-inbox-controls .lgtc-btn:hover { background: var(--sand); color: var(--dark); }
+            .lgtc-inbox-controls .lgtc-btn-danger { color: var(--red); border-color: var(--red); }
+            .lgtc-inbox-controls .lgtc-btn-danger:hover { background: var(--red); color: #fff; }
+            .lgtc-inbox.lgtc-inbox-hide-closed .lgtc-inbox-item:not(.lgtc-inbox-status-open) { display: none; }
+
             @media (max-width: 600px) {
                 .lgtc-head { padding: 22px 18px; border-radius: 6px 6px 0 0; }
                 .lgtc-section { padding: 14px 16px 16px; }
                 .lgtc-controls { gap: 10px; }
-                .lgtc-tips, .lgtc-wipe { padding: 14px 16px; }
+                .lgtc-tips, .lgtc-wipe, .lgtc-inbox { padding: 14px 16px; }
             }
         </style>
 
         <script>
         (function(){
             var STORAGE_KEY  = 'lgtc_state_v1';
+            var NAME_KEY     = 'lgtc_tester_name_v1';
             var AJAX_URL     = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
             var WIPE_NONCE   = <?php echo wp_json_encode( wp_create_nonce( 'lgms_test_wipe' ) ); ?>;
+            var FB_NONCE     = <?php echo wp_json_encode( wp_create_nonce( 'lgms_test_feedback' ) ); ?>;
             var ADMIN_EMAIL  = <?php echo wp_json_encode( (string) ( wp_get_current_user()->user_email ?? '' ) ); ?>;
             var root         = document.querySelector('.lgtc');
             if (!root) return;
@@ -829,6 +1090,158 @@ final class TestChecklist
                     wipeEmailIn.value = '';
                 }).catch(function(){ setStatus('Network error during wipe.', 'err'); });
             });
+
+            // ── Per-item feedback form ─────────────────────────────────
+            var savedName = '';
+            try { savedName = localStorage.getItem(NAME_KEY) || ''; } catch (e) {}
+
+            root.querySelectorAll('[data-fb-toggle]').forEach(function(btn){
+                var itemId = btn.getAttribute('data-fb-toggle');
+                var form   = root.querySelector('[data-fb-form="' + CSS.escape(itemId) + '"]');
+                if (!form) return;
+                var nameIn = form.querySelector('[data-fb-name]');
+                if (nameIn && savedName) nameIn.value = savedName;
+                btn.addEventListener('click', function(){
+                    var willOpen = form.hidden;
+                    form.hidden = !willOpen;
+                    btn.classList.toggle('is-open', willOpen);
+                    if (willOpen) {
+                        var ta = form.querySelector('[data-fb-body]');
+                        if (ta) ta.focus();
+                    }
+                });
+                form.querySelector('[data-fb-cancel]').addEventListener('click', function(){
+                    form.hidden = true;
+                    btn.classList.remove('is-open');
+                });
+                form.addEventListener('submit', function(e){
+                    e.preventDefault();
+                    var sev   = (form.querySelector('[data-fb-sev]:checked') || {}).value || 'note';
+                    var name  = (form.querySelector('[data-fb-name]').value || '').trim() || 'anonymous';
+                    var body  = (form.querySelector('[data-fb-body]').value || '').trim();
+                    var status = form.querySelector('[data-fb-status]');
+                    if (!body) {
+                        status.className = 'lgtc-fb-status err';
+                        status.textContent = 'Tell us what you saw.';
+                        return;
+                    }
+                    try { localStorage.setItem(NAME_KEY, name); } catch (e) {}
+                    savedName = name;
+                    status.className = 'lgtc-fb-status';
+                    status.textContent = 'Submitting…';
+                    var fd = new URLSearchParams();
+                    fd.append('action', 'lgms_test_feedback_submit');
+                    fd.append('nonce', FB_NONCE);
+                    fd.append('item_id', itemId);
+                    fd.append('tester_name', name);
+                    fd.append('severity', sev);
+                    fd.append('body', body);
+                    fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: fd })
+                        .then(function(r){ return r.json().then(function(j){ return { http: r.status, json: j }; }); })
+                        .then(function(o){
+                            if (o.json && o.json.success) {
+                                status.className = 'lgtc-fb-status ok';
+                                status.textContent = 'Thanks — logged.';
+                                form.querySelector('[data-fb-body]').value = '';
+                                setTimeout(function(){
+                                    form.hidden = true;
+                                    btn.classList.remove('is-open');
+                                    status.textContent = '';
+                                }, 1500);
+                            } else {
+                                status.className = 'lgtc-fb-status err';
+                                status.textContent = (o.json && o.json.data && o.json.data.message) || ('HTTP ' + o.http);
+                            }
+                        })
+                        .catch(function(){
+                            status.className = 'lgtc-fb-status err';
+                            status.textContent = 'Network error.';
+                        });
+                });
+            });
+
+            // ── Admin: feedback inbox ──────────────────────────────────
+            var inbox      = root.querySelector('.lgtc-inbox');
+            if (inbox) {
+                var showClosed = inbox.querySelector('#lgtc-inbox-show-closed');
+                var copyBtn    = inbox.querySelector('#lgtc-inbox-copy');
+
+                // Default: hide closed items
+                inbox.classList.add('lgtc-inbox-hide-closed');
+                if (showClosed) {
+                    showClosed.addEventListener('change', function(){
+                        inbox.classList.toggle('lgtc-inbox-hide-closed', !showClosed.checked);
+                    });
+                }
+
+                // Status-change buttons
+                inbox.querySelectorAll('[data-fb-set]').forEach(function(b){
+                    b.addEventListener('click', function(){
+                        var li     = b.closest('.lgtc-inbox-item');
+                        var fbId   = parseInt(li.getAttribute('data-fb-id'), 10);
+                        var newSt  = b.getAttribute('data-fb-set');
+                        if (newSt === 'delete' && !confirm('Delete this feedback row?')) return;
+                        var fd = new URLSearchParams();
+                        fd.append('action', 'lgms_test_feedback_status');
+                        fd.append('nonce', FB_NONCE);
+                        fd.append('id', fbId);
+                        fd.append('status', newSt);
+                        fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: fd })
+                            .then(function(r){ return r.json(); })
+                            .then(function(j){
+                                if (!j || !j.success) return;
+                                if (newSt === 'delete') {
+                                    li.parentNode.removeChild(li);
+                                    return;
+                                }
+                                li.className = 'lgtc-inbox-item lgtc-inbox-status-' + newSt;
+                                li.setAttribute('data-fb-status', newSt);
+                                var sBadge = li.querySelector('.lgtc-inbox-status');
+                                if (sBadge) sBadge.textContent = newSt.toUpperCase();
+                            });
+                    });
+                });
+
+                // Copy as Markdown
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', function(){
+                        var items = inbox.querySelectorAll('.lgtc-inbox-item');
+                        var lines = ['# Test feedback (' + items.length + ' total)\n'];
+                        items.forEach(function(li){
+                            var sev    = (li.querySelector('.lgtc-inbox-sev') || {}).textContent || 'note';
+                            var status = li.getAttribute('data-fb-status') || 'open';
+                            var who    = (li.querySelector('.lgtc-inbox-who') || {}).textContent || 'anonymous';
+                            var when   = (li.querySelector('.lgtc-inbox-when') || {}).textContent || '';
+                            var sec    = (li.querySelector('.lgtc-inbox-section') || {}).textContent || '';
+                            var desc   = (li.querySelector('.lgtc-inbox-desc') || {}).textContent || '';
+                            var body   = (li.querySelector('.lgtc-inbox-body') || {}).textContent || '';
+                            lines.push('## ' + sec + ' — ' + desc);
+                            lines.push('**' + sev.toLowerCase() + '** · **' + status + '** · ' + who + ' · ' + when);
+                            lines.push('');
+                            body.split(/\n/).forEach(function(l){ lines.push('> ' + l); });
+                            lines.push('');
+                        });
+                        var md = lines.join('\n');
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(md).then(function(){
+                                copyBtn.textContent = 'Copied ✓';
+                                setTimeout(function(){ copyBtn.textContent = 'Copy as Markdown'; }, 1500);
+                            });
+                            return;
+                        }
+                        try {
+                            var ta = document.createElement('textarea');
+                            ta.value = md;
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            ta.remove();
+                            copyBtn.textContent = 'Copied ✓';
+                            setTimeout(function(){ copyBtn.textContent = 'Copy as Markdown'; }, 1500);
+                        } catch (e) {}
+                    });
+                }
+            }
         })();
         </script>
         <?php

@@ -66,5 +66,24 @@ final class Schema
                 KEY idx_dup_count (dup_count)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         SQL);
+
+        // QA feedback log written from /test-checklist/. Testers (logged-in
+        // or password-only) submit per-item bugs / notes / questions; admins
+        // triage by flipping status (open → fixed | wontfix).
+        $pdo->exec(<<<'SQL'
+            CREATE TABLE IF NOT EXISTS lg_test_feedback (
+                id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                item_id      VARCHAR(64)     NOT NULL,
+                tester_name  VARCHAR(128)    NOT NULL,
+                severity     VARCHAR(16)     NOT NULL,
+                status       VARCHAR(16)     NOT NULL DEFAULT 'open',
+                body         TEXT            NOT NULL,
+                user_agent   VARCHAR(255)    NULL,
+                created_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_status  (status),
+                KEY idx_item    (item_id),
+                KEY idx_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        SQL);
     }
 }
