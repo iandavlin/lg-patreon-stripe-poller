@@ -973,10 +973,11 @@ final class TestChecklist
             .lgtc-vt-btn:hover { background: rgba(135,152,106,0.2); }
             .lgtc-vt-btn.is-active { background: var(--amber); color: var(--dark); border-color: var(--amber); }
             .lgtc-admin-badge { display: inline-block; margin-left: 8px; padding: 1px 8px; background: var(--dark); color: var(--amber); font-family: Arial, sans-serif; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; border-radius: 3px; vertical-align: middle; }
-            /* Tester view: hide admin-only sections, items, and panels. CSS counters keep numbering tight (no gaps for hidden items). */
+            /* Tester view: hide admin-only sections, items, and the inbox.
+               The password callout stays visible to admins regardless of view
+               mode — it's an admin working tool, not content testers see. */
             .lgtc.lgtc-view-as-tester .lgtc-admin-only { display: none !important; }
-            .lgtc.lgtc-view-as-tester .lgtc-pwd,
-            .lgtc.lgtc-view-as-tester .lgtc-inbox { display: none !important; }
+            .lgtc.lgtc-view-as-tester .lgtc-inbox      { display: none !important; }
             .lgtc.lgtc-view-as-tester .lgtc-items { counter-reset: lgtc-item; }
             .lgtc.lgtc-view-as-tester .lgtc-admin-only.lgtc-item { counter-increment: none; }
             @media (max-width: 600px) {
