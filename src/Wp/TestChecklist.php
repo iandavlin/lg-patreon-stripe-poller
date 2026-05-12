@@ -36,6 +36,25 @@ final class TestChecklist
 
         // Triage endpoints — admin-only.
         add_action( 'wp_ajax_lgms_test_feedback_status',        [ self::class, 'handleAjaxFeedbackStatus' ] );
+
+        // Admin bypass: WP normally lets edit-capable users skip post
+        // passwords, but cache layers and session edge cases sometimes
+        // still surface the password form. Force-skip on this page for
+        // manage_options users so admins never have to dig out the
+        // password they're trying to share with testers.
+        add_filter( 'post_password_required', [ self::class, 'allowAdminBypass' ], 10, 2 );
+    }
+
+    /**
+     * Filter callback: admins (manage_options) bypass the password form for
+     * the /test-checklist/ page. Other posts and other users unaffected.
+     */
+    public static function allowAdminBypass( bool $required, $post ): bool
+    {
+        if ( ! $required ) return false;
+        if ( ! ( $post instanceof \WP_Post ) ) return $required;
+        if ( $post->post_name !== 'test-checklist' ) return $required;
+        return current_user_can( 'manage_options' ) ? false : $required;
     }
 
     /**
