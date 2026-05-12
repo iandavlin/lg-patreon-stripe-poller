@@ -2819,10 +2819,23 @@ final class Shortcodes
         $emailValue  = $isLoggedIn ? (string) $user->user_email : '';
         $nameValue   = $isLoggedIn ? trim( (string) ( $user->display_name ?: $user->user_login ) ) : '';
 
-        // If the logged-in user already has an active subscription, point them
-        // at the Stripe Customer Portal instead of letting them double-buy.
+        // If the logged-in user already has an active paid Stripe subscription,
+        // redirect to /manage-subscription/ instead of letting them double-buy.
+        // Intentionally narrow: gift-only, patreon, and manual-source members
+        // fall through to the picker because those flows have legitimate
+        // upgrade paths (stack a paid sub on top of a gift; convert from
+        // patreon/manual to Stripe).
         $activeSub = $isLoggedIn && $emailValue !== '' ? self::lookupActiveSub( $emailValue ) : null;
         if ( $activeSub !== null ) {
+            // Server-side redirect — only fires before any output. wp_safe_redirect
+            // restricts to same-host. exit() so we don't render the picker too.
+            if ( ! headers_sent() ) {
+                wp_safe_redirect( home_url( '/manage-subscription/' ), 302 );
+                exit;
+            }
+            // Headers already sent (e.g. inside a builder preview) — fall back
+            // to the inline render so we never leave the user staring at a
+            // blank page.
             return self::renderActiveSubBlock( $activeSub );
         }
 
