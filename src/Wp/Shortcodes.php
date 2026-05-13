@@ -6102,10 +6102,12 @@ final class Shortcodes
         }
 
         // Admin section data — only fetched/rendered for manage_options users.
-        // Shows requested-status rows across ALL affiliates so admins can
-        // triage from this page instead of bouncing to wp-admin.
-        $allPending = [];
-        $isAdmin    = current_user_can( 'manage_options' );
+        // Two tabs: Pending (status='requested', editable) and History
+        // (paid + denied, read-only ledger).
+        $allPending  = [];
+        $historyRows = [];
+        $allAffSlugs = []; // for the history filter dropdown
+        $isAdmin     = current_user_can( 'manage_options' );
         if ( $isAdmin ) {
             try {
                 $st = \LGMS\Db::pdo()->query(
@@ -6117,6 +6119,27 @@ final class Shortcodes
                      ORDER BY p.id ASC'
                 );
                 $allPending = $st->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+            } catch ( \Throwable $_ ) {}
+
+            try {
+                $st = \LGMS\Db::pdo()->query(
+                    'SELECT p.id, p.affiliate_id, p.requested_cents, p.paid_cents,
+                            p.status, p.method, p.notes,
+                            p.requested_at, p.resolved_at, p.resolved_by,
+                            a.label AS aff_label, a.slug AS aff_slug
+                     FROM lg_affiliate_payouts p
+                     JOIN affiliates a ON a.id = p.affiliate_id
+                     WHERE p.status IN ("paid","denied")
+                     ORDER BY p.resolved_at DESC, p.id DESC'
+                );
+                $historyRows = $st->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+            } catch ( \Throwable $_ ) {}
+
+            try {
+                $st = \LGMS\Db::pdo()->query(
+                    'SELECT slug, label FROM affiliates ORDER BY label ASC'
+                );
+                $allAffSlugs = $st->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
             } catch ( \Throwable $_ ) {}
         }
 
@@ -6229,52 +6252,170 @@ final class Shortcodes
                 </table>
             <?php endif; ?>
 
-            <?php if ( $isAdmin && $allPending !== [] ) : ?>
-                <div style="margin-top:2.4em;border-top:2px solid #1f1d1a;padding-top:1.4em;">
+            <?php if ( $isAdmin && ( $allPending !== [] || $historyRows !== [] ) ) :
+                // Default to Pending if any are pending, else jump to History.
+                $defaultTab = $allPending !== [] ? 'pending' : 'history';
+            ?>
+                <div class="lgms-aff-admin" style="margin-top:2.4em;border-top:2px solid #1f1d1a;padding-top:1.4em;" data-active-tab="<?php echo esc_attr( $defaultTab ); ?>">
                     <h3 style="margin:0 0 .8em;font-size:1.1em;color:#1f1d1a;">
                         <span style="background:#1f1d1a;color:#ECB351;padding:.15em .55em;border-radius:3px;font-size:.7em;letter-spacing:.08em;text-transform:uppercase;font-weight:700;vertical-align:middle;margin-right:.5em;">Admin</span>
-                        Pending payout requests
-                        <span style="font-size:.7em;color:#666;font-weight:400;">(<?php echo count( $allPending ); ?>)</span>
+                        Affiliate payouts
                     </h3>
-                    <p style="margin:0 0 1em;font-size:.85em;color:#555;">All affiliates with an open withdrawal request. Mark <strong>Paid</strong> after you transfer; the amount you enter is subtracted from their future estimated balance. Mark <strong>Denied</strong> if you're declining; nothing is deducted.</p>
-                    <ul style="list-style:none;padding:0;margin:0;" id="lgms-aff-pending-list">
-                        <?php foreach ( $allPending as $p ) :
-                            $reqCents = (int) $p['requested_cents'];
-                            $reqFmt   = number_format( $reqCents / 100, 2 );
-                        ?>
-                        <li class="lgms-aff-pending" data-payout-id="<?php echo (int) $p['id']; ?>" data-requested-cents="<?php echo $reqCents; ?>"
-                            style="background:#fef9e7;border:1px solid #f1d28a;border-radius:5px;padding:.8em 1em;margin-bottom:.7em;">
-                            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5em;margin-bottom:.5em;">
-                                <div>
-                                    <strong><?php echo esc_html( (string) $p['aff_label'] ); ?></strong>
-                                    <span style="color:#888;font-size:.85em;">(/<?php echo esc_html( (string) $p['aff_slug'] ); ?>)</span>
-                                    <span style="color:#888;font-size:.85em;margin-left:.7em;">Requested <?php echo esc_html( substr( (string) $p['requested_at'], 0, 16 ) ); ?></span>
-                                </div>
-                                <div style="font-weight:700;">$<?php echo $reqFmt; ?></div>
+
+                    <div class="lgms-aff-tabs" style="display:flex;gap:.2em;border-bottom:1px solid #ddd;margin:0 0 1em;" role="tablist">
+                        <button type="button" class="lgms-aff-tab" data-tab="pending"
+                                style="background:transparent;border:0;border-bottom:3px solid transparent;padding:.6em 1.1em;font-size:.95em;font-weight:600;cursor:pointer;color:#555;">
+                            Pending <span style="font-size:.85em;color:#888;font-weight:400;">(<?php echo count( $allPending ); ?>)</span>
+                        </button>
+                        <button type="button" class="lgms-aff-tab" data-tab="history"
+                                style="background:transparent;border:0;border-bottom:3px solid transparent;padding:.6em 1.1em;font-size:.95em;font-weight:600;cursor:pointer;color:#555;">
+                            History <span style="font-size:.85em;color:#888;font-weight:400;">(<?php echo count( $historyRows ); ?>)</span>
+                        </button>
+                    </div>
+
+                    <!-- PENDING TAB -->
+                    <div class="lgms-aff-panel" data-panel="pending">
+                        <?php if ( $allPending === [] ) : ?>
+                            <p style="color:#888;font-style:italic;margin:0;">No pending requests right now.</p>
+                        <?php else : ?>
+                            <p style="margin:0 0 1em;font-size:.85em;color:#555;">Mark <strong>Paid</strong> after you transfer; the amount is subtracted from the affiliate's future estimated balance. Mark <strong>Denied</strong> if declining; nothing is deducted.</p>
+                            <ul style="list-style:none;padding:0;margin:0;" id="lgms-aff-pending-list">
+                                <?php foreach ( $allPending as $p ) :
+                                    $reqCents = (int) $p['requested_cents'];
+                                    $reqFmt   = number_format( $reqCents / 100, 2 );
+                                ?>
+                                <li class="lgms-aff-pending" data-payout-id="<?php echo (int) $p['id']; ?>" data-requested-cents="<?php echo $reqCents; ?>"
+                                    style="background:#fef9e7;border:1px solid #f1d28a;border-radius:5px;padding:.8em 1em;margin-bottom:.7em;">
+                                    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5em;margin-bottom:.5em;">
+                                        <div>
+                                            <strong><?php echo esc_html( (string) $p['aff_label'] ); ?></strong>
+                                            <span style="color:#888;font-size:.85em;">(/<?php echo esc_html( (string) $p['aff_slug'] ); ?>)</span>
+                                            <span style="color:#888;font-size:.85em;margin-left:.7em;">Requested <?php echo esc_html( substr( (string) $p['requested_at'], 0, 16 ) ); ?></span>
+                                        </div>
+                                        <div style="font-weight:700;">$<?php echo $reqFmt; ?></div>
+                                    </div>
+                                    <div class="lgms-aff-pay-row" style="display:flex;gap:.4em;align-items:center;flex-wrap:wrap;">
+                                        <input type="number" step="0.01" min="0" placeholder="Amount" value="<?php echo $reqFmt; ?>" class="lgms-aff-pay-amount"
+                                               style="width:7em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
+                                        <input type="text" placeholder="Method (venmo, check #123, …)" maxlength="64" class="lgms-aff-pay-method"
+                                               style="flex:1 1 14em;min-width:9em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
+                                        <input type="text" placeholder="Notes (optional)" maxlength="2000" class="lgms-aff-pay-notes"
+                                               style="flex:2 1 18em;min-width:9em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
+                                        <button type="button" class="lgms-aff-pay-mark"
+                                                style="background:#15803d;color:#fff;border:none;padding:.4em .9em;border-radius:3px;font-size:.85em;font-weight:600;cursor:pointer;">
+                                            Mark paid
+                                        </button>
+                                        <button type="button" class="lgms-aff-pay-deny"
+                                                style="background:transparent;color:#dc2626;border:1px solid #dc2626;padding:.35em .8em;border-radius:3px;font-size:.85em;font-weight:600;cursor:pointer;">
+                                            Deny
+                                        </button>
+                                    </div>
+                                    <div class="lgms-aff-pay-status" style="margin-top:.4em;font-size:.85em;display:none;"></div>
+                                </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- HISTORY TAB -->
+                    <div class="lgms-aff-panel" data-panel="history">
+                        <?php if ( $historyRows === [] ) : ?>
+                            <p style="color:#888;font-style:italic;margin:0;">Nothing resolved yet. Paid and denied payouts will land here.</p>
+                        <?php else : ?>
+                            <?php
+                            // Summary chips
+                            $sumPaidCents = 0;
+                            $countPaid    = 0;
+                            $countDenied  = 0;
+                            foreach ( $historyRows as $hr ) {
+                                if ( ( $hr['status'] ?? '' ) === 'paid' ) {
+                                    $countPaid++;
+                                    $sumPaidCents += (int) ( $hr['paid_cents'] ?? 0 );
+                                } else {
+                                    $countDenied++;
+                                }
+                            }
+                            ?>
+                            <div style="display:flex;gap:.6em;flex-wrap:wrap;margin:0 0 1em;font-size:.85em;">
+                                <span style="background:#dcfce7;color:#15803d;padding:.25em .7em;border-radius:3px;font-weight:600;">
+                                    <?php echo $countPaid; ?> paid · $<?php echo number_format( $sumPaidCents / 100, 2 ); ?> total
+                                </span>
+                                <?php if ( $countDenied > 0 ) : ?>
+                                <span style="background:#fee2e2;color:#dc2626;padding:.25em .7em;border-radius:3px;font-weight:600;">
+                                    <?php echo $countDenied; ?> denied
+                                </span>
+                                <?php endif; ?>
+                                <label style="margin-left:auto;display:flex;align-items:center;gap:.4em;color:#555;">
+                                    Filter:
+                                    <select id="lgms-aff-history-filter" style="padding:.3em .5em;border:1px solid #ccc;border-radius:3px;font-size:.85em;">
+                                        <option value="">All affiliates</option>
+                                        <?php foreach ( $allAffSlugs as $a ) : ?>
+                                            <option value="<?php echo esc_attr( (string) $a['slug'] ); ?>"><?php echo esc_html( (string) $a['label'] ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
                             </div>
-                            <div class="lgms-aff-pay-row" style="display:flex;gap:.4em;align-items:center;flex-wrap:wrap;">
-                                <input type="number" step="0.01" min="0" placeholder="Amount" value="<?php echo $reqFmt; ?>" class="lgms-aff-pay-amount"
-                                       style="width:7em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
-                                <input type="text" placeholder="Method (venmo, check #123, …)" maxlength="64" class="lgms-aff-pay-method"
-                                       style="flex:1 1 14em;min-width:9em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
-                                <input type="text" placeholder="Notes (optional)" maxlength="2000" class="lgms-aff-pay-notes"
-                                       style="flex:2 1 18em;min-width:9em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
-                                <button type="button" class="lgms-aff-pay-mark"
-                                        style="background:#15803d;color:#fff;border:none;padding:.4em .9em;border-radius:3px;font-size:.85em;font-weight:600;cursor:pointer;">
-                                    Mark paid
-                                </button>
-                                <button type="button" class="lgms-aff-pay-deny"
-                                        style="background:transparent;color:#dc2626;border:1px solid #dc2626;padding:.35em .8em;border-radius:3px;font-size:.85em;font-weight:600;cursor:pointer;">
-                                    Deny
-                                </button>
-                            </div>
-                            <div class="lgms-aff-pay-status" style="margin-top:.4em;font-size:.85em;display:none;"></div>
-                        </li>
-                        <?php endforeach; ?>
-                    </ul>
+                            <table style="border-collapse:collapse;width:100%;font-size:.88em;" id="lgms-aff-history-table">
+                                <thead>
+                                    <tr style="border-bottom:2px solid #e5e7eb;color:#666;text-align:left;">
+                                        <th style="padding:.5em .6em .5em 0;font-weight:600;">Resolved</th>
+                                        <th style="padding:.5em .6em;font-weight:600;">Affiliate</th>
+                                        <th style="padding:.5em .6em;font-weight:600;text-align:right;">Amount</th>
+                                        <th style="padding:.5em .6em;font-weight:600;">Status</th>
+                                        <th style="padding:.5em .6em;font-weight:600;">Method · Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ( $historyRows as $hr ) :
+                                        $status   = (string) ( $hr['status'] ?? '' );
+                                        $reqCents = (int) ( $hr['requested_cents'] ?? 0 );
+                                        $paidCents= (int) ( $hr['paid_cents']      ?? 0 );
+                                        $amt      = $status === 'paid'
+                                                    ? number_format( $paidCents / 100, 2 )
+                                                    : number_format( $reqCents  / 100, 2 );
+                                        $color    = $status === 'paid' ? '#15803d' : '#dc2626';
+                                        $method   = (string) ( $hr['method'] ?? '' );
+                                        $note     = (string) ( $hr['notes']  ?? '' );
+                                        $extras   = trim( $method . ( $note !== '' ? ( $method !== '' ? ' · ' : '' ) . $note : '' ) );
+                                        $resolved = (string) ( $hr['resolved_at'] ?? $hr['requested_at'] ?? '' );
+                                    ?>
+                                    <tr class="lgms-aff-hist-row" data-aff-slug="<?php echo esc_attr( (string) $hr['aff_slug'] ); ?>"
+                                        style="border-bottom:1px solid #f3f4f6;">
+                                        <td style="padding:.5em .6em .5em 0;color:#555;white-space:nowrap;"><?php echo esc_html( substr( $resolved, 0, 10 ) ); ?></td>
+                                        <td style="padding:.5em .6em;">
+                                            <strong><?php echo esc_html( (string) $hr['aff_label'] ); ?></strong>
+                                            <span style="color:#888;font-size:.85em;">/<?php echo esc_html( (string) $hr['aff_slug'] ); ?></span>
+                                        </td>
+                                        <td style="padding:.5em .6em;text-align:right;font-weight:600;">
+                                            $<?php echo esc_html( $amt ); ?>
+                                            <?php if ( $status === 'paid' && $paidCents !== $reqCents ) : ?>
+                                                <span style="color:#999;font-weight:400;font-size:.85em;display:block;">req $<?php echo number_format( $reqCents / 100, 2 ); ?></span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td style="padding:.5em .6em;color:<?php echo $color; ?>;font-weight:600;text-transform:uppercase;font-size:.85em;letter-spacing:.04em;">
+                                            <?php echo esc_html( $status ); ?>
+                                        </td>
+                                        <td style="padding:.5em .6em;color:#555;"><?php echo esc_html( $extras ?: '—' ); ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                            <p id="lgms-aff-history-empty" style="display:none;color:#888;font-style:italic;margin:1em 0 0;">No payouts for that affiliate.</p>
+                        <?php endif; ?>
+                    </div>
                 </div>
             <?php endif; ?>
         </div>
+        <style>
+            .lgms-aff-tab.is-active { color: #1f1d1a !important; border-bottom-color: #ECB351 !important; }
+            .lgms-aff-panel { display: none; }
+            .lgms-aff-admin[data-active-tab="pending"] .lgms-aff-panel[data-panel="pending"] { display: block; }
+            .lgms-aff-admin[data-active-tab="history"] .lgms-aff-panel[data-panel="history"] { display: block; }
+            .lgms-aff-admin[data-active-tab="pending"] .lgms-aff-tab[data-tab="pending"],
+            .lgms-aff-admin[data-active-tab="history"] .lgms-aff-tab[data-tab="history"] {
+                color: #1f1d1a; border-bottom-color: #ECB351;
+            }
+        </style>
         <script>
         (function(){
             var withdrawBtn = document.getElementById('lgms-aff-portal-withdraw');
@@ -6363,6 +6504,33 @@ final class Shortcodes
                     resolve(li, { id: id, status: 'denied', notes: notes });
                 });
             });
+
+            // Admin: Pending / History tab switching.
+            var adminPanel = document.querySelector('.lgms-aff-admin');
+            if (adminPanel) {
+                adminPanel.querySelectorAll('.lgms-aff-tab').forEach(function(tabBtn){
+                    tabBtn.addEventListener('click', function(){
+                        adminPanel.setAttribute('data-active-tab', tabBtn.getAttribute('data-tab'));
+                    });
+                });
+
+                // History affiliate filter.
+                var filterSel  = adminPanel.querySelector('#lgms-aff-history-filter');
+                var historyTbl = adminPanel.querySelector('#lgms-aff-history-table');
+                var emptyMsg   = adminPanel.querySelector('#lgms-aff-history-empty');
+                if (filterSel && historyTbl) {
+                    filterSel.addEventListener('change', function(){
+                        var want = filterSel.value;
+                        var shown = 0;
+                        historyTbl.querySelectorAll('.lgms-aff-hist-row').forEach(function(tr){
+                            var match = !want || tr.getAttribute('data-aff-slug') === want;
+                            tr.style.display = match ? '' : 'none';
+                            if (match) shown++;
+                        });
+                        if (emptyMsg) emptyMsg.style.display = shown === 0 ? 'block' : 'none';
+                    });
+                }
+            }
         })();
         </script>
         <?php
