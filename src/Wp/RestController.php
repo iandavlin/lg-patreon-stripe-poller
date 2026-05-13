@@ -1687,7 +1687,8 @@ final class RestController
         // Verify this user is actually an affiliate.
         try {
             $stmt = \LGMS\Db::pdo()->prepare(
-                'SELECT a.slug, a.label,
+                'SELECT a.id, a.slug, a.label,
+                        a.commission_pct, a.commission_pct_annual, a.retention_bonus_pct,
                         COUNT(DISTINCT cl.id) AS clicks,
                         COUNT(DISTINCT cv.id) AS conversions,
                         COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible,
