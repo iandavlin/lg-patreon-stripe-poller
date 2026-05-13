@@ -85,5 +85,29 @@ final class Schema
                 KEY idx_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         SQL);
+
+        // Affiliate payouts ledger. One row per withdrawal request, status
+        // transitions requested → paid | denied. requested_cents is the
+        // snapshot of estimated balance at request time; paid_cents is the
+        // actual amount the admin transferred. Sum of paid_cents per
+        // affiliate is subtracted from future estimated balances so the
+        // displayed number reflects "earned since last payout."
+        $pdo->exec(<<<'SQL'
+            CREATE TABLE IF NOT EXISTS lg_affiliate_payouts (
+                id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                affiliate_id    INT UNSIGNED    NOT NULL,
+                requested_cents INT UNSIGNED    NOT NULL,
+                paid_cents      INT UNSIGNED    NULL,
+                status          VARCHAR(20)     NOT NULL DEFAULT 'requested',
+                method          VARCHAR(64)     NULL,
+                notes           TEXT            NULL,
+                requested_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                resolved_at     DATETIME        NULL,
+                resolved_by     BIGINT UNSIGNED NULL,
+                KEY idx_aff_status (affiliate_id, status),
+                KEY idx_status     (status),
+                KEY idx_requested  (requested_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        SQL);
     }
 }

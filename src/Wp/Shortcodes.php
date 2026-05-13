@@ -2713,7 +2713,7 @@ final class Shortcodes
                 (float) $affRow['commission_pct'],
                 (float) $affRow['retention_bonus_pct']
             );
-            $affBalance   = max( 0, $affEst['gross_cents'] + $affEst['retention_cents'] - $affDebits );
+            $affBalance   = max( 0, $affEst['gross_cents'] + $affEst['retention_cents'] - $affDebits - $affEst['paid_out_cents'] );
         ?>
         <div class="lg-manage-sub__card" style="margin-top:2em;border:1px solid #d4e0b8;border-radius:6px;padding:1.2em 1.4em;max-width:640px;background:#f7fbf2;">
             <h3 style="margin:0 0 .8em;font-size:1.2em;">Your affiliate stats</h3>
@@ -5963,9 +5963,12 @@ final class Shortcodes
      * The portal labels this as an estimate; the actual payout is
      * reconciled by admins at withdrawal time via bin/poll-retention.php.
      *
-     * @return array{gross_cents:int, retention_cents:int}
+     * Public so the REST controller (affiliateWithdraw) can snapshot the
+     * balance at request time into lg_affiliate_payouts.requested_cents.
+     *
+     * @return array{gross_cents:int, retention_cents:int, paid_out_cents:int}
      */
-    private static function affiliateEarningsEstimate( int $affId, float $commissionPct, float $retentionBonusPct ): array
+    public static function affiliateEarningsEstimate( int $affId, float $commissionPct, float $retentionBonusPct ): array
     {
         $pdo = \LGMS\Db::pdo();
 
@@ -6016,7 +6019,24 @@ final class Shortcodes
             $grossCents += (int) round( $n    * $price *      ( $commissionPct      / 100 ) );
             $retCents   += (int) round( $nRet * $price * 12 * ( $retentionBonusPct / 100 ) );
         }
-        return [ 'gross_cents' => $grossCents, 'retention_cents' => $retCents ];
+
+        // Total already paid out (any status='paid' rows). Returned so the
+        // caller can compute current balance = gross + retention − debits − paid_out.
+        $paidOutCents = 0;
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(paid_cents), 0) FROM lg_affiliate_payouts
+                 WHERE affiliate_id = ? AND status = 'paid'"
+            );
+            $stmt->execute( [ $affId ] );
+            $paidOutCents = (int) $stmt->fetchColumn();
+        } catch ( \Throwable $_ ) {}
+
+        return [
+            'gross_cents'     => $grossCents,
+            'retention_cents' => $retCents,
+            'paid_out_cents'  => $paidOutCents,
+        ];
     }
 
     /** [lg_affiliate_portal] — standalone affiliate earnings page. */
@@ -6063,7 +6083,42 @@ final class Shortcodes
             (float) $aff['commission_pct'],
             (float) $aff['retention_bonus_pct']
         );
-        $balanceCents  = max( 0, $est['gross_cents'] + $est['retention_cents'] - $debits );
+        $balanceCents  = max( 0, $est['gross_cents'] + $est['retention_cents'] - $debits - $est['paid_out_cents'] );
+
+        // This affiliate's payout history (own page — own data only).
+        $myPayouts = [];
+        try {
+            $st = \LGMS\Db::pdo()->prepare(
+                'SELECT id, requested_cents, paid_cents, status, method, notes, requested_at, resolved_at
+                 FROM lg_affiliate_payouts WHERE affiliate_id = ?
+                 ORDER BY id DESC LIMIT 10'
+            );
+            $st->execute( [ (int) $aff['id'] ] );
+            $myPayouts = $st->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+        } catch ( \Throwable $_ ) {}
+        $hasPendingMine = false;
+        foreach ( $myPayouts as $p ) {
+            if ( ( $p['status'] ?? '' ) === 'requested' ) { $hasPendingMine = true; break; }
+        }
+
+        // Admin section data — only fetched/rendered for manage_options users.
+        // Shows requested-status rows across ALL affiliates so admins can
+        // triage from this page instead of bouncing to wp-admin.
+        $allPending = [];
+        $isAdmin    = current_user_can( 'manage_options' );
+        if ( $isAdmin ) {
+            try {
+                $st = \LGMS\Db::pdo()->query(
+                    'SELECT p.id, p.affiliate_id, p.requested_cents, p.requested_at,
+                            a.label AS aff_label, a.slug AS aff_slug
+                     FROM lg_affiliate_payouts p
+                     JOIN affiliates a ON a.id = p.affiliate_id
+                     WHERE p.status = "requested"
+                     ORDER BY p.id ASC'
+                );
+                $allPending = $st->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+            } catch ( \Throwable $_ ) {}
+        }
 
         ob_start(); ?>
         <div class="lg-aff-portal" style="max-width:640px;">
@@ -6120,38 +6175,195 @@ final class Shortcodes
                 <strong>Estimate only.</strong> Calculated as conversions × standard monthly tier prices × your commission rate (<?php echo (float) $aff['commission_pct']; ?>% monthly, <?php echo (float) $aff['commission_pct_annual']; ?>% annual sign-up). Annual signups, regional pricing, refund timing, and partial-month cancellations all shift the final number — we'll reconcile when you request a payout.
             </p>
 
-            <button type="button" id="lgms-aff-portal-withdraw"
-                    style="background:#ECB351;color:#1f1d1a;border:none;padding:.65em 1.3em;border-radius:5px;font-weight:600;cursor:pointer;font-size:1em;">
-                Request withdrawal
-            </button>
-            <span id="lgms-aff-portal-msg" style="display:none;margin-left:.8em;font-size:.9em;"></span>
+            <?php if ( $hasPendingMine ) : ?>
+                <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:5px;padding:.7em 1em;margin-bottom:1em;font-size:.92em;color:#78350f;">
+                    <strong>Request pending.</strong> We've got your withdrawal request and will be in touch.
+                </div>
+                <button type="button" disabled
+                        style="background:#e5e7eb;color:#9ca3af;border:none;padding:.65em 1.3em;border-radius:5px;font-weight:600;font-size:1em;cursor:not-allowed;">
+                    Request withdrawal
+                </button>
+            <?php else : ?>
+                <button type="button" id="lgms-aff-portal-withdraw"
+                        style="background:#ECB351;color:#1f1d1a;border:none;padding:.65em 1.3em;border-radius:5px;font-weight:600;cursor:pointer;font-size:1em;">
+                    Request withdrawal
+                </button>
+                <span id="lgms-aff-portal-msg" style="display:none;margin-left:.8em;font-size:.9em;"></span>
+            <?php endif; ?>
+
+            <?php if ( $myPayouts !== [] ) : ?>
+                <h3 style="margin:2em 0 .6em;font-size:1em;color:#555;text-transform:uppercase;letter-spacing:.05em;">Payout history</h3>
+                <table style="border-collapse:collapse;width:100%;max-width:640px;font-size:.9em;">
+                    <thead>
+                        <tr style="border-bottom:1px solid #e5e7eb;color:#666;text-align:left;">
+                            <th style="padding:.4em .6em .4em 0;font-weight:600;">Requested</th>
+                            <th style="padding:.4em .6em;font-weight:600;">Amount</th>
+                            <th style="padding:.4em .6em;font-weight:600;">Status</th>
+                            <th style="padding:.4em 0 .4em .6em;font-weight:600;">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $myPayouts as $p ) :
+                            $status = (string) ( $p['status'] ?? '' );
+                            $amt    = $status === 'paid' && $p['paid_cents'] !== null
+                                      ? number_format( ((int) $p['paid_cents']) / 100, 2 )
+                                      : number_format( ((int) $p['requested_cents']) / 100, 2 );
+                            $color  = $status === 'paid'   ? '#15803d'
+                                    : ( $status === 'denied' ? '#dc2626'
+                                    : '#b45309' );
+                            $method = (string) ( $p['method'] ?? '' );
+                            $note   = (string) ( $p['notes']  ?? '' );
+                            $extras = trim( $method . ( $note !== '' ? ( $method !== '' ? ' · ' : '' ) . $note : '' ) );
+                        ?>
+                        <tr style="border-bottom:1px solid #f3f4f6;">
+                            <td style="padding:.5em .6em .5em 0;color:#555;"><?php echo esc_html( substr( (string) $p['requested_at'], 0, 10 ) ); ?></td>
+                            <td style="padding:.5em .6em;font-weight:600;">$<?php echo esc_html( $amt ); ?><?php
+                                if ( $status === 'paid' && $p['paid_cents'] !== null && (int) $p['paid_cents'] !== (int) $p['requested_cents'] ) :
+                                ?><span style="color:#999;font-weight:400;font-size:.85em;"> (req'd $<?php echo number_format( ((int) $p['requested_cents']) / 100, 2 ); ?>)</span><?php endif; ?>
+                            </td>
+                            <td style="padding:.5em .6em;color:<?php echo $color; ?>;font-weight:600;text-transform:uppercase;font-size:.85em;letter-spacing:.04em;"><?php echo esc_html( $status ); ?></td>
+                            <td style="padding:.5em 0 .5em .6em;color:#666;"><?php echo esc_html( $extras ); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+
+            <?php if ( $isAdmin && $allPending !== [] ) : ?>
+                <div style="margin-top:2.4em;border-top:2px solid #1f1d1a;padding-top:1.4em;">
+                    <h3 style="margin:0 0 .8em;font-size:1.1em;color:#1f1d1a;">
+                        <span style="background:#1f1d1a;color:#ECB351;padding:.15em .55em;border-radius:3px;font-size:.7em;letter-spacing:.08em;text-transform:uppercase;font-weight:700;vertical-align:middle;margin-right:.5em;">Admin</span>
+                        Pending payout requests
+                        <span style="font-size:.7em;color:#666;font-weight:400;">(<?php echo count( $allPending ); ?>)</span>
+                    </h3>
+                    <p style="margin:0 0 1em;font-size:.85em;color:#555;">All affiliates with an open withdrawal request. Mark <strong>Paid</strong> after you transfer; the amount you enter is subtracted from their future estimated balance. Mark <strong>Denied</strong> if you're declining; nothing is deducted.</p>
+                    <ul style="list-style:none;padding:0;margin:0;" id="lgms-aff-pending-list">
+                        <?php foreach ( $allPending as $p ) :
+                            $reqCents = (int) $p['requested_cents'];
+                            $reqFmt   = number_format( $reqCents / 100, 2 );
+                        ?>
+                        <li class="lgms-aff-pending" data-payout-id="<?php echo (int) $p['id']; ?>" data-requested-cents="<?php echo $reqCents; ?>"
+                            style="background:#fef9e7;border:1px solid #f1d28a;border-radius:5px;padding:.8em 1em;margin-bottom:.7em;">
+                            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5em;margin-bottom:.5em;">
+                                <div>
+                                    <strong><?php echo esc_html( (string) $p['aff_label'] ); ?></strong>
+                                    <span style="color:#888;font-size:.85em;">(/<?php echo esc_html( (string) $p['aff_slug'] ); ?>)</span>
+                                    <span style="color:#888;font-size:.85em;margin-left:.7em;">Requested <?php echo esc_html( substr( (string) $p['requested_at'], 0, 16 ) ); ?></span>
+                                </div>
+                                <div style="font-weight:700;">$<?php echo $reqFmt; ?></div>
+                            </div>
+                            <div class="lgms-aff-pay-row" style="display:flex;gap:.4em;align-items:center;flex-wrap:wrap;">
+                                <input type="number" step="0.01" min="0" placeholder="Amount" value="<?php echo $reqFmt; ?>" class="lgms-aff-pay-amount"
+                                       style="width:7em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
+                                <input type="text" placeholder="Method (venmo, check #123, …)" maxlength="64" class="lgms-aff-pay-method"
+                                       style="flex:1 1 14em;min-width:9em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
+                                <input type="text" placeholder="Notes (optional)" maxlength="2000" class="lgms-aff-pay-notes"
+                                       style="flex:2 1 18em;min-width:9em;padding:.35em .5em;border:1px solid #ccc;border-radius:3px;font-size:.9em;">
+                                <button type="button" class="lgms-aff-pay-mark"
+                                        style="background:#15803d;color:#fff;border:none;padding:.4em .9em;border-radius:3px;font-size:.85em;font-weight:600;cursor:pointer;">
+                                    Mark paid
+                                </button>
+                                <button type="button" class="lgms-aff-pay-deny"
+                                        style="background:transparent;color:#dc2626;border:1px solid #dc2626;padding:.35em .8em;border-radius:3px;font-size:.85em;font-weight:600;cursor:pointer;">
+                                    Deny
+                                </button>
+                            </div>
+                            <div class="lgms-aff-pay-status" style="margin-top:.4em;font-size:.85em;display:none;"></div>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
         </div>
         <script>
-        document.getElementById('lgms-aff-portal-withdraw').addEventListener('click', async function() {
-            var btn = this, msg = document.getElementById('lgms-aff-portal-msg');
-            btn.disabled = true; btn.textContent = 'Sending…';
-            try {
-                var res  = await fetch('<?php echo esc_url_raw( rest_url( 'lg-member-sync/v1/affiliate-withdraw' ) ); ?>', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': '<?php echo esc_js( $withdrawNonce ); ?>' },
-                    body: JSON.stringify({}),
+        (function(){
+            var withdrawBtn = document.getElementById('lgms-aff-portal-withdraw');
+            if (withdrawBtn) {
+                withdrawBtn.addEventListener('click', async function() {
+                    var btn = this, msg = document.getElementById('lgms-aff-portal-msg');
+                    btn.disabled = true; btn.textContent = 'Sending…';
+                    try {
+                        var res  = await fetch('<?php echo esc_url_raw( rest_url( 'lg-member-sync/v1/affiliate-withdraw' ) ); ?>', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': '<?php echo esc_js( $withdrawNonce ); ?>' },
+                            body: JSON.stringify({}),
+                        });
+                        var data = await res.json();
+                        if (data.ok) {
+                            msg.style.display = 'inline'; msg.style.color = '#15803d';
+                            msg.textContent = 'Request sent! Reload to see it in your payout history.';
+                            // Leave button disabled — server now treats this as pending.
+                        } else {
+                            btn.disabled = false; btn.textContent = 'Request withdrawal';
+                            msg.style.display = 'inline'; msg.style.color = '#dc2626';
+                            msg.textContent = data.error || 'Something went wrong.';
+                        }
+                    } catch(e) {
+                        btn.disabled = false; btn.textContent = 'Request withdrawal';
+                        msg.style.display = 'inline'; msg.style.color = '#dc2626';
+                        msg.textContent = 'Network error.';
+                    }
                 });
-                var data = await res.json();
-                if (data.ok) {
-                    btn.style.display = 'none';
-                    msg.style.display = 'inline'; msg.style.color = '#15803d';
-                    msg.textContent = 'Request sent! We\'ll be in touch soon.';
-                } else {
-                    btn.disabled = false; btn.textContent = 'Request withdrawal';
-                    msg.style.display = 'inline'; msg.style.color = '#dc2626';
-                    msg.textContent = data.error || 'Something went wrong.';
-                }
-            } catch(e) {
-                btn.disabled = false; btn.textContent = 'Request withdrawal';
-                msg.style.display = 'inline'; msg.style.color = '#dc2626';
-                msg.textContent = 'Network error.';
             }
-        });
+
+            // Admin: resolve a pending payout (mark paid or deny).
+            var RESOLVE_URL = '<?php echo esc_url_raw( rest_url( 'lg-member-sync/v1/admin/payout-resolve' ) ); ?>';
+            var RESOLVE_NONCE = '<?php echo esc_js( wp_create_nonce( 'wp_rest' ) ); ?>';
+            async function resolve(li, body) {
+                var status = li.querySelector('.lgms-aff-pay-status');
+                status.style.display = 'block';
+                status.style.color = '#555';
+                status.textContent = 'Saving…';
+                try {
+                    var res = await fetch(RESOLVE_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': RESOLVE_NONCE },
+                        body: JSON.stringify(body),
+                    });
+                    var data = await res.json();
+                    if (data.ok || res.ok) {
+                        status.style.color = '#15803d';
+                        status.textContent = body.status === 'paid'
+                            ? 'Marked paid. Reload to see in history.'
+                            : 'Marked denied. Reload to remove from pending.';
+                        // Disable controls so admin can't double-submit.
+                        li.querySelectorAll('input, button').forEach(function(el){ el.disabled = true; });
+                        li.style.opacity = '.5';
+                    } else {
+                        status.style.color = '#dc2626';
+                        status.textContent = (data && data.error) || ('HTTP ' + res.status);
+                    }
+                } catch (e) {
+                    status.style.color = '#dc2626';
+                    status.textContent = 'Network error.';
+                }
+            }
+            document.querySelectorAll('.lgms-aff-pending').forEach(function(li){
+                var id = parseInt(li.getAttribute('data-payout-id'), 10);
+                var markBtn = li.querySelector('.lgms-aff-pay-mark');
+                var denyBtn = li.querySelector('.lgms-aff-pay-deny');
+                if (markBtn) markBtn.addEventListener('click', function(){
+                    var amt   = parseFloat(li.querySelector('.lgms-aff-pay-amount').value || '0');
+                    var cents = Math.round(amt * 100);
+                    if (!isFinite(cents) || cents < 0) {
+                        var s = li.querySelector('.lgms-aff-pay-status');
+                        s.style.display = 'block'; s.style.color = '#dc2626';
+                        s.textContent = 'Enter a non-negative amount.';
+                        return;
+                    }
+                    resolve(li, {
+                        id: id, status: 'paid', paid_cents: cents,
+                        method: li.querySelector('.lgms-aff-pay-method').value || '',
+                        notes:  li.querySelector('.lgms-aff-pay-notes').value || '',
+                    });
+                });
+                if (denyBtn) denyBtn.addEventListener('click', function(){
+                    var notes = li.querySelector('.lgms-aff-pay-notes').value || '';
+                    if (!notes && !confirm('Deny without notes?')) return;
+                    resolve(li, { id: id, status: 'denied', notes: notes });
+                });
+            });
+        })();
         </script>
         <?php
         return (string) ob_get_clean();

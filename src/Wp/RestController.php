@@ -182,6 +182,13 @@ final class RestController
             'callback'            => [ self::class, 'affiliateWithdraw' ],
             'permission_callback' => [ self::class, 'authLoggedInUser' ],
         ] );
+
+        // Admin-only: resolve a pending payout (mark paid or denied).
+        register_rest_route( self::NAMESPACE, '/admin/payout-resolve', [
+            'methods'             => 'POST',
+            'callback'            => [ self::class, 'payoutResolve' ],
+            'permission_callback' => [ self::class, 'authAdmin' ],
+        ] );
     }
 
     public static function authLoggedInUser(WP_REST_Request $req): bool
@@ -1704,21 +1711,140 @@ final class RestController
 
         $user    = get_userdata( $userId );
         $email   = $user ? $user->user_email : 'unknown';
-        $debits  = number_format( (int) $aff['total_debits_cents'] / 100, 2 );
+        $debits  = (int) $aff['total_debits_cents'];
         $retElig = (int) $aff['retention_eligible'];
 
-        $subject = '[Looth] Affiliate withdrawal request — ' . $aff['label'];
-        $body    = "Affiliate withdrawal request\n\n"
-                 . "Affiliate:    {$aff['label']} (/{$aff['slug']})\n"
-                 . "WP User:      {$email}\n"
-                 . "Clicks:       {$aff['clicks']}\n"
-                 . "Conversions:  {$aff['conversions']}\n"
+        // Reject if there's already an unresolved request — prevents the
+        // affiliate from double-submitting while admin is still on the
+        // earlier one.
+        try {
+            $pending = \LGMS\Db::pdo()->prepare(
+                'SELECT id FROM lg_affiliate_payouts WHERE affiliate_id = ? AND status = "requested" LIMIT 1'
+            );
+            $pending->execute( [ (int) $aff['id'] ] );
+            if ( $pending->fetchColumn() ) {
+                return new WP_REST_Response( [
+                    'ok'    => false,
+                    'error' => 'You already have a pending request. We\'ll be in touch soon.',
+                ], 409 );
+            }
+        } catch ( \Throwable $_ ) {}
+
+        // Snapshot the estimated balance at request time. Stored on the
+        // payout row so admins can see what the affiliate was expecting
+        // even if conversion counts shift between request and resolve.
+        $est           = \LGMS\Wp\Shortcodes::affiliateEarningsEstimate(
+            (int) $aff['id'],
+            (float) ( $aff['commission_pct']      ?? 0 ),
+            (float) ( $aff['retention_bonus_pct'] ?? 0 )
+        );
+        $balanceCents  = max( 0, $est['gross_cents'] + $est['retention_cents'] - $debits - $est['paid_out_cents'] );
+
+        $requestId = 0;
+        try {
+            $ins = \LGMS\Db::pdo()->prepare(
+                'INSERT INTO lg_affiliate_payouts (affiliate_id, requested_cents, status) VALUES (?, ?, "requested")'
+            );
+            $ins->execute( [ (int) $aff['id'], $balanceCents ] );
+            $requestId = (int) \LGMS\Db::pdo()->lastInsertId();
+        } catch ( \Throwable $e ) {
+            error_log( 'affiliate-withdraw INSERT failed: ' . $e->getMessage() );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'db_error' ], 500 );
+        }
+
+        $debitsFmt   = number_format( $debits / 100, 2 );
+        $balanceFmt  = number_format( $balanceCents / 100, 2 );
+        $resolveUrl  = home_url( '/affiliate-earnings/' );
+
+        $subject = "[Looth] Affiliate withdrawal request — {$aff['label']} (\${$balanceFmt})";
+        $body    = "Affiliate withdrawal request #{$requestId}\n\n"
+                 . "Affiliate:        {$aff['label']} (/{$aff['slug']})\n"
+                 . "WP User:          {$email}\n"
+                 . "Clicks:           {$aff['clicks']}\n"
+                 . "Conversions:      {$aff['conversions']}\n"
                  . "Retention eligible: {$retElig}\n"
-                 . "Refund debits: -\${$debits}\n\n"
-                 . "Run php bin/poll-retention.php on the billing server for exact payout amounts.\n";
+                 . "Refund debits:    -\${$debitsFmt}\n"
+                 . "Estimated balance: \${$balanceFmt}  ← what the affiliate sees\n\n"
+                 . "Mark paid / denied on the portal:\n  {$resolveUrl}\n\n"
+                 . "Or run `php bin/poll-retention.php` on the billing server for exact amounts.\n";
 
         wp_mail( get_option( 'admin_email' ), $subject, $body );
 
-        return new WP_REST_Response( [ 'ok' => true ] );
+        return new WP_REST_Response( [
+            'ok'              => true,
+            'request_id'      => $requestId,
+            'requested_cents' => $balanceCents,
+        ] );
+    }
+
+    /**
+     * POST /admin/payout-resolve  (manage_options + nonce)
+     * Body: { id, status: "paid" | "denied", paid_cents?, method?, notes? }
+     *
+     * Flips a requested payout to paid or denied. For paid, paid_cents is
+     * required (defaults to the requested amount if omitted) and gets
+     * subtracted from the affiliate's future estimated balance. method +
+     * notes are free-form admin context (e.g. "venmo · sent 2026-05-13").
+     */
+    public static function payoutResolve( WP_REST_Request $req ): WP_REST_Response
+    {
+        $body   = (array) $req->get_json_params();
+        $id     = (int) ( $body['id'] ?? 0 );
+        $status = sanitize_text_field( (string) ( $body['status'] ?? '' ) );
+
+        if ( $id <= 0 ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Bad id.' ], 400 );
+        }
+        if ( ! in_array( $status, [ 'paid', 'denied' ], true ) ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Bad status.' ], 400 );
+        }
+
+        $pdo  = \LGMS\Db::pdo();
+        $stmt = $pdo->prepare(
+            'SELECT id, affiliate_id, requested_cents, status FROM lg_affiliate_payouts WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute( [ $id ] );
+        $row = $stmt->fetch( PDO::FETCH_ASSOC );
+        if ( ! $row ) {
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'Not found.' ], 404 );
+        }
+        if ( $row['status'] !== 'requested' ) {
+            return new WP_REST_Response( [
+                'ok'    => false,
+                'error' => 'Already resolved (status = ' . $row['status'] . ').',
+            ], 409 );
+        }
+
+        $paidCents = null;
+        $method    = null;
+        $notes     = trim( (string) ( $body['notes'] ?? '' ) );
+        $notes     = $notes !== '' ? sanitize_textarea_field( mb_substr( $notes, 0, 2000 ) ) : null;
+
+        if ( $status === 'paid' ) {
+            $paidCents = (int) ( $body['paid_cents'] ?? $row['requested_cents'] );
+            if ( $paidCents < 0 ) {
+                return new WP_REST_Response( [ 'ok' => false, 'error' => 'paid_cents must be ≥ 0.' ], 400 );
+            }
+            $method = trim( (string) ( $body['method'] ?? '' ) );
+            $method = $method !== '' ? sanitize_text_field( mb_substr( $method, 0, 64 ) ) : null;
+        }
+
+        try {
+            $upd = $pdo->prepare(
+                'UPDATE lg_affiliate_payouts
+                 SET status = ?, paid_cents = ?, method = ?, notes = ?, resolved_at = NOW(), resolved_by = ?
+                 WHERE id = ?'
+            );
+            $upd->execute( [ $status, $paidCents, $method, $notes, get_current_user_id() ?: null, $id ] );
+            return new WP_REST_Response( [
+                'ok'         => true,
+                'id'         => $id,
+                'status'     => $status,
+                'paid_cents' => $paidCents,
+            ] );
+        } catch ( \Throwable $e ) {
+            error_log( 'payoutResolve UPDATE failed: ' . $e->getMessage() );
+            return new WP_REST_Response( [ 'ok' => false, 'error' => 'db_error' ], 500 );
+        }
     }
 }
