@@ -2706,7 +2706,14 @@ final class Shortcodes
             $affRate     = $affClicks > 0 ? round( $affConvs / $affClicks * 100 ) . '%' : '—';
             $affDebits   = (int) $affRow['total_debits_cents'];
             $affRetElig  = (int) $affRow['retention_eligible'];
-            $withdrawNonce = wp_create_nonce( 'lgms_withdraw_request' );
+            $withdrawNonce = wp_create_nonce( 'wp_rest' );
+
+            $affEst       = self::affiliateEarningsEstimate(
+                (int) $affRow['id'],
+                (float) $affRow['commission_pct'],
+                (float) $affRow['retention_bonus_pct']
+            );
+            $affBalance   = max( 0, $affEst['gross_cents'] + $affEst['retention_cents'] - $affDebits );
         ?>
         <div class="lg-manage-sub__card" style="margin-top:2em;border:1px solid #d4e0b8;border-radius:6px;padding:1.2em 1.4em;max-width:640px;background:#f7fbf2;">
             <h3 style="margin:0 0 .8em;font-size:1.2em;">Your affiliate stats</h3>
@@ -2732,10 +2739,15 @@ final class Shortcodes
                     <td style="padding:.3em .8em .3em 0;color:#555;">Conversion rate</td>
                     <td style="font-weight:600;"><?php echo $affRate; ?></td>
                 </tr>
-                <?php if ( $affRetElig > 0 ) : ?>
+                <tr><td colspan="2" style="border-top:1px solid #d4e0b8;padding-top:.5em;"></td></tr>
                 <tr>
-                    <td style="padding:.3em .8em .3em 0;color:#555;">Retention bonuses earned</td>
-                    <td style="font-weight:600;color:#b45309;"><?php echo $affRetElig; ?></td>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Estimated commission</td>
+                    <td style="font-weight:600;">$<?php echo number_format( $affEst['gross_cents'] / 100, 2 ); ?></td>
+                </tr>
+                <?php if ( $affEst['retention_cents'] > 0 ) : ?>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#555;">Retention bonuses (<?php echo (int) $affRetElig; ?>)</td>
+                    <td style="font-weight:600;color:#b45309;">+$<?php echo number_format( $affEst['retention_cents'] / 100, 2 ); ?></td>
                 </tr>
                 <?php endif; ?>
                 <?php if ( $affDebits > 0 ) : ?>
@@ -2744,10 +2756,15 @@ final class Shortcodes
                     <td style="font-weight:600;color:#dc2626;">−$<?php echo number_format( $affDebits / 100, 2 ); ?></td>
                 </tr>
                 <?php endif; ?>
+                <tr><td colspan="2" style="border-top:1px solid #d4e0b8;padding-top:.5em;"></td></tr>
+                <tr>
+                    <td style="padding:.3em .8em .3em 0;color:#1f1d1a;font-weight:700;">Estimated balance</td>
+                    <td style="font-weight:700;font-size:1.05em;color:#1f1d1a;">$<?php echo number_format( $affBalance / 100, 2 ); ?></td>
+                </tr>
             </table>
 
-            <p style="margin:0 0 .8em;font-size:.88em;color:#666;">
-                Commission rates and payout amounts are calculated by the admin team. Use the button below to request a payout — we'll be in touch.
+            <p style="margin:0 0 .8em;font-size:.82em;color:#666;line-height:1.5;">
+                <strong>Estimate only.</strong> Commission rate: <?php echo (float) $affRow['commission_pct']; ?>% monthly / <?php echo (float) $affRow['commission_pct_annual']; ?>% annual sign-up. Final payout reconciled when you request a withdrawal.
             </p>
 
             <button type="button" id="lgms-aff-withdraw-btn"
@@ -5938,6 +5955,70 @@ final class Shortcodes
         return '<style>' . $css . '</style><nav class="lg-member-nav" aria-label="Membership">' . implode( '', $links ) . '</nav>';
     }
 
+    /**
+     * Estimate an affiliate's commission balance from per-tier conversion
+     * counts × standard monthly prices × the affiliate's commission_pct.
+     * Approximate by design — annual signups, regional variants, refund
+     * timing, and partial-month cancellations all shift the real number.
+     * The portal labels this as an estimate; the actual payout is
+     * reconciled by admins at withdrawal time via bin/poll-retention.php.
+     *
+     * @return array{gross_cents:int, retention_cents:int}
+     */
+    private static function affiliateEarningsEstimate( int $affId, float $commissionPct, float $retentionBonusPct ): array
+    {
+        $pdo = \LGMS\Db::pdo();
+
+        // Standard monthly price per tier (region-less). Cached at call site,
+        // but the table is small (3 looth tiers) so the cost is negligible.
+        $tierPriceCents = [];
+        try {
+            $stmt = $pdo->query(
+                "SELECT p.ref, MIN(pr.unit_amount_cents) AS cents
+                 FROM products p
+                 JOIN prices pr ON pr.product_id = p.id
+                  AND pr.type = 'recurring' AND pr.interval = 'month' AND pr.active = 1
+                 WHERE p.ref IN ('looth2','looth3','looth4')
+                   AND p.active = 1
+                   AND (p.region_tag IS NULL OR p.region_tag = '')
+                 GROUP BY p.ref"
+            );
+            foreach ( $stmt as $r ) {
+                $tierPriceCents[ (string) $r['ref'] ] = (int) $r['cents'];
+            }
+        } catch ( \Throwable $_ ) {}
+
+        // Per-tier counts: total conversions + retention-eligible subset.
+        $perTier = [];
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT tier,
+                        COUNT(*) AS n,
+                        SUM(CASE WHEN retention_bonus_eligible_at IS NOT NULL THEN 1 ELSE 0 END) AS n_ret
+                 FROM affiliate_conversions
+                 WHERE affiliate_id = ?
+                 GROUP BY tier"
+            );
+            $stmt->execute( [ $affId ] );
+            $perTier = $stmt->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+        } catch ( \Throwable $_ ) {}
+
+        $grossCents = 0;
+        $retCents   = 0;
+        foreach ( $perTier as $row ) {
+            $tier  = (string) ( $row['tier']  ?? '' );
+            $n     = (int)    ( $row['n']     ?? 0 );
+            $nRet  = (int)    ( $row['n_ret'] ?? 0 );
+            $price = $tierPriceCents[ $tier ] ?? 0;
+            if ( $price === 0 ) {
+                continue;
+            }
+            $grossCents += (int) round( $n    * $price *      ( $commissionPct      / 100 ) );
+            $retCents   += (int) round( $nRet * $price * 12 * ( $retentionBonusPct / 100 ) );
+        }
+        return [ 'gross_cents' => $grossCents, 'retention_cents' => $retCents ];
+    }
+
     /** [lg_affiliate_portal] — standalone affiliate earnings page. */
     public static function affiliatePortal( $atts = [] ): string
     {
@@ -5975,7 +6056,14 @@ final class Shortcodes
         $rate          = $clicks > 0 ? round( $conversions / $clicks * 100 ) . '%' : '—';
         $debits        = (int) $aff['total_debits_cents'];
         $retElig       = (int) $aff['retention_eligible'];
-        $withdrawNonce = wp_create_nonce( 'lgms_withdraw_request' );
+        $withdrawNonce = wp_create_nonce( 'wp_rest' );
+
+        $est           = self::affiliateEarningsEstimate(
+            (int) $aff['id'],
+            (float) $aff['commission_pct'],
+            (float) $aff['retention_bonus_pct']
+        );
+        $balanceCents  = max( 0, $est['gross_cents'] + $est['retention_cents'] - $debits );
 
         ob_start(); ?>
         <div class="lg-aff-portal" style="max-width:640px;">
@@ -6003,10 +6091,15 @@ final class Shortcodes
                         <td style="padding:.35em .8em .35em 0;color:#555;">Conversion rate</td>
                         <td style="font-weight:600;"><?php echo $rate; ?></td>
                     </tr>
-                    <?php if ( $retElig > 0 ) : ?>
+                    <tr><td colspan="2" style="border-top:1px solid #d4e0b8;padding-top:.6em;"></td></tr>
                     <tr>
-                        <td style="padding:.35em .8em .35em 0;color:#555;">1-year retention bonuses earned</td>
-                        <td style="font-weight:600;color:#b45309;"><?php echo $retElig; ?></td>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">Estimated commission</td>
+                        <td style="font-weight:600;">$<?php echo number_format( $est['gross_cents'] / 100, 2 ); ?></td>
+                    </tr>
+                    <?php if ( $est['retention_cents'] > 0 ) : ?>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#555;">Retention bonuses (<?php echo (int) $retElig; ?>)</td>
+                        <td style="font-weight:600;color:#b45309;">+$<?php echo number_format( $est['retention_cents'] / 100, 2 ); ?></td>
                     </tr>
                     <?php endif; ?>
                     <?php if ( $debits > 0 ) : ?>
@@ -6015,12 +6108,16 @@ final class Shortcodes
                         <td style="font-weight:600;color:#dc2626;">−$<?php echo number_format( $debits / 100, 2 ); ?></td>
                     </tr>
                     <?php endif; ?>
+                    <tr><td colspan="2" style="border-top:1px solid #d4e0b8;padding-top:.6em;"></td></tr>
+                    <tr>
+                        <td style="padding:.35em .8em .35em 0;color:#1f1d1a;font-weight:700;">Estimated balance</td>
+                        <td style="font-weight:700;font-size:1.1em;color:#1f1d1a;">$<?php echo number_format( $balanceCents / 100, 2 ); ?></td>
+                    </tr>
                 </table>
             </div>
 
-            <p style="color:#555;font-size:.92em;margin-bottom:1.2em;">
-                Payout amounts are calculated by our team based on your commission rate and your members' activity.
-                Click below to request a withdrawal and we'll be in touch.
+            <p style="color:#555;font-size:.85em;margin-bottom:1.2em;line-height:1.5;">
+                <strong>Estimate only.</strong> Calculated as conversions × standard monthly tier prices × your commission rate (<?php echo (float) $aff['commission_pct']; ?>% monthly, <?php echo (float) $aff['commission_pct_annual']; ?>% annual sign-up). Annual signups, regional pricing, refund timing, and partial-month cancellations all shift the final number — we'll reconcile when you request a payout.
             </p>
 
             <button type="button" id="lgms-aff-portal-withdraw"
