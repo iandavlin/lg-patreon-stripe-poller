@@ -499,7 +499,283 @@ final class Admin
         <div class="wrap">
             <h1>Affiliates</h1>
             <?php self::renderAffiliatesTab(); ?>
+            <?php self::renderPayoutsPanel(); ?>
         </div>
+        <?php
+    }
+
+    /**
+     * Payouts dashboard for the wp-admin Affiliates page. Pending tab lists
+     * open withdrawal requests with inline Mark Paid / Deny. History tab is
+     * a read-only ledger of paid + denied rows across all affiliates with a
+     * client-side affiliate filter.
+     *
+     * Same data shape and AJAX endpoint as the previous public-page version,
+     * but uses native WP admin styling so it sits comfortably alongside the
+     * existing Affiliates table.
+     */
+    private static function renderPayoutsPanel(): void
+    {
+        $pending = [];
+        $history = [];
+        $affs    = [];
+        try {
+            $pending = Db::pdo()->query(
+                'SELECT p.id, p.affiliate_id, p.requested_cents, p.requested_at,
+                        a.label AS aff_label, a.slug AS aff_slug
+                 FROM lg_affiliate_payouts p
+                 JOIN affiliates a ON a.id = p.affiliate_id
+                 WHERE p.status = "requested"
+                 ORDER BY p.id ASC'
+            )->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+
+            $history = Db::pdo()->query(
+                'SELECT p.id, p.affiliate_id, p.requested_cents, p.paid_cents,
+                        p.status, p.method, p.notes,
+                        p.requested_at, p.resolved_at, p.resolved_by,
+                        a.label AS aff_label, a.slug AS aff_slug
+                 FROM lg_affiliate_payouts p
+                 JOIN affiliates a ON a.id = p.affiliate_id
+                 WHERE p.status IN ("paid","denied")
+                 ORDER BY p.resolved_at DESC, p.id DESC'
+            )->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+
+            $affs = Db::pdo()->query(
+                'SELECT slug, label FROM affiliates ORDER BY label ASC'
+            )->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+        } catch ( \Throwable $_ ) {}
+
+        $defaultTab = $pending ? 'pending' : 'history';
+        $sumPaid    = 0;
+        $nPaid      = 0;
+        $nDenied    = 0;
+        foreach ( $history as $h ) {
+            if ( ( $h['status'] ?? '' ) === 'paid' ) {
+                $nPaid++;
+                $sumPaid += (int) ( $h['paid_cents'] ?? 0 );
+            } else {
+                $nDenied++;
+            }
+        }
+        $resolveUrl = esc_url_raw( rest_url( 'lg-member-sync/v1/admin/payout-resolve' ) );
+        $nonce      = wp_create_nonce( 'wp_rest' );
+        ?>
+        <h2 style="margin-top:2.5em;">Payouts</h2>
+        <p class="description">When an affiliate clicks Request withdrawal on /affiliate-earnings/, the request lands here. Mark Paid after you transfer; the amount is subtracted from their future estimated balance.</p>
+
+        <div class="lgms-payouts" data-active-tab="<?php echo esc_attr( $defaultTab ); ?>">
+            <ul class="lgms-payouts-tabs subsubsub" style="margin:0 0 .8em;">
+                <li><a href="#" class="lgms-pay-tab <?php echo $defaultTab === 'pending' ? 'current' : ''; ?>" data-tab="pending">Pending <span class="count">(<?php echo count( $pending ); ?>)</span></a> |</li>
+                <li><a href="#" class="lgms-pay-tab <?php echo $defaultTab === 'history' ? 'current' : ''; ?>" data-tab="history">History <span class="count">(<?php echo count( $history ); ?>)</span></a></li>
+            </ul>
+
+            <!-- Pending -->
+            <div class="lgms-pay-panel" data-panel="pending">
+                <?php if ( $pending === [] ) : ?>
+                    <p style="color:#666;font-style:italic;">No pending requests right now.</p>
+                <?php else : ?>
+                <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th style="width:11em;">Requested</th>
+                            <th>Affiliate</th>
+                            <th style="width:8em;text-align:right;">Snapshot</th>
+                            <th>Resolve</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $pending as $p ) :
+                            $reqCents = (int) $p['requested_cents'];
+                            $reqFmt   = number_format( $reqCents / 100, 2 );
+                        ?>
+                        <tr class="lgms-pay-pending" data-payout-id="<?php echo (int) $p['id']; ?>">
+                            <td><?php echo esc_html( substr( (string) $p['requested_at'], 0, 16 ) ); ?></td>
+                            <td>
+                                <strong><?php echo esc_html( (string) $p['aff_label'] ); ?></strong>
+                                <span style="color:#888;">/<?php echo esc_html( (string) $p['aff_slug'] ); ?></span>
+                            </td>
+                            <td style="text-align:right;font-weight:600;">$<?php echo $reqFmt; ?></td>
+                            <td>
+                                <div style="display:flex;gap:.3em;align-items:center;flex-wrap:wrap;">
+                                    <span style="color:#666;">$</span>
+                                    <input type="number" step="0.01" min="0" value="<?php echo $reqFmt; ?>" class="lgms-pay-amount small-text" style="width:6em;">
+                                    <input type="text" placeholder="Method" maxlength="64" class="lgms-pay-method regular-text" style="width:9em;">
+                                    <input type="text" placeholder="Notes" maxlength="2000" class="lgms-pay-notes regular-text" style="width:12em;">
+                                    <button type="button" class="button button-primary lgms-pay-mark">Paid</button>
+                                    <button type="button" class="button lgms-pay-deny">Deny</button>
+                                </div>
+                                <div class="lgms-pay-status" style="margin-top:.3em;font-size:.85em;display:none;"></div>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+
+            <!-- History -->
+            <div class="lgms-pay-panel" data-panel="history">
+                <?php if ( $history === [] ) : ?>
+                    <p style="color:#666;font-style:italic;">Nothing resolved yet.</p>
+                <?php else : ?>
+                <p style="margin:0 0 .8em;">
+                    <span class="lgms-chip" style="background:#dcfce7;color:#15803d;"><?php echo $nPaid; ?> paid · $<?php echo number_format( $sumPaid / 100, 2 ); ?> total</span>
+                    <?php if ( $nDenied > 0 ) : ?>
+                    <span class="lgms-chip" style="background:#fee2e2;color:#dc2626;"><?php echo $nDenied; ?> denied</span>
+                    <?php endif; ?>
+                    <label style="margin-left:1em;">
+                        Filter:
+                        <select class="lgms-pay-filter">
+                            <option value="">All affiliates</option>
+                            <?php foreach ( $affs as $a ) : ?>
+                                <option value="<?php echo esc_attr( (string) $a['slug'] ); ?>"><?php echo esc_html( (string) $a['label'] ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </p>
+                <table class="widefat striped lgms-pay-history">
+                    <thead>
+                        <tr>
+                            <th style="width:8em;">Resolved</th>
+                            <th>Affiliate</th>
+                            <th style="width:7em;text-align:right;">Amount</th>
+                            <th style="width:6em;">Status</th>
+                            <th>Method · Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $history as $h ) :
+                            $status   = (string) ( $h['status'] ?? '' );
+                            $reqCents = (int) ( $h['requested_cents'] ?? 0 );
+                            $paidCents= (int) ( $h['paid_cents']      ?? 0 );
+                            $amt      = $status === 'paid'
+                                        ? number_format( $paidCents / 100, 2 )
+                                        : number_format( $reqCents  / 100, 2 );
+                            $color    = $status === 'paid' ? '#15803d' : '#dc2626';
+                            $method   = (string) ( $h['method'] ?? '' );
+                            $note     = (string) ( $h['notes']  ?? '' );
+                            $extras   = trim( $method . ( $note !== '' ? ( $method !== '' ? ' · ' : '' ) . $note : '' ) );
+                            $resolved = (string) ( $h['resolved_at'] ?? $h['requested_at'] ?? '' );
+                        ?>
+                        <tr class="lgms-pay-hist" data-aff-slug="<?php echo esc_attr( (string) $h['aff_slug'] ); ?>">
+                            <td><?php echo esc_html( substr( $resolved, 0, 10 ) ); ?></td>
+                            <td>
+                                <strong><?php echo esc_html( (string) $h['aff_label'] ); ?></strong>
+                                <span style="color:#888;">/<?php echo esc_html( (string) $h['aff_slug'] ); ?></span>
+                            </td>
+                            <td style="text-align:right;font-weight:600;">
+                                $<?php echo esc_html( $amt ); ?>
+                                <?php if ( $status === 'paid' && $paidCents !== $reqCents ) : ?>
+                                    <small style="color:#999;display:block;">req $<?php echo number_format( $reqCents / 100, 2 ); ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td style="color:<?php echo $color; ?>;font-weight:600;text-transform:uppercase;font-size:.85em;letter-spacing:.04em;">
+                                <?php echo esc_html( $status ); ?>
+                            </td>
+                            <td><?php echo esc_html( $extras ?: '—' ); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p class="lgms-pay-history-empty" style="display:none;color:#666;font-style:italic;margin-top:1em;">No payouts for that affiliate.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <style>
+            .lgms-chip { display:inline-block; padding:.15em .55em; border-radius:3px; font-size:.8em; font-weight:600; margin-right:.4em; }
+            .lgms-pay-panel { display: none; }
+            .lgms-payouts[data-active-tab="pending"] .lgms-pay-panel[data-panel="pending"] { display: block; }
+            .lgms-payouts[data-active-tab="history"] .lgms-pay-panel[data-panel="history"] { display: block; }
+            .lgms-payouts-tabs a { text-decoration: none; }
+            .lgms-payouts-tabs a.current { color: #1d2327; font-weight: 600; }
+        </style>
+        <script>
+        (function(){
+            var root = document.querySelector('.lgms-payouts');
+            if (!root) return;
+            var RESOLVE_URL = <?php echo wp_json_encode( $resolveUrl ); ?>;
+            var NONCE       = <?php echo wp_json_encode( $nonce ); ?>;
+
+            // Tabs
+            root.querySelectorAll('.lgms-pay-tab').forEach(function(a){
+                a.addEventListener('click', function(e){
+                    e.preventDefault();
+                    var t = a.getAttribute('data-tab');
+                    root.setAttribute('data-active-tab', t);
+                    root.querySelectorAll('.lgms-pay-tab').forEach(function(x){
+                        x.classList.toggle('current', x === a);
+                    });
+                });
+            });
+
+            // History filter
+            var filter = root.querySelector('.lgms-pay-filter');
+            var empty  = root.querySelector('.lgms-pay-history-empty');
+            if (filter) {
+                filter.addEventListener('change', function(){
+                    var want = filter.value, shown = 0;
+                    root.querySelectorAll('.lgms-pay-hist').forEach(function(tr){
+                        var match = !want || tr.getAttribute('data-aff-slug') === want;
+                        tr.style.display = match ? '' : 'none';
+                        if (match) shown++;
+                    });
+                    if (empty) empty.style.display = shown === 0 ? 'block' : 'none';
+                });
+            }
+
+            // Resolve actions
+            async function resolve(row, body) {
+                var st = row.querySelector('.lgms-pay-status');
+                st.style.display = 'block';
+                st.style.color = '#555';
+                st.textContent = 'Saving…';
+                try {
+                    var res = await fetch(RESOLVE_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': NONCE },
+                        body: JSON.stringify(body),
+                    });
+                    var data = await res.json();
+                    if (data.ok || res.ok) {
+                        st.style.color = '#15803d';
+                        st.textContent = body.status === 'paid' ? 'Marked paid. Reload to refresh.' : 'Marked denied. Reload to refresh.';
+                        row.querySelectorAll('input, button').forEach(function(el){ el.disabled = true; });
+                        row.style.opacity = '.5';
+                    } else {
+                        st.style.color = '#dc2626';
+                        st.textContent = (data && data.error) || ('HTTP ' + res.status);
+                    }
+                } catch (e) {
+                    st.style.color = '#dc2626';
+                    st.textContent = 'Network error.';
+                }
+            }
+            root.querySelectorAll('.lgms-pay-pending').forEach(function(row){
+                var id = parseInt(row.getAttribute('data-payout-id'), 10);
+                row.querySelector('.lgms-pay-mark').addEventListener('click', function(){
+                    var amt   = parseFloat(row.querySelector('.lgms-pay-amount').value || '0');
+                    var cents = Math.round(amt * 100);
+                    if (!isFinite(cents) || cents < 0) {
+                        var st = row.querySelector('.lgms-pay-status');
+                        st.style.display='block'; st.style.color='#dc2626';
+                        st.textContent='Enter a non-negative amount.';
+                        return;
+                    }
+                    resolve(row, {
+                        id: id, status: 'paid', paid_cents: cents,
+                        method: row.querySelector('.lgms-pay-method').value || '',
+                        notes:  row.querySelector('.lgms-pay-notes').value || '',
+                    });
+                });
+                row.querySelector('.lgms-pay-deny').addEventListener('click', function(){
+                    var notes = row.querySelector('.lgms-pay-notes').value || '';
+                    if (!notes && !confirm('Deny without notes?')) return;
+                    resolve(row, { id: id, status: 'denied', notes: notes });
+                });
+            });
+        })();
+        </script>
         <?php
     }
 
