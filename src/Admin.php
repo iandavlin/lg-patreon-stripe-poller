@@ -1047,10 +1047,12 @@ final class Admin
                         a.commission_pct, a.commission_pct_annual, a.retention_bonus_pct,
                         COUNT(DISTINCT cl.id)  AS clicks,
                         COUNT(DISTINCT cv.id)  AS conversions,
-                        COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible
+                        COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL THEN cv.id END) AS retention_eligible,
+                        COALESCE(SUM(db.amount_cents), 0) AS total_debits_cents
                  FROM affiliates a
                  LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
                  LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
+                 LEFT JOIN affiliate_debits      db ON db.affiliate_id = a.id
                  GROUP BY a.id
                  ORDER BY a.created_at DESC'
             )->fetchAll( \PDO::FETCH_ASSOC );
