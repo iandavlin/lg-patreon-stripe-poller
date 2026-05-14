@@ -516,9 +516,10 @@ final class Admin
      */
     private static function renderPayoutsPanel(): void
     {
-        $pending = [];
-        $history = [];
-        $affs    = [];
+        $pending      = [];
+        $history      = [];
+        $historyTotal = 0;
+        $affs         = [];
         try {
             $pending = Db::pdo()->query(
                 'SELECT p.id, p.affiliate_id, p.requested_cents, p.requested_at,
@@ -537,8 +538,13 @@ final class Admin
                  FROM lg_affiliate_payouts p
                  JOIN affiliates a ON a.id = p.affiliate_id
                  WHERE p.status IN ("paid","denied")
-                 ORDER BY p.resolved_at DESC, p.id DESC'
+                 ORDER BY p.resolved_at DESC, p.id DESC
+                 LIMIT 1000'
             )->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+
+            $historyTotal = (int) Db::pdo()->query(
+                'SELECT COUNT(*) FROM lg_affiliate_payouts WHERE status IN ("paid","denied")'
+            )->fetchColumn();
 
             $affs = Db::pdo()->query(
                 'SELECT slug, label FROM affiliates ORDER BY label ASC'
@@ -633,6 +639,7 @@ final class Admin
                         </select>
                     </label>
                 </p>
+                <?php $historyVisibleCap = 200; ?>
                 <table class="widefat striped lgms-pay-history">
                     <thead>
                         <tr>
@@ -644,7 +651,7 @@ final class Admin
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ( $history as $h ) :
+                        <?php foreach ( $history as $idx => $h ) :
                             $status   = (string) ( $h['status'] ?? '' );
                             $reqCents = (int) ( $h['requested_cents'] ?? 0 );
                             $paidCents= (int) ( $h['paid_cents']      ?? 0 );
@@ -656,8 +663,9 @@ final class Admin
                             $note     = (string) ( $h['notes']  ?? '' );
                             $extras   = trim( $method . ( $note !== '' ? ( $method !== '' ? ' · ' : '' ) . $note : '' ) );
                             $resolved = (string) ( $h['resolved_at'] ?? $h['requested_at'] ?? '' );
+                            $extraCls = $idx >= $historyVisibleCap ? ' lgms-pay-hist-extra' : '';
                         ?>
-                        <tr class="lgms-pay-hist" data-aff-slug="<?php echo esc_attr( (string) $h['aff_slug'] ); ?>">
+                        <tr class="lgms-pay-hist<?php echo $extraCls; ?>" data-aff-slug="<?php echo esc_attr( (string) $h['aff_slug'] ); ?>">
                             <td><?php echo esc_html( substr( $resolved, 0, 10 ) ); ?></td>
                             <td>
                                 <strong><?php echo esc_html( (string) $h['aff_label'] ); ?></strong>
@@ -678,6 +686,22 @@ final class Admin
                     </tbody>
                 </table>
                 <p class="lgms-pay-history-empty" style="display:none;color:#666;font-style:italic;margin-top:1em;">No payouts for that affiliate.</p>
+                <?php
+                $shownH    = count( $history );
+                $hiddenH   = max( 0, $shownH - $historyVisibleCap );
+                $beyondDbH = max( 0, $historyTotal - $shownH );
+                if ( $hiddenH > 0 || $beyondDbH > 0 ) :
+                ?>
+                <p style="margin:.8em 0 0;font-size:.9em;color:#666;">
+                    Showing <?php echo min( $shownH, $historyVisibleCap ); ?> of <?php echo $historyTotal; ?>.
+                    <?php if ( $hiddenH > 0 ) : ?>
+                        <a href="#" class="lgms-pay-history-show-all" style="color:#2271b1;font-weight:600;text-decoration:none;">Show all <?php echo $shownH; ?> &rarr;</a>
+                    <?php endif; ?>
+                    <?php if ( $beyondDbH > 0 ) : ?>
+                        <span style="color:#888;">(<?php echo $beyondDbH; ?> older row<?php echo $beyondDbH === 1 ? '' : 's'; ?> not loaded — query the DB directly to retrieve.)</span>
+                    <?php endif; ?>
+                </p>
+                <?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>
@@ -689,6 +713,7 @@ final class Admin
             .lgms-payouts[data-active-tab="history"] .lgms-pay-panel[data-panel="history"] { display: block; }
             .lgms-payouts-tabs a { text-decoration: none; }
             .lgms-payouts-tabs a.current { color: #1d2327; font-weight: 600; }
+            .lgms-pay-hist-extra { display: none; }
         </style>
         <script>
         (function(){
@@ -706,6 +731,17 @@ final class Admin
                     root.querySelectorAll('.lgms-pay-tab').forEach(function(x){
                         x.classList.toggle('current', x === a);
                     });
+                });
+            });
+
+            // Show-all toggle on history (reveals rows hidden by the visible cap).
+            root.querySelectorAll('.lgms-pay-history-show-all').forEach(function(link){
+                link.addEventListener('click', function(e){
+                    e.preventDefault();
+                    root.querySelectorAll('.lgms-pay-hist-extra').forEach(function(tr){
+                        tr.classList.remove('lgms-pay-hist-extra');
+                    });
+                    link.style.display = 'none';
                 });
             });
 

@@ -6093,17 +6093,28 @@ final class Shortcodes
         );
         $balanceCents  = max( 0, $est['gross_cents'] + $est['retention_cents'] - $debits - $est['paid_out_cents'] );
 
-        // This affiliate's payout history (own page — own data only).
-        $myPayouts = [];
+        // This affiliate's payout history. Hard cap at 100 rows fetched, of
+        // which the first 25 render visibly; the rest collapse behind a
+        // Show-all toggle. Total count is queried separately so the badge
+        // is accurate even past the SQL cap.
+        $myPayouts      = [];
+        $myPayoutsTotal = 0;
         try {
             $st = \LGMS\Db::pdo()->prepare(
                 'SELECT id, requested_cents, paid_cents, status, method, notes, requested_at, resolved_at
                  FROM lg_affiliate_payouts WHERE affiliate_id = ?
-                 ORDER BY id DESC LIMIT 10'
+                 ORDER BY id DESC LIMIT 100'
             );
             $st->execute( [ (int) $aff['id'] ] );
             $myPayouts = $st->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+
+            $stCnt = \LGMS\Db::pdo()->prepare(
+                'SELECT COUNT(*) FROM lg_affiliate_payouts WHERE affiliate_id = ?'
+            );
+            $stCnt->execute( [ (int) $aff['id'] ] );
+            $myPayoutsTotal = (int) $stCnt->fetchColumn();
         } catch ( \Throwable $_ ) {}
+        $payoutsVisibleCap = 25;
         $hasPendingMine = false;
         foreach ( $myPayouts as $p ) {
             if ( ( $p['status'] ?? '' ) === 'requested' ) { $hasPendingMine = true; break; }
@@ -6183,9 +6194,13 @@ final class Shortcodes
                 <span id="lgms-aff-portal-msg" style="display:none;margin-left:.8em;font-size:.9em;"></span>
             <?php endif; ?>
 
-            <?php if ( $myPayouts !== [] ) : ?>
+            <?php if ( $myPayouts !== [] ) :
+                $shown    = count( $myPayouts );
+                $hidden   = max( 0, $shown - $payoutsVisibleCap );
+                $beyondDb = max( 0, $myPayoutsTotal - $shown ); // exists in DB but past the 100-row fetch cap
+            ?>
                 <h3 style="margin:2em 0 .6em;font-size:1em;color:#555;text-transform:uppercase;letter-spacing:.05em;">Payout history</h3>
-                <table style="border-collapse:collapse;width:100%;max-width:640px;font-size:.9em;">
+                <table id="lgms-payouts-history" style="border-collapse:collapse;width:100%;max-width:640px;font-size:.9em;">
                     <thead>
                         <tr style="border-bottom:1px solid #e5e7eb;color:#666;text-align:left;">
                             <th style="padding:.4em .6em .4em 0;font-weight:600;">Requested</th>
@@ -6195,7 +6210,7 @@ final class Shortcodes
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ( $myPayouts as $p ) :
+                        <?php foreach ( $myPayouts as $idx => $p ) :
                             $status = (string) ( $p['status'] ?? '' );
                             $amt    = $status === 'paid' && $p['paid_cents'] !== null
                                       ? number_format( ((int) $p['paid_cents']) / 100, 2 )
@@ -6206,8 +6221,9 @@ final class Shortcodes
                             $method = (string) ( $p['method'] ?? '' );
                             $note   = (string) ( $p['notes']  ?? '' );
                             $extras = trim( $method . ( $note !== '' ? ( $method !== '' ? ' · ' : '' ) . $note : '' ) );
+                            $cls    = $idx >= $payoutsVisibleCap ? ' class="lgms-payout-extra"' : '';
                         ?>
-                        <tr style="border-bottom:1px solid #f3f4f6;">
+                        <tr<?php echo $cls; ?> style="border-bottom:1px solid #f3f4f6;">
                             <td style="padding:.5em .6em .5em 0;color:#555;"><?php echo esc_html( substr( (string) $p['requested_at'], 0, 10 ) ); ?></td>
                             <td style="padding:.5em .6em;font-weight:600;">$<?php echo esc_html( $amt ); ?><?php
                                 if ( $status === 'paid' && $p['paid_cents'] !== null && (int) $p['paid_cents'] !== (int) $p['requested_cents'] ) :
@@ -6219,11 +6235,35 @@ final class Shortcodes
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                <?php if ( $hidden > 0 || $beyondDb > 0 ) : ?>
+                <p style="margin:.6em 0 0;font-size:.85em;color:#666;">
+                    Showing <?php echo min( $shown, $payoutsVisibleCap ); ?> of <?php echo $myPayoutsTotal; ?>.
+                    <?php if ( $hidden > 0 ) : ?>
+                        <a href="#" id="lgms-payouts-show-all" style="color:#15803d;font-weight:600;text-decoration:none;">Show all <?php echo $hidden + min( $shown, $payoutsVisibleCap ); ?> &rarr;</a>
+                    <?php endif; ?>
+                    <?php if ( $beyondDb > 0 ) : ?>
+                        <span style="color:#888;">(<?php echo $beyondDb; ?> older row<?php echo $beyondDb === 1 ? '' : 's'; ?> not loaded — contact admin to retrieve.)</span>
+                    <?php endif; ?>
+                </p>
+                <style>.lgms-payout-extra { display: none; }</style>
+                <?php endif; ?>
             <?php endif; ?>
 
         </div>
         <script>
         (function(){
+            // Show all payout history rows on click.
+            var showAll = document.getElementById('lgms-payouts-show-all');
+            if (showAll) {
+                showAll.addEventListener('click', function(e){
+                    e.preventDefault();
+                    document.querySelectorAll('.lgms-payout-extra').forEach(function(tr){
+                        tr.style.display = 'table-row';
+                    });
+                    showAll.style.display = 'none';
+                });
+            }
+
             var withdrawBtn = document.getElementById('lgms-aff-portal-withdraw');
             if (withdrawBtn) {
                 withdrawBtn.addEventListener('click', async function() {
